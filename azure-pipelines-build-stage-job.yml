@@ -70,7 +70,7 @@ jobs:
           TELEGRAM_API_KEY: $(${{ parameters.telegram_api_key }})
           RUST_LOG: debug
           MANUAL_MM_VERSION: true
-        condition: or( eq( variables['Build.Reason'], 'PullRequest' ), eq( variables['Build.SourceBranchName'], 'mm2.1' ), eq( variables['Build.SourceBranchName'], 'dev' ) )
+#        condition: or( eq( variables['Build.Reason'], 'PullRequest' ), eq( variables['Build.SourceBranchName'], 'mm2.1' ), eq( variables['Build.SourceBranchName'], 'dev' ) )
       - bash: |
           zip upload/mm2-$(COMMIT_HASH)-$(Agent.OS)-Release target/release/mm2 target/release/libmm2.a -j
         displayName: 'Prepare release build upload Linux'
