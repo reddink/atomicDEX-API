@@ -987,6 +987,7 @@ fn test_get_fee_to_send_taker_fee_insufficient_balance() {
 }
 
 #[test]
+#[ignore]
 fn validate_dex_fee_invalid_sender_eth() {
     let (_ctx, coin) = eth_coin_for_test(EthCoinType::Eth, vec!["http://eth1.cipig.net:8555".into()], None);
     // the real dex fee sent on mainnet
@@ -1063,6 +1064,7 @@ fn sender_compressed_pub(tx: &SignedEthTx) -> [u8; 33] {
 }
 
 #[test]
+#[ignore]
 fn validate_dex_fee_eth_confirmed_before_min_block() {
     let (_ctx, coin) = eth_coin_for_test(EthCoinType::Eth, vec!["http://eth1.cipig.net:8555".into()], None);
     // the real dex fee sent on mainnet
@@ -1095,6 +1097,7 @@ fn validate_dex_fee_eth_confirmed_before_min_block() {
 }
 
 #[test]
+#[ignore]
 fn validate_dex_fee_erc_confirmed_before_min_block() {
     let (_ctx, coin) = eth_coin_for_test(
         EthCoinType::Erc20 {
