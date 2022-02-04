@@ -153,6 +153,7 @@ mod docker_tests {
             remove_docker_containers(UTXO_ASSET_DOCKER_IMAGE);
             remove_docker_containers(QTUM_REGTEST_DOCKER_IMAGE);
             remove_docker_containers("sergeyboyko/qtumregtest");
+            remove_docker_containers("sergeyboyko/qtumregtest:test");
 
             let utxo_node = utxo_asset_docker_node(&docker, "MYCOIN", 7000);
             let utxo_node1 = utxo_asset_docker_node(&docker, "MYCOIN1", 8000);
