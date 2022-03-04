@@ -645,7 +645,7 @@ mod docker_tests {
         let (_bob_dump_log, _bob_dump_dashboard) = mm_dump(&mm_bob.log_path);
         log!([block_on(enable_native(&mm_bob, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_bob, "MYCOIN1", &[]))]);
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -659,7 +659,7 @@ mod docker_tests {
         let bob_uuid = json["result"]["uuid"].as_str().unwrap().to_owned();
 
         log!("Get MYCOIN/MYCOIN1 orderbook");
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -673,7 +673,7 @@ mod docker_tests {
         let asks = bob_orderbook["asks"].as_array().unwrap();
         assert_eq!(asks.len(), 1, "MYCOIN/MYCOIN1 orderbook must have exactly 1 ask");
 
-        let withdraw = block_on(mm_bob.rpc(json! ({
+        let withdraw = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "withdraw",
             "coin": "MYCOIN",
@@ -685,7 +685,7 @@ mod docker_tests {
 
         let withdraw: Json = json::from_str(&withdraw.1).unwrap();
 
-        let send_raw = block_on(mm_bob.rpc(json! ({
+        let send_raw = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "send_raw_transaction",
             "coin": "MYCOIN",
@@ -697,7 +697,7 @@ mod docker_tests {
         thread::sleep(Duration::from_secs(12));
 
         log!("Get MYCOIN/MYCOIN1 orderbook");
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -712,7 +712,7 @@ mod docker_tests {
         assert_eq!(asks.len(), 0, "MYCOIN/MYCOIN1 orderbook must have exactly 0 asks");
 
         log!("Get my orders");
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "my_orders",
         })))
@@ -783,7 +783,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm_alice, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN1", &[]))]);
 
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -795,7 +795,7 @@ mod docker_tests {
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
         log!("Get MYCOIN/MYCOIN1 orderbook");
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -809,7 +809,7 @@ mod docker_tests {
         let asks = bob_orderbook["asks"].as_array().unwrap();
         assert_eq!(asks.len(), 1, "MYCOIN/MYCOIN1 orderbook must have exactly 1 ask");
 
-        let withdraw = block_on(mm_bob.rpc(json! ({
+        let withdraw = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "withdraw",
             "coin": "MYCOIN",
@@ -821,7 +821,7 @@ mod docker_tests {
 
         let withdraw: Json = json::from_str(&withdraw.1).unwrap();
 
-        let send_raw = block_on(mm_bob.rpc(json! ({
+        let send_raw = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "send_raw_transaction",
             "coin": "MYCOIN",
@@ -833,7 +833,7 @@ mod docker_tests {
         thread::sleep(Duration::from_secs(12));
 
         log!("Get MYCOIN/MYCOIN1 orderbook on Bob side");
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -851,7 +851,7 @@ mod docker_tests {
         assert_eq!("500", order_volume);
 
         log!("Get MYCOIN/MYCOIN1 orderbook on Alice side");
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -919,7 +919,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm_alice, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN1", &[]))]);
 
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -931,7 +931,7 @@ mod docker_tests {
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
         log!("Get MYCOIN/MYCOIN1 orderbook");
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -947,7 +947,7 @@ mod docker_tests {
 
         thread::sleep(Duration::from_secs(2));
         log!("Get MYCOIN/MYCOIN1 orderbook on Alice side");
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -961,7 +961,7 @@ mod docker_tests {
         let asks = alice_orderbook["asks"].as_array().unwrap();
         assert_eq!(asks.len(), 1, "Alice MYCOIN/MYCOIN1 orderbook must have exactly 1 ask");
 
-        let withdraw = block_on(mm_bob.rpc(json! ({
+        let withdraw = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "withdraw",
             "coin": "MYCOIN",
@@ -973,7 +973,7 @@ mod docker_tests {
 
         let withdraw: Json = json::from_str(&withdraw.1).unwrap();
 
-        let send_raw = block_on(mm_bob.rpc(json! ({
+        let send_raw = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "send_raw_transaction",
             "coin": "MYCOIN",
@@ -985,7 +985,7 @@ mod docker_tests {
         thread::sleep(Duration::from_secs(12));
 
         log!("Get MYCOIN/MYCOIN1 orderbook on Bob side");
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -1003,7 +1003,7 @@ mod docker_tests {
         assert_eq!("500", order_volume);
 
         log!("Get MYCOIN/MYCOIN1 orderbook on Alice side");
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -1069,7 +1069,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm_alice, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN1", &[]))]);
 
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -1080,7 +1080,7 @@ mod docker_tests {
         .unwrap();
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "buy",
             "base": "MYCOIN",
@@ -1096,7 +1096,7 @@ mod docker_tests {
             .unwrap();
 
         log!("Get MYCOIN/MYCOIN1 orderbook on Bob side");
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -1114,7 +1114,7 @@ mod docker_tests {
         assert_eq!("500", order_volume);
 
         log!("Get MYCOIN/MYCOIN1 orderbook on Alice side");
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -1177,7 +1177,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm_bob, "MYCOIN1", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN1", &[]))]);
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -1191,7 +1191,7 @@ mod docker_tests {
         let bob_uuid = json["result"]["uuid"].as_str().unwrap().to_owned();
 
         log!("Get MYCOIN/MYCOIN1 orderbook");
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -1206,7 +1206,7 @@ mod docker_tests {
         assert_eq!(asks.len(), 1, "MYCOIN/MYCOIN1 orderbook must have exactly 1 ask");
         assert_eq!(asks[0]["maxvolume"], Json::from("999.99999"));
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "buy",
             "base": "MYCOIN",
@@ -1285,7 +1285,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm_alice, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN1", &[]))]);
         let price = MmNumber::from((100, 1620));
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -1296,7 +1296,7 @@ mod docker_tests {
         .unwrap();
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "orderbook",
             "base": "MYCOIN1",
@@ -1307,7 +1307,7 @@ mod docker_tests {
         log!((rc.1));
         thread::sleep(Duration::from_secs(3));
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "max_taker_vol",
             "coin": "MYCOIN1",
@@ -1321,7 +1321,7 @@ mod docker_tests {
         let actual_vol = MmNumber::from(vol.result.clone());
         assert_eq!(expected_vol, actual_vol);
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "sell",
             "base": "MYCOIN1",
@@ -1339,7 +1339,7 @@ mod docker_tests {
 
         thread::sleep(Duration::from_secs(3));
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "my_swap_status",
             "params": {
@@ -1401,7 +1401,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm_bob, "MYCOIN1", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN1", &[]))]);
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -1412,7 +1412,7 @@ mod docker_tests {
         .unwrap();
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "buy",
             "base": "MYCOIN",
@@ -1434,7 +1434,7 @@ mod docker_tests {
         // amount returns 0
         thread::sleep(Duration::from_secs(3));
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "buy",
             "base": "MYCOIN",
@@ -1498,7 +1498,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm_bob, "MYCOIN1", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN1", &[]))]);
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -1509,7 +1509,7 @@ mod docker_tests {
         .unwrap();
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "sell",
             "base": "MYCOIN1",
@@ -1531,7 +1531,7 @@ mod docker_tests {
         // amount returns 0
         thread::sleep(Duration::from_secs(3));
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "sell",
             "base": "MYCOIN1",
@@ -1576,7 +1576,7 @@ mod docker_tests {
 
         log!([block_on(enable_native(&mm_alice, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN1", &[]))]);
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "buy",
             "base": "MYCOIN",
@@ -1591,7 +1591,7 @@ mod docker_tests {
         .unwrap();
         assert!(rc.0.is_success(), "!buy: {}", rc.1);
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "buy",
             "base": "MYCOIN",
@@ -1644,7 +1644,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm, "MYCOIN1", &[]))]);
         log!([block_on(enable_native(&mm, "MYCOIN", &[]))]);
 
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "mmrpc": "2.0",
             "method": "trade_preimage",
@@ -1678,7 +1678,7 @@ mod docker_tests {
         actual.result.sort_total_fees();
         assert_eq!(expected, actual.result);
 
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "mmrpc": "2.0",
             "method": "trade_preimage",
@@ -1713,7 +1713,7 @@ mod docker_tests {
         actual.result.sort_total_fees();
         assert_eq!(expected, actual.result);
 
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "mmrpc": "2.0",
             "method": "trade_preimage",
@@ -1785,7 +1785,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm, "MYCOIN", &[]))]);
 
         // `max` field is not supported for `buy/sell` swap methods
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "mmrpc": "2.0",
             "method": "trade_preimage",
@@ -1808,7 +1808,7 @@ mod docker_tests {
         };
         assert_eq!(actual.error_data, Some(expected));
 
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "mmrpc": "2.0",
             "method": "trade_preimage",
@@ -1843,7 +1843,7 @@ mod docker_tests {
         });
         assert_eq!(expected, actual.result);
 
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "mmrpc": "2.0",
             "method": "trade_preimage",
@@ -1930,7 +1930,7 @@ mod docker_tests {
 
         fill_balance_functor(MmNumber::from("0.000015").to_decimal());
         // Try sell the max amount with the zero balance.
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "mmrpc": "2.0",
             "method": "trade_preimage",
@@ -1949,7 +1949,7 @@ mod docker_tests {
         let required = MmNumber::from("0.00002").to_decimal();
         expect_not_sufficient_balance(&rc.1, available, required, None);
 
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "mmrpc": "2.0",
             "method": "trade_preimage",
@@ -1968,7 +1968,7 @@ mod docker_tests {
         let required = MmNumber::from("0.10001").to_decimal();
         expect_not_sufficient_balance(&rc.1, available, required, None);
 
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "mmrpc": "2.0",
             "method": "trade_preimage",
@@ -1989,7 +1989,7 @@ mod docker_tests {
         expect_not_sufficient_balance(&rc.1, available, required, None);
 
         fill_balance_functor(MmNumber::from("7.770085").to_decimal());
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "mmrpc": "2.0",
             "method": "trade_preimage",
@@ -2050,7 +2050,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm, "MYCOIN", &[]))]);
 
         // Price is too low
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "mmrpc": "2.0",
             "method": "trade_preimage",
@@ -2077,7 +2077,7 @@ mod docker_tests {
         // volume 0.00001 is too low, min trading volume 0.0001
         let low_volume = BigDecimal::from(1) / BigDecimal::from(100_000);
 
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "mmrpc": "2.0",
             "method": "trade_preimage",
@@ -2102,7 +2102,7 @@ mod docker_tests {
         };
         assert_eq!(actual.error_data, Some(expected));
 
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "mmrpc": "2.0",
             "method": "trade_preimage",
@@ -2133,7 +2133,7 @@ mod docker_tests {
         let low_price = BigDecimal::from(1) / BigDecimal::from(10);
         // Min MYCOIN1 trading volume is 0.0001, but the actual volume is 0.00001
         let low_rel_volume = &volume * &low_price;
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "mmrpc": "2.0",
             "method": "trade_preimage",
@@ -2192,7 +2192,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm, "MYCOIN1", &[]))]);
         log!([block_on(enable_native(&mm, "MYCOIN", &[]))]);
 
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "method": "trade_preimage",
             "base": "MYCOIN",
@@ -2207,7 +2207,7 @@ mod docker_tests {
 
         // vvv test a taker method vvv
 
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "method": "trade_preimage",
             "base": "MYCOIN",
@@ -2223,7 +2223,7 @@ mod docker_tests {
         // vvv test the error response vvv
 
         // `max` field is not supported for `buy/sell` swap methods
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "method": "trade_preimage",
             "base": "MYCOIN",
@@ -2264,7 +2264,7 @@ mod docker_tests {
 
         log!([block_on(enable_native(&mm_alice, "MYCOIN1", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN", &[]))]);
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "max_taker_vol",
             "coin": "MYCOIN1",
@@ -2279,7 +2279,7 @@ mod docker_tests {
         assert_eq!(json.result, expected);
         assert_eq!(json.coin, "MYCOIN1");
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "sell",
             "base": "MYCOIN1",
@@ -2320,7 +2320,7 @@ mod docker_tests {
 
         log!([block_on(enable_native(&mm_alice, "MYCOIN1", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN", &[]))]);
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "max_taker_vol",
             "coin": "MYCOIN1",
@@ -2332,7 +2332,7 @@ mod docker_tests {
         assert_eq!(json["result"]["numer"], Json::from("1059691"));
         assert_eq!(json["result"]["denom"], Json::from("20000000"));
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "sell",
             "base": "MYCOIN1",
@@ -2382,7 +2382,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm, "MYCOIN1", &[]))]);
         log!([block_on(enable_native(&mm, "MYCOIN", &[]))]);
 
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "method": "max_taker_vol",
             "coin": "MYCOIN1",
@@ -2395,7 +2395,7 @@ mod docker_tests {
 
         fill_address(&coin, &coin.my_address().unwrap(), "0.00001".parse().unwrap(), 30);
 
-        let rc = block_on(mm.rpc(json! ({
+        let rc = block_on(mm.rpc(&json! ({
             "userpass": mm.userpass,
             "method": "max_taker_vol",
             "coin": "MYCOIN1",
@@ -2441,7 +2441,7 @@ mod docker_tests {
             "electrum2.cipig.net:10001",
             "electrum3.cipig.net:10001"
         ]))]);
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "max_taker_vol",
             "coin": "MYCOIN1",
@@ -2454,7 +2454,7 @@ mod docker_tests {
         assert_eq!(json["result"]["numer"], Json::from("1294741"));
         assert_eq!(json["result"]["denom"], Json::from("1296500"));
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "sell",
             "base": "MYCOIN1",
@@ -2496,7 +2496,7 @@ mod docker_tests {
 
         log!([block_on(enable_native(&mm_alice, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN1", &[]))]);
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -2511,7 +2511,7 @@ mod docker_tests {
         .unwrap();
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -2572,7 +2572,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm_bob, "MYCOIN1", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN1", &[]))]);
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -2585,7 +2585,7 @@ mod docker_tests {
         let mut uuids = Vec::with_capacity(3);
 
         for _ in 0..3 {
-            let rc = block_on(mm_alice.rpc(json! ({
+            let rc = block_on(mm_alice.rpc(&json! ({
                 "userpass": mm_alice.userpass,
                 "method": "buy",
                 "base": "MYCOIN",
@@ -2646,7 +2646,7 @@ mod docker_tests {
 
         log!([block_on(enable_native(&mm_bob, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_bob, "MYCOIN1", &[]))]);
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -2670,7 +2670,7 @@ mod docker_tests {
         thread::sleep(Duration::from_secs(2));
 
         log!("Get RICK/MORTY orderbook on Bob side");
-        let rc = block_on(mm_bob_dup.rpc(json! ({
+        let rc = block_on(mm_bob_dup.rpc(&json! ({
             "userpass": mm_bob_dup.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -2706,7 +2706,7 @@ mod docker_tests {
 
         log!([block_on(enable_native(&mm_bob, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_bob, "MYCOIN1", &[]))]);
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -2744,7 +2744,7 @@ mod docker_tests {
         thread::sleep(Duration::from_secs(2));
 
         log!("Get RICK/MORTY orderbook on Bob side");
-        let rc = block_on(mm_bob_dup.rpc(json! ({
+        let rc = block_on(mm_bob_dup.rpc(&json! ({
             "userpass": mm_bob_dup.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -2758,7 +2758,7 @@ mod docker_tests {
         let asks = bob_orderbook["asks"].as_array().unwrap();
         assert!(asks.is_empty(), "Bob MYCOIN/MYCOIN1 orderbook must not have asks");
 
-        let rc = block_on(mm_bob_dup.rpc(json! ({
+        let rc = block_on(mm_bob_dup.rpc(&json! ({
             "userpass": mm_bob_dup.userpass,
             "method": "my_orders",
         })))
@@ -2833,7 +2833,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm_alice, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN1", &[]))]);
 
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -2857,7 +2857,7 @@ mod docker_tests {
         log!("Give restarted Bob 2 seconds to kickstart the order");
         thread::sleep(Duration::from_secs(2));
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "buy",
             "base": "MYCOIN",
@@ -2937,7 +2937,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm_alice_2, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_alice_2, "MYCOIN1", &[]))]);
 
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -2948,7 +2948,7 @@ mod docker_tests {
         .unwrap();
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
-        let rc = block_on(mm_alice_1.rpc(json! ({
+        let rc = block_on(mm_alice_1.rpc(&json! ({
             "userpass": mm_alice_1.userpass,
             "method": "buy",
             "base": "MYCOIN",
@@ -2962,7 +2962,7 @@ mod docker_tests {
         block_on(mm_alice_1.wait_for_log(22., |log| log.contains("Entering the taker_swap_loop MYCOIN/MYCOIN1")))
             .unwrap();
 
-        let rc = block_on(mm_alice_2.rpc(json! ({
+        let rc = block_on(mm_alice_2.rpc(&json! ({
             "userpass": mm_alice_2.userpass,
             "method": "buy",
             "base": "MYCOIN",
@@ -3027,7 +3027,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm_alice, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN1", &[]))]);
 
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -3038,7 +3038,7 @@ mod docker_tests {
         .unwrap();
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "buy",
             "base": "MYCOIN",
@@ -3102,7 +3102,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm_bob, "MYCOIN1", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_alice, "MYCOIN1", &[]))]);
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "sell",
             "base": "MYCOIN",
@@ -3117,7 +3117,7 @@ mod docker_tests {
         log!("Give Bob 4 seconds to convert order to maker");
         thread::sleep(Duration::from_secs(4));
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "buy",
             "base": "MYCOIN",
@@ -3135,7 +3135,7 @@ mod docker_tests {
         log!("Give Bob 2 seconds to cancel the order");
         thread::sleep(Duration::from_secs(2));
         log!("Get my_orders on Bob side");
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "my_orders",
         })))
@@ -3146,7 +3146,7 @@ mod docker_tests {
             json::from_value(my_orders_json["result"]["maker_orders"].clone()).unwrap();
         assert!(maker_orders.is_empty());
 
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -3161,7 +3161,7 @@ mod docker_tests {
         assert_eq!(asks.len(), 0, "Bob MYCOIN/MYCOIN1 orderbook must be empty");
 
         log!("Get MYCOIN/MYCOIN1 orderbook on Alice side");
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -3209,7 +3209,7 @@ mod docker_tests {
         .unwrap();
         let (_bob_dump_log, _bob_dump_dashboard) = mm_dump(&mm_bob.log_path);
 
-        let native = block_on(mm_bob.rpc(json! ({
+        let native = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "enable",
             "coin": "MYCOIN",
@@ -3266,7 +3266,7 @@ mod docker_tests {
         .unwrap();
         let (_bob_dump_log, _bob_dump_dashboard) = mm_dump(&mm_bob.log_path);
 
-        let native = block_on(mm_bob.rpc(json! ({
+        let native = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "enable",
             "coin": "MYCOIN",
@@ -3321,7 +3321,7 @@ mod docker_tests {
 
         // balance = 0, but amount = 1
         let amount = BigDecimal::from(1);
-        let withdraw = block_on(mm.rpc(json! ({
+        let withdraw = block_on(mm.rpc(&json! ({
             "mmrpc": "2.0",
             "userpass": mm.userpass,
             "method": "withdraw",
@@ -3354,7 +3354,7 @@ mod docker_tests {
         // txfee = 0.00001, amount = 0.5 => required = 0.50001
         // but balance = 0.5
         let txfee = BigDecimal::from(1) / BigDecimal::from(100000);
-        let withdraw = block_on(mm.rpc(json! ({
+        let withdraw = block_on(mm.rpc(&json! ({
             "mmrpc": "2.0",
             "userpass": mm.userpass,
             "method": "withdraw",
@@ -3446,7 +3446,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm_eve, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_eve, "MYCOIN1", &[]))]);
 
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -3457,7 +3457,7 @@ mod docker_tests {
         .unwrap();
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
-        let rc = block_on(mm_eve.rpc(json! ({
+        let rc = block_on(mm_eve.rpc(&json! ({
             "userpass": mm_eve.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -3469,7 +3469,7 @@ mod docker_tests {
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
         // subscribe alice to the orderbook topic to not miss eve's message
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -3481,7 +3481,7 @@ mod docker_tests {
 
         thread::sleep(Duration::from_secs(1));
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "buy",
             "base": "MYCOIN",
@@ -3583,7 +3583,7 @@ mod docker_tests {
         log!([block_on(enable_native(&mm_eve, "MYCOIN", &[]))]);
         log!([block_on(enable_native(&mm_eve, "MYCOIN1", &[]))]);
 
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -3594,7 +3594,7 @@ mod docker_tests {
         .unwrap();
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
-        let rc = block_on(mm_eve.rpc(json! ({
+        let rc = block_on(mm_eve.rpc(&json! ({
             "userpass": mm_eve.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -3606,7 +3606,7 @@ mod docker_tests {
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
         // subscribe alice to the orderbook topic to not miss eve's message
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "orderbook",
             "base": "MYCOIN",
@@ -3618,7 +3618,7 @@ mod docker_tests {
 
         thread::sleep(Duration::from_secs(1));
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "sell",
             "base": "MYCOIN1",
@@ -3707,7 +3707,7 @@ mod docker_tests {
         // pass without 0x
         fill_eth(&eth_alice.address[2..]);
 
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -3717,7 +3717,7 @@ mod docker_tests {
         })))
         .unwrap();
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "sell",
             "base": "ETH",
@@ -3788,7 +3788,7 @@ mod docker_tests {
         // pass without 0x
         fill_eth(&eth_alice.address[2..]);
 
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": "MYCOIN",
@@ -3799,7 +3799,7 @@ mod docker_tests {
         .unwrap();
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
-        let rc = block_on(mm_alice.rpc(json! ({
+        let rc = block_on(mm_alice.rpc(&json! ({
             "userpass": mm_alice.userpass,
             "method": "buy",
             "base": "MYCOIN",

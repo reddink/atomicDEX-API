@@ -442,11 +442,11 @@ impl MarketMakerIt {
 
     /// Invokes the locally running MM and returns its reply.
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn rpc(&self, payload: Json) -> Result<(StatusCode, String, HeaderMap), String> {
+    pub async fn rpc(&self, payload: &Json) -> Result<(StatusCode, String, HeaderMap), String> {
         let uri = format!("http://{}:7783", self.ip);
-        log!("sending rpc request " (json::to_string(&payload).unwrap()) " to " (uri));
+        log!("sending rpc request " (json::to_string(payload).unwrap()) " to " (uri));
 
-        let payload = try_s!(json::to_vec(&payload));
+        let payload = try_s!(json::to_vec(payload));
         let request = try_s!(Request::builder().method("POST").uri(uri).body(payload));
 
         let (status, headers, body) = try_s!(slurp_req(request).await);
@@ -490,7 +490,7 @@ impl MarketMakerIt {
 
     /// Send the "stop" request to the locally running MM.
     pub async fn stop(&self) -> Result<(), String> {
-        let (status, body, _headers) = match self.rpc(json! ({"userpass": self.userpass, "method": "stop"})).await {
+        let (status, body, _headers) = match self.rpc(&json! ({"userpass": self.userpass, "method": "stop"})).await {
             Ok(t) => t,
             Err(err) => {
                 // Downgrade the known errors into log warnings,
@@ -779,7 +779,7 @@ pub async fn enable_electrum(mm: &MarketMakerIt, coin: &str, tx_history: bool, u
 /// fresh list of servers at https://github.com/jl777/coins/blob/master/electrums/.
 pub async fn enable_electrum_json(mm: &MarketMakerIt, coin: &str, tx_history: bool, servers: Vec<Json>) -> Json {
     let electrum = mm
-        .rpc(json! ({
+        .rpc(&json! ({
             "userpass": mm.userpass,
             "method": "electrum",
             "coin": coin,
@@ -802,7 +802,7 @@ pub async fn enable_electrum_json(mm: &MarketMakerIt, coin: &str, tx_history: bo
 pub async fn enable_qrc20(mm: &MarketMakerIt, coin: &str, urls: &[&str], swap_contract_address: &str) -> Json {
     let servers: Vec<_> = urls.iter().map(|url| json!({ "url": url })).collect();
     let electrum = mm
-        .rpc(json! ({
+        .rpc(&json! ({
             "userpass": mm.userpass,
             "method": "electrum",
             "coin": coin,
@@ -877,7 +877,7 @@ pub fn get_passphrase(path: &dyn AsRef<Path>, env: &str) -> Result<String, Strin
 /// Returns the RPC reply containing the corresponding wallet address.
 pub async fn enable_native(mm: &MarketMakerIt, coin: &str, urls: &[&str]) -> Json {
     let native = mm
-        .rpc(json! ({
+        .rpc(&json! ({
             "userpass": mm.userpass,
             "method": "enable",
             "coin": coin,
@@ -894,7 +894,7 @@ pub async fn enable_native(mm: &MarketMakerIt, coin: &str, urls: &[&str]) -> Jso
 
 pub async fn enable_slp(mm: &MarketMakerIt, coin: &str) -> Json {
     let enable = mm
-        .rpc(json! ({
+        .rpc(&json! ({
             "userpass": mm.userpass,
             "method": "enable_slp",
             "mmrpc": "2.0",
@@ -942,7 +942,7 @@ pub async fn enable_bch_with_tokens(
     let slp_requests: Vec<_> = tokens.iter().map(|ticker| json!({ "ticker": ticker })).collect();
 
     let enable = mm
-        .rpc(json! ({
+        .rpc(&json! ({
             "userpass": mm.userpass,
             "method": "enable_bch_with_tokens",
             "mmrpc": "2.0",
@@ -974,7 +974,7 @@ pub async fn my_tx_history_v2(
 ) -> Json {
     let paging = paging.unwrap_or(PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()));
     let request = mm
-        .rpc(json! ({
+        .rpc(&json! ({
             "userpass": mm.userpass,
             "method": "my_tx_history",
             "mmrpc": "2.0",
@@ -992,7 +992,7 @@ pub async fn my_tx_history_v2(
 
 pub async fn enable_native_bch(mm: &MarketMakerIt, coin: &str, bchd_urls: &[&str]) -> Json {
     let native = mm
-        .rpc(json! ({
+        .rpc(&json! ({
             "userpass": mm.userpass,
             "method": "enable",
             "coin": coin,
@@ -1008,7 +1008,7 @@ pub async fn enable_native_bch(mm: &MarketMakerIt, coin: &str, bchd_urls: &[&str
 
 pub async fn enable_lightning(mm: &MarketMakerIt, coin: &str) -> Json {
     let enable = mm
-        .rpc(json! ({
+        .rpc(&json! ({
             "userpass": mm.userpass,
             "method": "enable_lightning",
             "mmrpc": "2.0",
@@ -1080,7 +1080,7 @@ pub async fn check_my_swap_status(
     taker_amount: BigDecimal,
 ) {
     let response = mm
-        .rpc(json! ({
+        .rpc(&json! ({
             "userpass": mm.userpass,
             "method": "my_swap_status",
             "params": {
@@ -1113,7 +1113,7 @@ pub async fn check_my_swap_status_amounts(
     taker_amount: BigDecimal,
 ) {
     let response = mm
-        .rpc(json! ({
+        .rpc(&json! ({
             "userpass": mm.userpass,
             "method": "my_swap_status",
             "params": {
@@ -1139,7 +1139,7 @@ pub async fn check_stats_swap_status(
     taker_expected_events: &[&str],
 ) {
     let response = mm
-        .rpc(json! ({
+        .rpc(&json! ({
             "method": "stats_swap_status",
             "params": {
                 "uuid": uuid,
@@ -1165,7 +1165,7 @@ pub async fn check_stats_swap_status(
 
 pub async fn check_recent_swaps(mm: &MarketMakerIt, expected_len: usize) {
     let response = mm
-        .rpc(json! ({
+        .rpc(&json! ({
             "method": "my_recent_swaps",
             "userpass": mm.userpass,
         }))
@@ -1183,7 +1183,7 @@ pub async fn wait_till_history_has_records(mm: &MarketMakerIt, coin: &str, expec
     let wait_until = now_ms() + to_wait * 1000;
     loop {
         let tx_history = mm
-            .rpc(json!({
+            .rpc(&json!({
                 "userpass": mm.userpass,
                 "method": "my_tx_history",
                 "coin": coin,

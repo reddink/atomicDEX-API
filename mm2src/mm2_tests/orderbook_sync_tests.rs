@@ -31,7 +31,7 @@ fn alice_can_see_the_active_order_after_connection() {
     log!({ "enable_coins (bob): {:?}", block_on(enable_coins_rick_morty_electrum(&mm_bob)) });
     // issue sell request on Bob side by setting base/rel price
     log!("Issue bob sell request");
-    let rc = block_on(mm_bob.rpc(json! ({
+    let rc = block_on(mm_bob.rpc(&json! ({
         "userpass": mm_bob.userpass,
         "method": "setprice",
         "base": "RICK",
@@ -43,7 +43,7 @@ fn alice_can_see_the_active_order_after_connection() {
     assert!(rc.0.is_success(), "!setprice: {}", rc.1);
     // Bob orderbook must show the new order
     log!("Get RICK/MORTY orderbook on Bob side");
-    let rc = block_on(mm_bob.rpc(json! ({
+    let rc = block_on(mm_bob.rpc(&json! ({
         "userpass": mm_bob.userpass,
         "method": "orderbook",
         "base": "RICK",
@@ -80,7 +80,7 @@ fn alice_can_see_the_active_order_after_connection() {
     log!({ "enable_coins (eve): {:?}", block_on(enable_coins_rick_morty_electrum(&mm_eve)) });
     // issue sell request on Eve side by setting base/rel price
     log!("Issue eve sell request");
-    let rc = block_on(mm_eve.rpc(json! ({
+    let rc = block_on(mm_eve.rpc(&json! ({
         "userpass": mm_eve.userpass,
         "method": "setprice",
         "base": "RICK",
@@ -92,7 +92,7 @@ fn alice_can_see_the_active_order_after_connection() {
     assert!(rc.0.is_success(), "!setprice: {}", rc.1);
     // issue sell request on Eve side by setting base/rel price
     log!("Issue eve sell request");
-    let rc = block_on(mm_eve.rpc(json! ({
+    let rc = block_on(mm_eve.rpc(&json! ({
         "userpass": mm_eve.userpass,
         "method": "setprice",
         "base": "MORTY",
@@ -104,7 +104,7 @@ fn alice_can_see_the_active_order_after_connection() {
     assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
     log!("Get RICK/MORTY orderbook on Eve side");
-    let rc = block_on(mm_eve.rpc(json! ({
+    let rc = block_on(mm_eve.rpc(&json! ({
         "userpass": mm_eve.userpass,
         "method": "orderbook",
         "base": "RICK",
@@ -129,7 +129,7 @@ fn alice_can_see_the_active_order_after_connection() {
     log!("Give Bob 2 seconds to import Eve order");
     thread::sleep(Duration::from_secs(2));
     log!("Get RICK/MORTY orderbook on Bob side");
-    let rc = block_on(mm_bob.rpc(json! ({
+    let rc = block_on(mm_bob.rpc(&json! ({
         "userpass": mm_bob.userpass,
         "method": "orderbook",
         "base": "RICK",
@@ -174,7 +174,7 @@ fn alice_can_see_the_active_order_after_connection() {
     log!({ "enable_coins (alice): {:?}", block_on(enable_coins_rick_morty_electrum(&mm_alice)) });
 
     log!("Get RICK/MORTY orderbook on Alice side");
-    let rc = block_on(mm_alice.rpc(json! ({
+    let rc = block_on(mm_alice.rpc(&json! ({
         "userpass": mm_alice.userpass,
         "method": "orderbook",
         "base": "RICK",
@@ -235,7 +235,7 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
     log!({"Bob log path: {}", mm_bob.log_path.display()});
 
     // Enable coins on Bob side. Print the replies in case we need the "address".
-    let electrum = block_on(mm_bob.rpc(json!({
+    let electrum = block_on(mm_bob.rpc(&json!({
         "userpass": "pass",
         "method": "electrum",
         "coin": "tBTC",
@@ -254,7 +254,7 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
     let enable_tbtc_res: EnableElectrumResponse = json::from_str(&electrum.1).unwrap();
     let tbtc_segwit_address = enable_tbtc_res.address;
 
-    let electrum = block_on(mm_bob.rpc(json!({
+    let electrum = block_on(mm_bob.rpc(&json!({
         "userpass": "pass",
         "method": "electrum",
         "coin": "RICK",
@@ -281,7 +281,7 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
         ("RICK", "tBTC", "0.7", "0.0002", Some("0.00015")),
     ];
     for (base, rel, price, volume, min_volume) in bob_orders.iter() {
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": base,
@@ -295,7 +295,7 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
     }
 
-    let rc = block_on(mm_bob.rpc(json! ({
+    let rc = block_on(mm_bob.rpc(&json! ({
         "userpass": mm_bob.userpass,
         "mmrpc": "2.0",
         "method": "get_public_key",
@@ -330,7 +330,7 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
     }))
     .unwrap();
 
-    let electrum = block_on(mm_alice.rpc(json!({
+    let electrum = block_on(mm_alice.rpc(&json!({
         "userpass": "pass",
         "method": "electrum",
         "coin": "tBTC",
@@ -347,7 +347,7 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
     );
     log!({ "enable Alice tBTC: {:?}", electrum });
 
-    let electrum = block_on(mm_alice.rpc(json!({
+    let electrum = block_on(mm_alice.rpc(&json!({
         "userpass": "pass",
         "method": "electrum",
         "coin": "RICK",
@@ -365,7 +365,7 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
 
     // setting the price will trigger Alice's subscription to the orderbook topic
     // but won't request the actual orderbook
-    let rc = block_on(mm_alice.rpc(json! ({
+    let rc = block_on(mm_alice.rpc(&json! ({
         "userpass": mm_alice.userpass,
         "method": "setprice",
         "base": "RICK",
@@ -385,7 +385,7 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
     .unwrap();
 
     // checking orderbook on alice side
-    let rc = block_on(mm_alice.rpc(json! ({
+    let rc = block_on(mm_alice.rpc(&json! ({
         "userpass": mm_alice.userpass,
         "method": "orderbook",
         "base": "tBTC",
@@ -435,7 +435,7 @@ fn test_orderbook_segwit() {
     log!({"Bob log path: {}", mm_bob.log_path.display()});
 
     // Enable coins on Bob side. Print the replies in case we need the "address".
-    let electrum = block_on(mm_bob.rpc(json!({
+    let electrum = block_on(mm_bob.rpc(&json!({
         "userpass": "pass",
         "method": "electrum",
         "coin": "tBTC",
@@ -454,7 +454,7 @@ fn test_orderbook_segwit() {
     let enable_tbtc_res: EnableElectrumResponse = json::from_str(&electrum.1).unwrap();
     let tbtc_segwit_address = enable_tbtc_res.address;
 
-    let electrum = block_on(mm_bob.rpc(json!({
+    let electrum = block_on(mm_bob.rpc(&json!({
         "userpass": "pass",
         "method": "electrum",
         "coin": "RICK",
@@ -481,7 +481,7 @@ fn test_orderbook_segwit() {
         ("RICK", "tBTC", "0.7", "0.0002", Some("0.00015")),
     ];
     for (base, rel, price, volume, min_volume) in bob_orders.iter() {
-        let rc = block_on(mm_bob.rpc(json! ({
+        let rc = block_on(mm_bob.rpc(&json! ({
             "userpass": mm_bob.userpass,
             "method": "setprice",
             "base": base,
@@ -520,7 +520,7 @@ fn test_orderbook_segwit() {
     .unwrap();
 
     // checking orderbook on alice side
-    let rc = block_on(mm_alice.rpc(json! ({
+    let rc = block_on(mm_alice.rpc(&json! ({
         "userpass": mm_alice.userpass,
         "method": "orderbook",
         "base": "tBTC",
@@ -561,7 +561,7 @@ fn test_get_orderbook_with_same_orderbook_ticker() {
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
     log!({"Log path: {}", mm.log_path.display()});
 
-    let rc = block_on(mm.rpc(json! ({
+    let rc = block_on(mm.rpc(&json! ({
         "userpass": mm.userpass,
         "method": "orderbook",
         "base": "RICK",
@@ -574,7 +574,7 @@ fn test_get_orderbook_with_same_orderbook_ticker() {
         rc.1
     );
 
-    let rc = block_on(mm.rpc(json! ({
+    let rc = block_on(mm.rpc(&json! ({
         "userpass": mm.userpass,
         "method": "orderbook",
         "base": "RICK",
@@ -610,7 +610,7 @@ fn test_conf_settings_in_orderbook() {
     log! ({"enable_coins (bob): {:?}", block_on (enable_coins_rick_morty_electrum(&mm_bob))});
 
     log!("Issue set_price request for RICK/MORTY on Bob side");
-    let rc = block_on(mm_bob.rpc(json! ({
+    let rc = block_on(mm_bob.rpc(&json! ({
         "userpass": mm_bob.userpass,
         "method": "setprice",
         "base": "RICK",
@@ -622,7 +622,7 @@ fn test_conf_settings_in_orderbook() {
     assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
     log!("Issue set_price request for MORTY/RICK on Bob side");
-    let rc = block_on(mm_bob.rpc(json! ({
+    let rc = block_on(mm_bob.rpc(&json! ({
         "userpass": mm_bob.userpass,
         "method": "setprice",
         "base": "MORTY",
@@ -652,7 +652,7 @@ fn test_conf_settings_in_orderbook() {
     log! ({"enable_coins (alice): {:?}", block_on (enable_coins_rick_morty_electrum(&mm_alice))});
 
     log!("Get RICK/MORTY orderbook on Alice side");
-    let rc = block_on(mm_alice.rpc(json! ({
+    let rc = block_on(mm_alice.rpc(&json! ({
         "userpass": mm_alice.userpass,
         "method": "orderbook",
         "base": "RICK",
@@ -714,7 +714,7 @@ fn alice_can_see_confs_in_orderbook_after_sync() {
     log! ({"enable_coins (bob): {:?}", block_on (enable_coins_rick_morty_electrum(&mm_bob))});
 
     log!("Issue sell request on Bob side");
-    let rc = block_on(mm_bob.rpc(json! ({
+    let rc = block_on(mm_bob.rpc(&json! ({
         "userpass": mm_bob.userpass,
         "method": "setprice",
         "base": "RICK",
@@ -725,7 +725,7 @@ fn alice_can_see_confs_in_orderbook_after_sync() {
     .unwrap();
     assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
-    let rc = block_on(mm_bob.rpc(json! ({
+    let rc = block_on(mm_bob.rpc(&json! ({
         "userpass": mm_bob.userpass,
         "mmrpc": "2.0",
         "method": "get_public_key",
@@ -762,7 +762,7 @@ fn alice_can_see_confs_in_orderbook_after_sync() {
 
     // setting the price will trigger Alice's subscription to the orderbook topic
     // but won't request the actual orderbook
-    let rc = block_on(mm_alice.rpc(json! ({
+    let rc = block_on(mm_alice.rpc(&json! ({
         "userpass": mm_alice.userpass,
         "method": "setprice",
         "base": "RICK",
@@ -782,7 +782,7 @@ fn alice_can_see_confs_in_orderbook_after_sync() {
     .unwrap();
 
     log!("Get RICK/MORTY orderbook on Alice side");
-    let rc = block_on(mm_alice.rpc(json! ({
+    let rc = block_on(mm_alice.rpc(&json! ({
         "userpass": mm_alice.userpass,
         "method": "orderbook",
         "base": "RICK",
@@ -862,7 +862,7 @@ fn orderbook_extended_data() {
     ];
 
     for (base, rel, price, volume) in bob_orders {
-        let rc = block_on(mm.rpc(json!({
+        let rc = block_on(mm.rpc(&json!({
             "userpass": mm.userpass,
             "method": "setprice",
             "base": base,
@@ -877,7 +877,7 @@ fn orderbook_extended_data() {
 
     thread::sleep(Duration::from_secs(1));
     log!("Get RICK/MORTY orderbook");
-    let rc = block_on(mm.rpc(json! ({
+    let rc = block_on(mm.rpc(&json! ({
         "userpass": mm.userpass,
         "method": "orderbook",
         "base": "RICK",
@@ -967,7 +967,7 @@ fn orderbook_should_display_base_rel_volumes() {
     let volume = BigRational::new(1.into(), 1.into());
 
     // create order with rational amount and price
-    let rc = block_on(mm.rpc(json! ({
+    let rc = block_on(mm.rpc(&json! ({
         "userpass": mm.userpass,
         "method": "setprice",
         "base": "RICK",
@@ -981,7 +981,7 @@ fn orderbook_should_display_base_rel_volumes() {
 
     thread::sleep(Duration::from_secs(1));
     log!("Get RICK/MORTY orderbook");
-    let rc = block_on(mm.rpc(json! ({
+    let rc = block_on(mm.rpc(&json! ({
         "userpass": mm.userpass,
         "method": "orderbook",
         "base": "RICK",
@@ -1001,7 +1001,7 @@ fn orderbook_should_display_base_rel_volumes() {
     assert_eq!(&min_volume * &price, orderbook.asks[0].rel_min_volume_rat);
 
     log!("Get MORTY/RICK orderbook");
-    let rc = block_on(mm.rpc(json! ({
+    let rc = block_on(mm.rpc(&json! ({
         "userpass": mm.userpass,
         "method": "orderbook",
         "base": "MORTY",
@@ -1081,7 +1081,7 @@ fn orderbook_should_work_without_coins_activation() {
 
     log! ({"enable_coins (bob): {:?}", block_on (enable_coins_eth_electrum (&mm_bob, &["http://195.201.0.6:8565"]))});
 
-    let rc = block_on(mm_bob.rpc(json! ({
+    let rc = block_on(mm_bob.rpc(&json! ({
         "userpass": mm_bob.userpass,
         "method": "setprice",
         "base": "ETH",
@@ -1094,7 +1094,7 @@ fn orderbook_should_work_without_coins_activation() {
     assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
     log!("Get ETH/JST orderbook on Alice side");
-    let rc = block_on(mm_alice.rpc(json! ({
+    let rc = block_on(mm_alice.rpc(&json! ({
         "userpass": mm_alice.userpass,
         "method": "orderbook",
         "base": "ETH",
@@ -1150,7 +1150,7 @@ fn test_all_orders_per_pair_per_node_must_be_displayed_in_orderbook() {
     ]));
 
     // set 2 orders with different prices
-    let rc = block_on(mm.rpc(json! ({
+    let rc = block_on(mm.rpc(&json! ({
         "userpass": mm.userpass,
         "method": "setprice",
         "base": "RICK",
@@ -1162,7 +1162,7 @@ fn test_all_orders_per_pair_per_node_must_be_displayed_in_orderbook() {
     .unwrap();
     assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
-    let rc = block_on(mm.rpc(json! ({
+    let rc = block_on(mm.rpc(&json! ({
         "userpass": mm.userpass,
         "method": "setprice",
         "base": "RICK",
@@ -1177,7 +1177,7 @@ fn test_all_orders_per_pair_per_node_must_be_displayed_in_orderbook() {
     thread::sleep(Duration::from_secs(2));
 
     log!("Get RICK/MORTY orderbook");
-    let rc = block_on(mm.rpc(json! ({
+    let rc = block_on(mm.rpc(&json! ({
         "userpass": mm.userpass,
         "method": "orderbook",
         "base": "RICK",
@@ -1254,7 +1254,7 @@ fn setprice_min_volume_should_be_displayed_in_orderbook() {
     log! ({"enable_coins (alice): {:?}", block_on (enable_coins_eth_electrum (&mm_alice, &["http://195.201.0.6:8565"]))});
 
     // issue orderbook call on Alice side to trigger subscription to a topic
-    block_on(mm_alice.rpc(json! ({
+    block_on(mm_alice.rpc(&json! ({
         "userpass": mm_alice.userpass,
         "method": "orderbook",
         "base": "ETH",
@@ -1262,7 +1262,7 @@ fn setprice_min_volume_should_be_displayed_in_orderbook() {
     })))
     .unwrap();
 
-    let rc = block_on(mm_bob.rpc(json! ({
+    let rc = block_on(mm_bob.rpc(&json! ({
         "userpass": mm_bob.userpass,
         "method": "setprice",
         "base": "ETH",
@@ -1276,7 +1276,7 @@ fn setprice_min_volume_should_be_displayed_in_orderbook() {
 
     thread::sleep(Duration::from_secs(2));
     log!("Get ETH/JST orderbook on Bob side");
-    let rc = block_on(mm_bob.rpc(json! ({
+    let rc = block_on(mm_bob.rpc(&json! ({
         "userpass": mm_bob.userpass,
         "method": "orderbook",
         "base": "ETH",
@@ -1294,7 +1294,7 @@ fn setprice_min_volume_should_be_displayed_in_orderbook() {
     assert_eq!(min_volume, "1", "Bob ETH/JST ask must display correct min_volume");
 
     log!("Get ETH/JST orderbook on Alice side");
-    let rc = block_on(mm_alice.rpc(json! ({
+    let rc = block_on(mm_alice.rpc(&json! ({
         "userpass": mm_alice.userpass,
         "method": "orderbook",
         "base": "ETH",
@@ -1318,13 +1318,13 @@ fn zhtlc_orders_sync() {
     let bob_passphrase = get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap();
     let alice_passphrase = get_passphrase!(".env.client", "ALICE_PASSPHRASE").unwrap();
 
-    let coins = json! ([
+    let coins = json!([
         {"coin":"RICK","asset":"RICK","required_confirmations":0,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"}},
         {"coin":"ZOMBIE","asset":"ZOMBIE","fname":"ZOMBIE (TESTCOIN)","txversion":4,"overwintered":1,"mm2":1,"protocol":{"type":"ZHTLC"},"required_confirmations":0}
     ]);
 
     let mm_bob = MarketMakerIt::start(
-        json! ({
+        json!({
             "gui": "nogui",
             "netid": 9998,
             "myipaddr": env::var ("BOB_TRADE_IP") .ok(),
@@ -1347,7 +1347,7 @@ fn zhtlc_orders_sync() {
     log!({"Bob log path: {}", mm_bob.log_path.display()});
 
     let mm_alice = MarketMakerIt::start(
-        json! ({
+        json!({
             "gui": "nogui",
             "netid": 9998,
             "dht": "on",  // Enable DHT without delay.
@@ -1376,4 +1376,35 @@ fn zhtlc_orders_sync() {
 
     block_on(enable_electrum_json(&mm_bob, "RICK", false, rick_electrums()));
     block_on(enable_native(&mm_bob, "ZOMBIE", &[]));
+
+    let set_price_json = json!({
+        "userpass": mm_bob.userpass,
+        "method": "setprice",
+        "base": "ZOMBIE",
+        "rel": "RICK",
+        "price": 1,
+        "volume": "1",
+    });
+    log!("Issue sell request on Bob side by setting base/rel price…");
+    let rc = block_on(mm_bob.rpc(&set_price_json)).unwrap();
+    assert!(rc.0.is_success(), "!setprice: {}", rc.1);
+
+    let set_price_res: SetPriceResponse = json::from_str(&rc.1).unwrap();
+
+    let orderbook_req = json!({
+        "userpass": mm_alice.userpass,
+        "method": "orderbook",
+        "base": "ZOMBIE",
+        "rel": "RICK",
+    });
+    let rc = block_on(mm_alice.rpc(&orderbook_req)).unwrap();
+    assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
+
+    let orderbook: OrderbookResponse = json::from_str(&rc.1).unwrap();
+    assert_eq!(1, orderbook.asks.len());
+    orderbook
+        .asks
+        .iter()
+        .find(|ask| ask.uuid == set_price_res.result.uuid)
+        .unwrap();
 }
