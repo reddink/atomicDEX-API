@@ -1407,4 +1407,23 @@ fn zhtlc_orders_sync() {
         .iter()
         .find(|ask| ask.uuid == set_price_res.result.uuid)
         .unwrap();
+
+    thread::sleep(Duration::from_secs(MIN_ORDER_KEEP_ALIVE_INTERVAL * 3));
+
+    let orderbook_req = json!({
+        "userpass": mm_alice.userpass,
+        "method": "orderbook",
+        "base": "ZOMBIE",
+        "rel": "RICK",
+    });
+    let rc = block_on(mm_alice.rpc(&orderbook_req)).unwrap();
+    assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
+
+    let orderbook: OrderbookResponse = json::from_str(&rc.1).unwrap();
+    assert_eq!(1, orderbook.asks.len());
+    orderbook
+        .asks
+        .iter()
+        .find(|ask| ask.uuid == set_price_res.result.uuid)
+        .unwrap();
 }

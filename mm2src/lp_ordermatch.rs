@@ -2153,36 +2153,52 @@ impl From<MakerConnected> for new_protocol::OrdermatchMessage {
     }
 }
 
+fn broadcast_keep_alive_for_pub(ctx: &MmArc, pubkey: &str, orderbook: &Orderbook, p2p_privkey: &Option<H256Json>) {
+    let state = match orderbook.pubkeys_state.get(pubkey) {
+        Some(s) => s,
+        None => return,
+    };
+
+    let mut trie_roots = HashMap::new();
+    let mut topics = HashSet::new();
+    for (alb_pair, root) in state.trie_roots.iter() {
+        if *root == H64::default() && *root == hashed_null_node::<Layout>() {
+            continue;
+        }
+        topics.insert(orderbook_topic_from_ordered_pair(alb_pair));
+        trie_roots.insert(alb_pair.clone(), *root);
+    }
+
+    let message = new_protocol::PubkeyKeepAlive {
+        trie_roots,
+        timestamp: now_ms() / 1000,
+    };
+
+    broadcast_ordermatch_message(ctx, topics, message.into(), p2p_privkey);
+}
+
 pub async fn broadcast_maker_orders_keep_alive_loop(ctx: MmArc) {
-    let my_pubsecp = CryptoCtx::from_ctx(&ctx)
+    let persistent_pubsecp = CryptoCtx::from_ctx(&ctx)
         .expect("CryptoCtx not available")
         .secp256k1_pubkey_hex();
 
     while !ctx.is_stopping() {
         Timer::sleep(MIN_ORDER_KEEP_ALIVE_INTERVAL as f64).await;
         let ordermatch_ctx = OrdermatchContext::from_ctx(&ctx).expect("from_ctx failed");
-        let orderbook = ordermatch_ctx.orderbook.lock();
-        let state = match orderbook.pubkeys_state.get(&my_pubsecp) {
-            Some(s) => s,
-            None => continue,
-        };
+        let my_orders = ordermatch_ctx.my_maker_orders.lock().clone();
+        for (_, order_mutex) in my_orders {
+            let order = order_mutex.lock().await;
+            if let Some(p2p_privkey) = order.p2p_privkey {
+                let key_pair = key_pair_from_secret(&p2p_privkey.0).expect("valid privkey");
+                let pubsecp = hex::encode(key_pair.public_slice());
 
-        let mut trie_roots = HashMap::new();
-        let mut topics = HashSet::new();
-        for (alb_pair, root) in state.trie_roots.iter() {
-            if *root == H64::default() && *root == hashed_null_node::<Layout>() {
-                continue;
+                let orderbook = ordermatch_ctx.orderbook.lock();
+                broadcast_keep_alive_for_pub(&ctx, &pubsecp, &orderbook, &order.p2p_privkey);
             }
-            topics.insert(orderbook_topic_from_ordered_pair(alb_pair));
-            trie_roots.insert(alb_pair.clone(), *root);
         }
 
-        let message = new_protocol::PubkeyKeepAlive {
-            trie_roots,
-            timestamp: now_ms() / 1000,
-        };
-
-        broadcast_ordermatch_message(&ctx, topics, message.into(), &None);
+        let orderbook = ordermatch_ctx.orderbook.lock();
+        broadcast_keep_alive_for_pub(&ctx, &persistent_pubsecp, &orderbook, &None);
     }
 }
 

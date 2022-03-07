@@ -187,9 +187,12 @@ fn process_p2p_request(
     Ok(())
 }
 
-pub fn broadcast_p2p_msg(ctx: &MmArc, topics: Vec<String>, msg: Vec<u8>) {
+pub fn broadcast_p2p_msg(ctx: &MmArc, topics: Vec<String>, msg: Vec<u8>, from: Option<PeerId>) {
     let ctx = ctx.clone();
-    let cmd = AdexBehaviourCmd::PublishMsg { topics, msg };
+    let cmd = match from {
+        Some(from) => AdexBehaviourCmd::PublishMsgFrom { topics, msg, from },
+        None => AdexBehaviourCmd::PublishMsg { topics, msg },
+    };
     let p2p_ctx = P2PContext::fetch_from_mm_arc(&ctx);
     if let Err(e) = p2p_ctx.cmd_tx.lock().try_send(cmd) {
         log::error!("broadcast_p2p_msg cmd_tx.send error {:?}", e);
