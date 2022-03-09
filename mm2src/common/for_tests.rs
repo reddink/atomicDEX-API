@@ -419,13 +419,13 @@ impl MarketMakerIt {
 
     /// Invokes the locally running MM and returns its reply.
     #[cfg(target_arch = "wasm32")]
-    pub async fn rpc(&self, payload: Json) -> Result<(StatusCode, String, HeaderMap), String> {
+    pub async fn rpc(&self, payload: &Json) -> Result<(StatusCode, String, HeaderMap), String> {
         let wasm_rpc = self
             .ctx
             .wasm_rpc
             .as_option()
             .expect("'MmCtx::rpc' must be initialized already");
-        match wasm_rpc.request(payload).await {
+        match wasm_rpc.request(payload.clone()).await {
             // Please note a new type of error will be introduced soon.
             Ok(body) => {
                 let status_code = if body["error"].is_null() {
