@@ -21,12 +21,14 @@ use common::log;
 use common::mm_ctx::{MmArc, MmWeak};
 use common::mm_error::prelude::*;
 use common::mm_metrics::{ClockOps, MetricsOps};
+use common::privkey::{key_pair_from_secret, PrivKeyResult};
 use derive_more::Display;
 use futures::{channel::oneshot, StreamExt};
 use mm2_libp2p::atomicdex_behaviour::{AdexBehaviourCmd, AdexBehaviourEvent, AdexCmdTx, AdexEventRx, AdexResponse,
                                       AdexResponseChannel};
 use mm2_libp2p::peers_exchange::PeerAddresses;
-use mm2_libp2p::{decode_message, encode_message, GossipsubMessage, MessageId, NetworkPorts, PeerId, TOPIC_SEPARATOR};
+use mm2_libp2p::{decode_message, encode_message, DecodingError, GossipsubMessage, Libp2pPublic, Libp2pSecpPublic,
+                 MessageId, NetworkPorts, PeerId, TOPIC_SEPARATOR};
 #[cfg(test)] use mocktopus::macros::*;
 use parking_lot::Mutex as PaMutex;
 use serde::de;
@@ -431,4 +433,15 @@ pub fn lp_network_ports(netid: u16) -> Result<NetworkPorts, MmError<NetIdError>>
         tcp: network_port,
         wss: network_wss_port,
     })
+}
+
+pub fn peer_id_from_secp_secret(secp_secret: &[u8]) -> PrivKeyResult<PeerId> {
+    let key_pair = key_pair_from_secret(secp_secret)?;
+    let public_key = Libp2pSecpPublic::decode(key_pair.public_slice()).expect("keypair is valid");
+    Ok(PeerId::from_public_key(Libp2pPublic::Secp256k1(public_key)))
+}
+
+pub fn peer_id_from_secp_public(secp_public: &[u8]) -> Result<PeerId, MmError<DecodingError>> {
+    let public_key = Libp2pSecpPublic::decode(secp_public)?;
+    Ok(PeerId::from_public_key(Libp2pPublic::Secp256k1(public_key)))
 }

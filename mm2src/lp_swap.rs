@@ -70,7 +70,7 @@ use common::{bits256, calc_total_pages,
 use derive_more::Display;
 use futures::future::{abortable, AbortHandle, TryFutureExt};
 use http::Response;
-use mm2_libp2p::{decode_signed, encode_and_sign, pub_sub_topic, Libp2pPublic, PeerId, TopicPrefix};
+use mm2_libp2p::{decode_signed, encode_and_sign, pub_sub_topic, Libp2pPublic, Libp2pSecpPublic, PeerId, TopicPrefix};
 use num_rational::BigRational;
 use primitives::hash::{H160, H264};
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
@@ -97,7 +97,6 @@ mod swap_wasm_db;
 
 pub use check_balance::{check_other_coin_balance_for_swap, CheckBalanceError};
 use common::privkey::key_pair_from_secret;
-use keys::{SECP_SIGN, SECP_VERIFY};
 use maker_swap::MakerSwapEvent;
 pub use maker_swap::{calc_max_maker_vol, check_balance_for_maker_swap, maker_swap_trade_preimage, run_maker_swap,
                      MakerSavedEvent, MakerSavedSwap, MakerSwap, MakerSwapStatusChanged, MakerTradePreimage,
@@ -107,7 +106,6 @@ use pubkey_banning::BanReason;
 pub use pubkey_banning::{ban_pubkey_rpc, is_pubkey_banned, list_banned_pubkeys_rpc, unban_pubkeys_rpc};
 pub use recreate_swap_data::recreate_swap_data;
 pub use saved_swap::{SavedSwap, SavedSwapError, SavedSwapIo, SavedSwapResult};
-use secp256k1::{PublicKey, SecretKey};
 use std::num::NonZeroUsize;
 use taker_swap::TakerSwapEvent;
 pub use taker_swap::{calc_max_taker_vol, check_balance_for_taker_swap, max_taker_vol, max_taker_vol_from_available,
@@ -185,9 +183,9 @@ pub fn broadcast_swap_message_every(
 pub fn broadcast_swap_message(ctx: &MmArc, topic: String, msg: SwapMsg, p2p_privkey: &Option<H256Json>) {
     let (p2p_private, from) = match p2p_privkey {
         Some(privkey) => {
-            let secp_secret = SecretKey::from_slice(&privkey.0).expect("valid privkey");
-            let secp_public = PublicKey::from_secret_key(&SECP_SIGN, &secp_secret);
-            let libp2p_public = Libp2pPublic::Secp256k1(secp_public.into());
+            let key_pair = key_pair_from_secret(&privkey.0).expect("Valid privkey");
+            let libp2p_public =
+                Libp2pPublic::Secp256k1(Libp2pSecpPublic::decode(key_pair.public_slice()).expect("Valid pubkey"));
             (privkey.0, Some(PeerId::from(libp2p_public)))
         },
         None => (ctx.secp256k1_key_pair.or(&&|| panic!()).private().secret.take(), None),

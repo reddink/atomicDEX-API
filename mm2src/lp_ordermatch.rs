@@ -59,7 +59,8 @@ use std::time::Duration;
 use trie_db::NodeCodec as NodeCodecT;
 use uuid::Uuid;
 
-use crate::mm2::lp_network::{broadcast_p2p_msg, request_any_relay, request_one_peer, subscribe_to_topic, P2PRequest};
+use crate::mm2::lp_network::{broadcast_p2p_msg, peer_id_from_secp_public, peer_id_from_secp_secret, request_any_relay,
+                             request_one_peer, subscribe_to_topic, P2PRequest};
 use crate::mm2::lp_swap::{calc_max_maker_vol, check_balance_for_maker_swap, check_balance_for_taker_swap,
                           check_other_coin_balance_for_swap, insert_new_swap_to_db, is_pubkey_banned,
                           lp_atomic_locktime, run_maker_swap, run_taker_swap, AtomicLocktimeVersion, MakerSwap,
@@ -925,21 +926,22 @@ fn maker_order_created_p2p_notify(
     };
 
     let to_broadcast = new_protocol::OrdermatchMessage::MakerOrderCreated(message.clone());
-    let (secret, public) = match &order.p2p_privkey {
+    let (secret, public, peer_id) = match &order.p2p_privkey {
         Some(priv_key) => {
             let key_pair = key_pair_from_secret(&priv_key.0).expect("valid priv key");
-            (priv_key.0, *key_pair.public())
+            let peer_id = peer_id_from_secp_public(key_pair.public_slice()).expect("valid public key");
+            (priv_key.0, *key_pair.public(), Some(peer_id))
         },
         None => {
             let key_pair = ctx.secp256k1_key_pair.or(&&|| panic!());
-            (key_pair.private().secret.take(), *key_pair.public())
+            (key_pair.private().secret.take(), *key_pair.public(), None)
         },
     };
 
     let encoded_msg = encode_and_sign(&to_broadcast, &secret).unwrap();
     let order: OrderbookItem = (message, hex::encode(&*public)).into();
     insert_or_update_order(&ctx, order);
-    broadcast_p2p_msg(&ctx, vec![topic], encoded_msg);
+    broadcast_p2p_msg(&ctx, vec![topic], encoded_msg, peer_id);
 }
 
 fn process_my_maker_order_updated(ctx: &MmArc, message: &new_protocol::MakerOrderUpdated) {
@@ -960,16 +962,19 @@ fn maker_order_updated_p2p_notify(
     p2p_privkey: &Option<H256Json>,
 ) {
     let msg: new_protocol::OrdermatchMessage = message.clone().into();
-    let secret = match p2p_privkey {
-        Some(priv_key) => priv_key.0,
+    let (secret, peer_id) = match p2p_privkey {
+        Some(priv_key) => (
+            priv_key.0,
+            Some(peer_id_from_secp_secret(&priv_key.0).expect("valid secret")),
+        ),
         None => {
             let key_pair = ctx.secp256k1_key_pair.or(&&|| panic!());
-            key_pair.private().secret.take()
+            (key_pair.private().secret.take(), None)
         },
     };
     let encoded_msg = encode_and_sign(&msg, &secret).unwrap();
     process_my_maker_order_updated(&ctx, &message);
-    broadcast_p2p_msg(&ctx, vec![topic], encoded_msg);
+    broadcast_p2p_msg(&ctx, vec![topic], encoded_msg, peer_id);
 }
 
 fn maker_order_cancelled_p2p_notify(ctx: MmArc, order: &MakerOrder) {
@@ -2208,15 +2213,18 @@ fn broadcast_ordermatch_message(
     msg: new_protocol::OrdermatchMessage,
     p2p_privkey: &Option<H256Json>,
 ) {
-    let secret = match p2p_privkey {
-        Some(priv_key) => priv_key.0,
+    let (secret, peer_id) = match p2p_privkey {
+        Some(priv_key) => (
+            priv_key.0,
+            Some(peer_id_from_secp_secret(&priv_key.0).expect("valid secret")),
+        ),
         None => {
             let key_pair = ctx.secp256k1_key_pair.or(&&|| panic!());
-            key_pair.private().secret.take()
+            (key_pair.private().secret.take(), None)
         },
     };
     let encoded_msg = encode_and_sign(&msg, &secret).unwrap();
-    broadcast_p2p_msg(ctx, topics.into_iter().collect(), encoded_msg);
+    broadcast_p2p_msg(ctx, topics.into_iter().collect(), encoded_msg, peer_id);
 }
 
 /// The order is ordered by [`OrderbookItem::price`] and [`OrderbookItem::uuid`].
