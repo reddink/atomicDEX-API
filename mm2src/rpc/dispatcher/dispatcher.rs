@@ -114,7 +114,6 @@ async fn auth(request: &MmRpcRequest, ctx: &MmArc, client: &SocketAddr) -> Dispa
 
 async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Response<Vec<u8>>> {
     match request.method.as_str() {
-        // "activate_bch_protocol_coin" => handle_mmrpc(ctx, request, activate_bch_protocol_coin).await,
         "account_balance" => handle_mmrpc(ctx, request, account_balance).await,
         "add_delegation" => handle_mmrpc(ctx, request, add_delegation).await,
         "add_node_to_version_stat" => handle_mmrpc(ctx, request, add_node_to_version_stat).await,
@@ -138,6 +137,7 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         "mm_init_status" => handle_mmrpc(ctx, request, mm_init_status).await,
         "mm_init_user_action" => handle_mmrpc(ctx, request, mm_init_user_action).await,
         "my_tx_history" => handle_mmrpc(ctx, request, my_tx_history_v2_rpc).await,
+        "orderbook" => handle_mmrpc(ctx, request, orderbook_v2_rpc).await,
         "recreate_swap_data" => handle_mmrpc(ctx, request, recreate_swap_data).await,
         "remove_delegation" => handle_mmrpc(ctx, request, remove_delegation).await,
         "remove_node_from_version_stat" => handle_mmrpc(ctx, request, remove_node_from_version_stat).await,
