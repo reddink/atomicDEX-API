@@ -71,7 +71,7 @@ use my_orders_storage::{delete_my_maker_order, delete_my_taker_order, save_maker
                         save_my_new_maker_order, save_my_new_taker_order, MyActiveOrders, MyOrdersFilteringHistory,
                         MyOrdersHistory, MyOrdersStorage};
 pub use orderbook_depth::orderbook_depth_rpc;
-pub use orderbook_rpc::orderbook_rpc;
+pub use orderbook_rpc::{orderbook_rpc, orderbook_rpc_v2};
 
 cfg_wasm32! {
     use common::indexed_db::{ConstructibleDb, DbLocked};

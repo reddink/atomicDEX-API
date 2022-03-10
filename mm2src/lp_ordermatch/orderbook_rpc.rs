@@ -1,16 +1,19 @@
 use super::{subscribe_to_orderbook_topic, OrdermatchContext, RpcOrderbookEntry};
 use crate::mm2::lp_ordermatch::addr_format_from_protocol_info;
 use coins::{address_by_coin_conf_and_pubkey_str, coin_conf, is_wallet_only_conf};
-use common::{mm_ctx::MmArc, mm_number::MmNumber, now_ms};
+use common::log::warn;
+use common::mm_error::prelude::MapToMmResult;
+use common::mm_error::MmError;
+use common::{mm_ctx::MmArc, mm_number::MmNumber, now_ms, HttpStatusCode};
 use crypto::CryptoCtx;
-use http::Response;
+use derive_more::Display;
+use http::{Response, StatusCode};
 use num_rational::BigRational;
 use num_traits::Zero;
 use serde_json::{self as json, Value as Json};
-use common::mm_error::MmError;
 
 #[derive(Deserialize)]
-struct OrderbookReq {
+pub struct OrderbookReq {
     base: String,
     rel: String,
 }
@@ -180,18 +183,37 @@ pub async fn orderbook_rpc(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, S
     Ok(try_s!(Response::builder().body(response)))
 }
 
+#[derive(Debug, Display, Serialize, SerializeErrorType)]
+#[serde(tag = "error_type", content = "error_data")]
 pub enum OrderbookRpcError {
     BaseRelSame,
     BaseRelSameOrderbookTickersAndProtocols,
     CoinConfigNotFound(String),
     CoinIsWalletOnly(String),
+    P2PSubscribeError(String),
 }
 
+impl HttpStatusCode for OrderbookRpcError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            OrderbookRpcError::BaseRelSame
+            | OrderbookRpcError::BaseRelSameOrderbookTickersAndProtocols
+            | OrderbookRpcError::CoinConfigNotFound(_)
+            | OrderbookRpcError::CoinIsWalletOnly(_) => StatusCode::BAD_REQUEST,
+            OrderbookRpcError::P2PSubscribeError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+#[derive(Serialize)]
 pub struct OrderbookV2Response {}
 
-pub async fn orderbook_rpc_v2(ctx: MmArc, req: OrderbookReq) -> Result<OrderbookV2Response, MmError<OrderbookRpcError>> {
+pub async fn orderbook_rpc_v2(
+    ctx: MmArc,
+    req: OrderbookReq,
+) -> Result<OrderbookV2Response, MmError<OrderbookRpcError>> {
     if req.base == req.rel {
-        return MmError::err(OrderbookRpcError::BaseAndRelCantBeSame);
+        return MmError::err(OrderbookRpcError::BaseRelSame);
     }
     let base_coin_conf = coin_conf(&ctx, &req.base);
     if base_coin_conf.is_null() {
@@ -208,33 +230,47 @@ pub async fn orderbook_rpc_v2(ctx: MmArc, req: OrderbookReq) -> Result<Orderbook
         return MmError::err(OrderbookRpcError::CoinIsWalletOnly(req.rel));
     }
     let ordermatch_ctx = OrdermatchContext::from_ctx(&ctx).expect("ctx is available");
-    let request_orderbook = true;
     let base_ticker = ordermatch_ctx.orderbook_ticker_bypass(&req.base);
     let rel_ticker = ordermatch_ctx.orderbook_ticker_bypass(&req.rel);
     if base_ticker == rel_ticker && base_coin_conf["protocol"] == rel_coin_conf["protocol"] {
         return MmError::err(OrderbookRpcError::BaseRelSameOrderbookTickersAndProtocols);
     }
 
-    try_s!(subscribe_to_orderbook_topic(&ctx, &base_ticker, &rel_ticker, request_orderbook).await);
+    let request_orderbook = true;
+    subscribe_to_orderbook_topic(&ctx, &base_ticker, &rel_ticker, request_orderbook)
+        .await
+        .map_to_mm(OrderbookRpcError::P2PSubscribeError)?;
+
     let orderbook = ordermatch_ctx.orderbook.lock();
-    let my_pubsecp = try_s!(CryptoCtx::from_ctx(&ctx)).secp256k1_pubkey_hex();
+    let my_pubsecp = CryptoCtx::from_ctx(&ctx)
+        .expect("ctx is available")
+        .secp256k1_pubkey_hex();
 
     let mut asks = match orderbook.unordered.get(&(base_ticker.clone(), rel_ticker.clone())) {
         Some(uuids) => {
             let mut orderbook_entries = Vec::new();
             for uuid in uuids {
-                let ask = orderbook.order_set.get(uuid).ok_or(ERRL!(
-                    "Orderbook::unordered contains {:?} uuid that is not in Orderbook::order_set",
-                    uuid
-                ))?;
+                let ask = match orderbook.order_set.get(uuid) {
+                    Some(a) => a,
+                    None => {
+                        warn!("unordered contains {:?} uuid that is not in order_set", uuid);
+                        continue;
+                    },
+                };
                 let address_format = addr_format_from_protocol_info(&ask.base_protocol_info);
-                let address = try_s!(address_by_coin_conf_and_pubkey_str(
+                let address = match address_by_coin_conf_and_pubkey_str(
                     &ctx,
                     &req.base,
                     &base_coin_conf,
                     &ask.pubkey,
                     address_format,
-                ));
+                ) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        warn!("Error {} on getting address for order {}", e, ask.uuid);
+                        continue;
+                    },
+                };
                 let is_mine = my_pubsecp == ask.pubkey;
                 orderbook_entries.push(ask.as_rpc_entry_ask(address, is_mine));
             }
@@ -250,18 +286,27 @@ pub async fn orderbook_rpc_v2(ctx: MmArc, req: OrderbookReq) -> Result<Orderbook
         Some(uuids) => {
             let mut orderbook_entries = vec![];
             for uuid in uuids {
-                let bid = orderbook.order_set.get(uuid).ok_or(ERRL!(
-                    "Orderbook::unordered contains {:?} uuid that is not in Orderbook::order_set",
-                    uuid
-                ))?;
+                let bid = match orderbook.order_set.get(uuid) {
+                    Some(b) => b,
+                    None => {
+                        warn!("unordered contains {:?} uuid that is not in order_set", uuid);
+                        continue;
+                    },
+                };
                 let address_format = addr_format_from_protocol_info(&bid.base_protocol_info);
-                let address = try_s!(address_by_coin_conf_and_pubkey_str(
+                let address = match address_by_coin_conf_and_pubkey_str(
                     &ctx,
                     &req.rel,
                     &rel_coin_conf,
                     &bid.pubkey,
                     address_format,
-                ));
+                ) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        warn!("Error {} on getting address for order {}", e, bid.uuid);
+                        continue;
+                    },
+                };
                 let is_mine = my_pubsecp == bid.pubkey;
                 orderbook_entries.push(bid.as_rpc_entry_bid(address, is_mine));
             }
@@ -272,22 +317,5 @@ pub async fn orderbook_rpc_v2(ctx: MmArc, req: OrderbookReq) -> Result<Orderbook
     bids.sort_unstable_by(|bid1, bid2| bid2.price_rat.cmp(&bid1.price_rat));
     let (bids, total_bids_base_vol, total_bids_rel_vol) = build_aggregated_entries(bids);
 
-    let response = OrderbookResponse {
-        num_asks: asks.len(),
-        num_bids: bids.len(),
-        ask_depth: 0,
-        asks,
-        base: req.base,
-        bid_depth: 0,
-        bids,
-        netid: ctx.netid(),
-        rel: req.rel,
-        timestamp: now_ms() / 1000,
-        total_asks_base: total_asks_base_vol.into(),
-        total_asks_rel: total_asks_rel_vol.into(),
-        total_bids_base: total_bids_base_vol.into(),
-        total_bids_rel: total_bids_rel_vol.into(),
-    };
-    let response = try_s!(json::to_vec(&response));
-    Ok(try_s!(Response::builder().body(response)))
+    Ok(OrderbookV2Response {})
 }
