@@ -715,3 +715,60 @@ pub struct MmVersion {
     pub result: String,
     pub datetime: String,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum OrderbookAddress {
+    Transparent(String),
+    Shielded,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RpcOrderbookEntryV2 {
+    coin: String,
+    address: OrderbookAddress,
+    price: MmNumberMultiRepr,
+    pubkey: String,
+    uuid: Uuid,
+    is_mine: bool,
+    base_max_volume: MmNumberMultiRepr,
+    base_min_volume: MmNumberMultiRepr,
+    rel_max_volume: MmNumberMultiRepr,
+    rel_min_volume: MmNumberMultiRepr,
+    conf_settings: Option<OrderConfirmationsSettings>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AggregatedOrderbookEntryV2 {
+    #[serde(flatten)]
+    entry: RpcOrderbookEntryV2,
+    base_max_volume_aggr: MmNumberMultiRepr,
+    rel_max_volume_aggr: MmNumberMultiRepr,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MmNumberMultiRepr {
+    pub decimal: BigDecimal,
+    pub rational: BigRational,
+    pub fraction: Fraction,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OrderbookV2Response {
+    pub asks: Vec<AggregatedOrderbookEntryV2>,
+    pub base: String,
+    pub bids: Vec<AggregatedOrderbookEntryV2>,
+    pub net_id: u16,
+    pub num_asks: usize,
+    pub num_bids: usize,
+    pub rel: String,
+    pub timestamp: u64,
+    pub total_asks_base_vol: MmNumberMultiRepr,
+    pub total_asks_rel_vol: MmNumberMultiRepr,
+    pub total_bids_base_vol: MmNumberMultiRepr,
+    pub total_bids_rel_vol: MmNumberMultiRepr,
+}

@@ -29,7 +29,7 @@ use common::executor::{spawn, Timer};
 use common::log::{error, LogOnError};
 use common::mm_ctx::{from_ctx, MmArc, MmWeak};
 use common::mm_error::prelude::*;
-use common::mm_number::{Fraction, MmNumber};
+use common::mm_number::{Fraction, MmNumber, MmNumberMultiRepr};
 use common::privkey::key_pair_from_secret;
 use common::time_cache::TimeCache;
 use common::{bits256, log, new_uuid, now_ms};
@@ -82,6 +82,7 @@ cfg_wasm32! {
 
 #[path = "lp_ordermatch/best_orders.rs"] mod best_orders;
 #[path = "lp_ordermatch/lp_bot.rs"] mod lp_bot;
+use crate::mm2::lp_ordermatch::orderbook_rpc::OrderbookAddress;
 pub use lp_bot::{process_price_request, start_simple_market_maker_bot, stop_simple_market_maker_bot,
                  StartSimpleMakerBotRequest, TradingBotEvent, KMD_PRICE_ENDPOINT};
 
@@ -3913,6 +3914,57 @@ impl OrderbookItem {
         }
     }
 
+    fn as_rpc_v2_entry_ask(&self, address: OrderbookAddress, is_mine: bool) -> RpcOrderbookEntryV2 {
+        let price_mm = MmNumber::from(self.price.clone());
+        let max_vol_mm = MmNumber::from(self.max_volume.clone());
+        let min_vol_mm = MmNumber::from(self.min_volume.clone());
+
+        let base_max_volume = max_vol_mm.clone().into();
+        let base_min_volume = min_vol_mm.clone().into();
+        let rel_max_volume = (&max_vol_mm * &price_mm).into();
+        let rel_min_volume = (&min_vol_mm * &price_mm).into();
+
+        RpcOrderbookEntryV2 {
+            coin: self.base.clone(),
+            address,
+            price: price_mm.into(),
+            pubkey: self.pubkey.clone(),
+            uuid: self.uuid,
+            is_mine,
+            base_max_volume,
+            base_min_volume,
+            rel_max_volume,
+            rel_min_volume,
+            conf_settings: self.conf_settings,
+        }
+    }
+
+    fn as_rpc_v2_entry_bid(&self, address: OrderbookAddress, is_mine: bool) -> RpcOrderbookEntryV2 {
+        let price_mm = MmNumber::from(1i32) / self.price.clone().into();
+        let max_vol_mm = MmNumber::from(self.max_volume.clone());
+        let min_vol_mm = MmNumber::from(self.min_volume.clone());
+
+        let base_max_volume = (&max_vol_mm / &price_mm).into();
+        let base_min_volume = (&min_vol_mm / &price_mm).into();
+        let rel_max_volume = max_vol_mm.into();
+        let rel_min_volume = min_vol_mm.into();
+        let conf_settings = self.conf_settings.map(|conf| conf.reversed());
+
+        RpcOrderbookEntryV2 {
+            coin: self.base.clone(),
+            address,
+            price: price_mm.into(),
+            pubkey: self.pubkey.clone(),
+            uuid: self.uuid,
+            is_mine,
+            base_max_volume,
+            base_min_volume,
+            rel_max_volume,
+            rel_min_volume,
+            conf_settings,
+        }
+    }
+
     fn from_p2p_and_info(
         o: OrderbookP2PItem,
         proto_info: BaseRelProtocolInfo,
@@ -5190,6 +5242,21 @@ pub struct RpcOrderbookEntry {
     #[serde(flatten)]
     rel_min_volume: DetailedRelMinVolume,
     #[serde(flatten)]
+    conf_settings: Option<OrderConfirmationsSettings>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RpcOrderbookEntryV2 {
+    coin: String,
+    address: OrderbookAddress,
+    price: MmNumberMultiRepr,
+    pubkey: String,
+    uuid: Uuid,
+    is_mine: bool,
+    base_max_volume: MmNumberMultiRepr,
+    base_min_volume: MmNumberMultiRepr,
+    rel_max_volume: MmNumberMultiRepr,
+    rel_min_volume: MmNumberMultiRepr,
     conf_settings: Option<OrderConfirmationsSettings>,
 }
 
