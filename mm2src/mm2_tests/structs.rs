@@ -717,7 +717,7 @@ pub struct MmVersion {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, tag = "address_type", content = "address_data")]
 pub enum OrderbookAddress {
     Transparent(String),
     Shielded,
@@ -726,26 +726,26 @@ pub enum OrderbookAddress {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RpcOrderbookEntryV2 {
-    coin: String,
-    address: OrderbookAddress,
-    price: MmNumberMultiRepr,
-    pubkey: String,
-    uuid: Uuid,
-    is_mine: bool,
-    base_max_volume: MmNumberMultiRepr,
-    base_min_volume: MmNumberMultiRepr,
-    rel_max_volume: MmNumberMultiRepr,
-    rel_min_volume: MmNumberMultiRepr,
-    conf_settings: Option<OrderConfirmationsSettings>,
+    pub coin: String,
+    pub address: OrderbookAddress,
+    pub price: MmNumberMultiRepr,
+    pub pubkey: String,
+    pub uuid: Uuid,
+    pub is_mine: bool,
+    pub base_max_volume: MmNumberMultiRepr,
+    pub base_min_volume: MmNumberMultiRepr,
+    pub rel_max_volume: MmNumberMultiRepr,
+    pub rel_min_volume: MmNumberMultiRepr,
+    pub conf_settings: Option<OrderConfirmationsSettings>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AggregatedOrderbookEntryV2 {
     #[serde(flatten)]
-    entry: RpcOrderbookEntryV2,
-    base_max_volume_aggr: MmNumberMultiRepr,
-    rel_max_volume_aggr: MmNumberMultiRepr,
+    pub entry: RpcOrderbookEntryV2,
+    pub base_max_volume_aggr: MmNumberMultiRepr,
+    pub rel_max_volume_aggr: MmNumberMultiRepr,
 }
 
 #[derive(Debug, Deserialize)]

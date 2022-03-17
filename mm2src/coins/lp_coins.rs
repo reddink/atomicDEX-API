@@ -2493,7 +2493,7 @@ pub fn address_by_coin_conf_and_pubkey_str(
             ERR!("address_by_coin_conf_and_pubkey_str is not implemented for lightning protocol yet!")
         },
         #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
-        CoinProtocol::ZHTLC => utxo::address_by_conf_and_pubkey_str(coin, conf, pubkey, addr_format),
+        CoinProtocol::ZHTLC => ERR!("address_by_coin_conf_and_pubkey_str is not supported for ZHTLC protocol!"),
     }
 }
 

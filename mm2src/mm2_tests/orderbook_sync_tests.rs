@@ -1,4 +1,5 @@
 use super::*;
+use common::for_tests::orderbook_v2;
 
 /// https://github.com/artemii235/SuperNET/issues/241
 #[test]
@@ -1391,40 +1392,28 @@ fn zhtlc_orders_sync_alice_connected_before_creation() {
 
     let set_price_res: SetPriceResponse = json::from_str(&rc.1).unwrap();
 
-    let orderbook_req = json!({
-        "userpass": mm_alice.userpass,
-        "method": "orderbook",
-        "base": "ZOMBIE",
-        "rel": "RICK",
-    });
-    let rc = block_on(mm_alice.rpc(&orderbook_req)).unwrap();
-    assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
+    let orderbook = block_on(orderbook_v2(&mm_alice, "ZOMBIE", "RICK"));
+    let orderbook: RpcV2Response<OrderbookV2Response> = json::from_value(orderbook).unwrap();
+    let orderbook = orderbook.result;
 
-    let orderbook: OrderbookResponse = json::from_str(&rc.1).unwrap();
     assert_eq!(1, orderbook.asks.len());
     orderbook
         .asks
         .iter()
-        .find(|ask| ask.uuid == set_price_res.result.uuid)
+        .find(|ask| ask.entry.uuid == set_price_res.result.uuid)
         .unwrap();
 
     thread::sleep(Duration::from_secs(MIN_ORDER_KEEP_ALIVE_INTERVAL * 3));
 
-    let orderbook_req = json!({
-        "userpass": mm_alice.userpass,
-        "method": "orderbook",
-        "base": "ZOMBIE",
-        "rel": "RICK",
-    });
-    let rc = block_on(mm_alice.rpc(&orderbook_req)).unwrap();
-    assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
+    let orderbook = block_on(orderbook_v2(&mm_alice, "ZOMBIE", "RICK"));
+    let orderbook: RpcV2Response<OrderbookV2Response> = json::from_value(orderbook).unwrap();
+    let orderbook = orderbook.result;
 
-    let orderbook: OrderbookResponse = json::from_str(&rc.1).unwrap();
     assert_eq!(1, orderbook.asks.len());
     orderbook
         .asks
         .iter()
-        .find(|ask| ask.uuid == set_price_res.result.uuid)
+        .find(|ask| ask.entry.uuid == set_price_res.result.uuid)
         .unwrap();
 }
 
@@ -1533,20 +1522,14 @@ fn zhtlc_orders_sync_alice_connected_after_creation() {
 
     thread::sleep(Duration::from_secs(MIN_ORDER_KEEP_ALIVE_INTERVAL));
 
-    let orderbook_req = json!({
-        "userpass": mm_alice.userpass,
-        "method": "orderbook",
-        "base": "ZOMBIE",
-        "rel": "RICK",
-    });
-    let rc = block_on(mm_alice.rpc(&orderbook_req)).unwrap();
-    assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
+    let orderbook = block_on(orderbook_v2(&mm_alice, "ZOMBIE", "RICK"));
+    let orderbook: RpcV2Response<OrderbookV2Response> = json::from_value(orderbook).unwrap();
+    let orderbook = orderbook.result;
 
-    let orderbook: OrderbookResponse = json::from_str(&rc.1).unwrap();
     assert_eq!(1, orderbook.asks.len());
     orderbook
         .asks
         .iter()
-        .find(|ask| ask.uuid == bob_set_price_res.result.uuid)
+        .find(|ask| ask.entry.uuid == bob_set_price_res.result.uuid)
         .unwrap();
 }

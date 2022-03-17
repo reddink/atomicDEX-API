@@ -365,6 +365,7 @@ pub async fn orderbook_rpc_v2(
 }
 
 #[derive(Debug, Serialize)]
+#[serde(tag = "address_type", content = "address_data")]
 pub enum OrderbookAddress {
     Transparent(String),
     Shielded,

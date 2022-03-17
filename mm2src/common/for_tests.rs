@@ -1208,3 +1208,20 @@ pub async fn wait_till_history_has_records(mm: &MarketMakerIt, coin: &str, expec
         assert!(now_ms() <= wait_until, "wait_till_history_has_records timed out");
     }
 }
+
+pub async fn orderbook_v2(mm: &MarketMakerIt, base: &str, rel: &str) -> Json {
+    let request = mm
+        .rpc(&json! ({
+            "userpass": mm.userpass,
+            "method": "orderbook",
+            "mmrpc": "2.0",
+            "params": {
+                "base": base,
+                "rel": rel,
+            }
+        }))
+        .await
+        .unwrap();
+    assert_eq!(request.0, StatusCode::OK, "'orderbook' failed: {}", request.1);
+    json::from_str(&request.1).unwrap()
+}
