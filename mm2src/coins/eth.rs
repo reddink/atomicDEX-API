@@ -1417,15 +1417,6 @@ impl EthCoin {
                     );
                 }
 
-                let web3_receipt = match selfi.web3.eth().transaction_receipt(tx.hash()).compat().await {
-                    Ok(r) => r,
-                    Err(e) => {
-                        log!("Error " [e] " getting the " (selfi.ticker()) " transaction " [tx.tx_hash()] ", retrying in 15 seconds");
-                        Timer::sleep(check_every as f64).await;
-                        continue;
-                    },
-                };
-
                 if let CheckingPaymentState::CheckPaymentStateSent = check_state.state {
                     let swap_id = selfi.etomic_swap_id(check_state.time_lock, check_state.secret_hash.as_slice());
                     let swap_status = try_s!(
@@ -1440,6 +1431,15 @@ impl EthCoin {
                         continue;
                     }
                 }
+
+                let web3_receipt = match selfi.web3.eth().transaction_receipt(tx.hash()).compat().await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        log!("Error " [e] " getting the " (selfi.ticker()) " transaction " [tx.tx_hash()] ", retrying in 15 seconds");
+                        Timer::sleep(check_every as f64).await;
+                        continue;
+                    },
+                };
 
                 if let Some(receipt) = web3_receipt {
                     if receipt.status != Some(1.into()) {
