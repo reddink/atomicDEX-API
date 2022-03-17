@@ -114,6 +114,23 @@ pub type Web3RpcFut<T> = Box<dyn Future<Item = T, Error = MmError<Web3RpcError>>
 pub type Web3RpcResult<T> = Result<T, MmError<Web3RpcError>>;
 pub type GasStationResult = Result<GasStationData, MmError<GasStationReqErr>>;
 
+pub enum CheckingPaymentState {
+    NotRequired,
+    CheckPaymentStateSent,
+}
+
+impl Default for CheckingPaymentState {
+    fn default() -> Self { Self::NotRequired }
+}
+
+#[derive(Default)]
+pub struct PaymentStateData {
+    pub state: CheckingPaymentState,
+    pub time_lock: u32,
+    pub swap_contract_address: Address,
+    pub secret_hash: Vec<u8>,
+}
+
 #[derive(Debug, Display)]
 pub enum GasStationReqErr {
     #[display(fmt = "Transport '{}' error: {}", uri, error)]
@@ -674,6 +691,34 @@ impl SwapOps for EthCoin {
         )
     }
 
+    fn wait_for_swaps_confirmations(
+        &self,
+        tx: &[u8],
+        confirmations: u64,
+        requires_nota: bool,
+        wait_until: u64,
+        check_every: u64,
+        swap_contract_address: Option<BytesJson>,
+        time_lock: u32,
+        secret_hash: Vec<u8>,
+    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
+        let swap_contract_address = try_fus!(swap_contract_address.try_to_address());
+        let payment_check_data = PaymentStateData {
+            state: CheckingPaymentState::CheckPaymentStateSent,
+            time_lock,
+            swap_contract_address,
+            secret_hash,
+        };
+        self.wait_for_confirmations_impl(
+            tx,
+            confirmations,
+            requires_nota,
+            wait_until,
+            check_every,
+            payment_check_data,
+        )
+    }
+
     fn send_maker_payment(
         &self,
         time_lock: u32,
@@ -1120,66 +1165,14 @@ impl MarketCoinOps for EthCoin {
         wait_until: u64,
         check_every: u64,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        let ctx = try_fus!(MmArc::from_weak(&self.ctx).ok_or("No context"));
-        let mut status = ctx.log.status_handle();
-        status.status(&[&self.ticker], "Waiting for confirmations…");
-        status.deadline(wait_until * 1000);
-
-        let unsigned: UnverifiedTransaction = try_fus!(rlp::decode(tx));
-        let tx = try_fus!(SignedEthTx::new(unsigned));
-
-        let required_confirms = U256::from(confirmations);
-        let selfi = self.clone();
-        let fut = async move {
-            loop {
-                if status.ms2deadline().unwrap() < 0 {
-                    status.append(" Timed out.");
-                    return ERR!(
-                        "Waited too long until {} for transaction {:?} confirmation ",
-                        wait_until,
-                        tx
-                    );
-                }
-
-                let web3_receipt = match selfi.web3.eth().transaction_receipt(tx.hash()).compat().await {
-                    Ok(r) => r,
-                    Err(e) => {
-                        log!("Error " [e] " getting the " (selfi.ticker()) " transaction " [tx.tx_hash()] ", retrying in 15 seconds");
-                        Timer::sleep(check_every as f64).await;
-                        continue;
-                    },
-                };
-                if let Some(receipt) = web3_receipt {
-                    if receipt.status != Some(1.into()) {
-                        status.append(" Failed.");
-                        return ERR!(
-                            "Tx receipt {:?} status of {} tx {:?} is failed",
-                            receipt,
-                            selfi.ticker(),
-                            tx.tx_hash()
-                        );
-                    }
-
-                    if let Some(confirmed_at) = receipt.block_number {
-                        let current_block = match selfi.web3.eth().block_number().compat().await {
-                            Ok(b) => b,
-                            Err(e) => {
-                                log!("Error " [e] " getting the " (selfi.ticker()) " block number retrying in 15 seconds");
-                                Timer::sleep(check_every as f64).await;
-                                continue;
-                            },
-                        };
-                        // checking if the current block is above the confirmed_at block prediction for pos chain to prevent overflow
-                        if current_block >= confirmed_at && current_block - confirmed_at + 1 >= required_confirms {
-                            status.append(" Confirmed.");
-                            return Ok(());
-                        }
-                    }
-                }
-                Timer::sleep(check_every as f64).await;
-            }
-        };
-        Box::new(fut.boxed().compat())
+        self.wait_for_confirmations_impl(
+            tx,
+            confirmations,
+            _requires_nota,
+            wait_until,
+            check_every,
+            Default::default(),
+        )
     }
 
     fn wait_for_tx_spend(
@@ -1393,6 +1386,95 @@ impl EthCoin {
     /// Downloads and saves ETH transaction history of my_address, relies on Parity trace_filter API
     /// https://wiki.parity.io/JSONRPC-trace-module#trace_filter, this requires tracing to be enabled
     /// in node config. Other ETH clients (Geth, etc.) are `not` supported (yet).
+
+    fn wait_for_confirmations_impl(
+        &self,
+        tx: &[u8],
+        confirmations: u64,
+        _requires_nota: bool,
+        wait_until: u64,
+        check_every: u64,
+        check_state: PaymentStateData,
+    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
+        let ctx = try_fus!(MmArc::from_weak(&self.ctx).ok_or("No context"));
+        let mut status = ctx.log.status_handle();
+        status.status(&[&self.ticker], "Waiting for confirmations…");
+        status.deadline(wait_until * 1000);
+
+        let unsigned: UnverifiedTransaction = try_fus!(rlp::decode(tx));
+        let tx = try_fus!(SignedEthTx::new(unsigned));
+
+        let required_confirms = U256::from(confirmations);
+        let selfi = self.clone();
+        let fut = async move {
+            loop {
+                if status.ms2deadline().unwrap() < 0 {
+                    status.append(" Timed out.");
+                    return ERR!(
+                        "Waited too long until {} for transaction {:?} confirmation ",
+                        wait_until,
+                        tx
+                    );
+                }
+
+                let web3_receipt = match selfi.web3.eth().transaction_receipt(tx.hash()).compat().await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        log!("Error " [e] " getting the " (selfi.ticker()) " transaction " [tx.tx_hash()] ", retrying in 15 seconds");
+                        Timer::sleep(check_every as f64).await;
+                        continue;
+                    },
+                };
+
+                if let CheckingPaymentState::CheckPaymentStateSent = check_state.state {
+                    let swap_id = selfi.etomic_swap_id(check_state.time_lock, check_state.secret_hash.as_slice());
+                    let swap_status = try_s!(
+                        selfi
+                            .payment_status(check_state.swap_contract_address, Token::FixedBytes(swap_id.clone()))
+                            .compat()
+                            .await
+                    );
+                    if swap_status != PAYMENT_STATE_SENT.into() {
+                        log!("Waiting for " (selfi.ticker()) " to get payment state to PAYMENT_STATE_SENT - tx_hash: " [tx.tx_hash()] ", retrying in 15 seconds");
+                        Timer::sleep(check_every as f64).await;
+                        continue;
+                    }
+                }
+
+                if let Some(receipt) = web3_receipt {
+                    if receipt.status != Some(1.into()) {
+                        status.append(" Failed.");
+                        return ERR!(
+                            "Tx receipt {:?} status of {} tx {:?} is failed",
+                            receipt,
+                            selfi.ticker(),
+                            tx.tx_hash()
+                        );
+                    }
+
+                    if let Some(confirmed_at) = receipt.block_number {
+                        let current_block = match selfi.web3.eth().block_number().compat().await {
+                            Ok(b) => b,
+                            Err(e) => {
+                                log!("Error " [e] " getting the " (selfi.ticker()) " block number retrying in 15 seconds");
+                                Timer::sleep(check_every as f64).await;
+                                continue;
+                            },
+                        };
+
+                        // checking if the current block is above the confirmed_at block prediction for pos chain to prevent overflow
+                        if current_block >= confirmed_at && current_block - confirmed_at + 1 >= required_confirms {
+                            status.append(" Confirmed.");
+                            return Ok(());
+                        }
+                    }
+                }
+                Timer::sleep(check_every as f64).await;
+            }
+        };
+        Box::new(fut.boxed().compat())
+    }
+
     #[allow(clippy::cognitive_complexity)]
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     async fn process_eth_history(&self, ctx: &MmArc) {

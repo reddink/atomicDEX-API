@@ -1097,12 +1097,15 @@ impl TakerSwap {
 
     async fn validate_maker_payment(&self) -> Result<(Option<TakerSwapCommand>, Vec<TakerSwapEvent>), String> {
         log!({ "Before wait confirm" });
-        let f = self.maker_coin.wait_for_confirmations(
+        let f = self.maker_coin.wait_for_swaps_confirmations(
             &self.r().maker_payment.clone().unwrap().tx_hex,
             self.r().data.maker_payment_confirmations,
             self.r().data.maker_payment_requires_nota.unwrap_or(false),
             self.r().data.maker_payment_wait,
             WAIT_CONFIRM_INTERVAL,
+            self.r().data.maker_coin_swap_contract_address.clone(),
+            self.maker_payment_lock.load(Ordering::Relaxed) as u32,
+            self.r().secret_hash.0.to_vec(),
         );
         if let Err(err) = f.compat().await {
             return Ok((Some(TakerSwapCommand::Finish), vec![

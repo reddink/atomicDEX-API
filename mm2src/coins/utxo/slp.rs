@@ -1157,6 +1157,20 @@ impl SwapOps for SlpToken {
         Box::new(fut.boxed().compat().map(|tx| tx.into()))
     }
 
+    fn wait_for_swaps_confirmations(
+        &self,
+        tx: &[u8],
+        confirmations: u64,
+        requires_nota: bool,
+        wait_until: u64,
+        check_every: u64,
+        _swap_contract_address: Option<BytesJson>,
+        _time_lock: u32,
+        _secret_hash: Vec<u8>,
+    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
+        self.wait_for_confirmations(tx, confirmations, requires_nota, wait_until, check_every)
+    }
+
     fn send_maker_payment(
         &self,
         time_lock: u32,
