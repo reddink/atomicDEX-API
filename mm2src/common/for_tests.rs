@@ -1225,3 +1225,21 @@ pub async fn orderbook_v2(mm: &MarketMakerIt, base: &str, rel: &str) -> Json {
     assert_eq!(request.0, StatusCode::OK, "'orderbook' failed: {}", request.1);
     json::from_str(&request.1).unwrap()
 }
+
+pub async fn best_orders_v2(mm: &MarketMakerIt, coin: &str, action: &str, volume: &str) -> Json {
+    let request = mm
+        .rpc(&json! ({
+            "userpass": mm.userpass,
+            "method": "best_orders",
+            "mmrpc": "2.0",
+            "params": {
+                "coin": coin,
+                "action": action,
+                "volume": volume,
+            }
+        }))
+        .await
+        .unwrap();
+    assert_eq!(request.0, StatusCode::OK, "'best_orders' failed: {}", request.1);
+    json::from_str(&request.1).unwrap()
+}

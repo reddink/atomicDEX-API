@@ -1,6 +1,7 @@
 use super::{DispatcherError, DispatcherResult, PUBLIC_METHODS};
 use crate::mm2::lp_native_dex::rpc_command::{mm_init_status, mm_init_user_action};
-use crate::mm2::lp_ordermatch::{orderbook_rpc_v2, start_simple_market_maker_bot, stop_simple_market_maker_bot};
+use crate::mm2::lp_ordermatch::{best_orders_rpc_v2, orderbook_rpc_v2, start_simple_market_maker_bot,
+                                stop_simple_market_maker_bot};
 use crate::mm2::rpc::rate_limiter::{process_rate_limit, RateLimitContext};
 use crate::{mm2::lp_stats::{add_node_to_version_stat, remove_node_from_version_stat, start_version_stat_collection,
                             stop_version_stat_collection, update_version_stat_collection},
@@ -117,6 +118,7 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         "account_balance" => handle_mmrpc(ctx, request, account_balance).await,
         "add_delegation" => handle_mmrpc(ctx, request, add_delegation).await,
         "add_node_to_version_stat" => handle_mmrpc(ctx, request, add_node_to_version_stat).await,
+        "best_orders" => handle_mmrpc(ctx, request, best_orders_rpc_v2).await,
         "enable_bch_with_tokens" => handle_mmrpc(ctx, request, enable_platform_coin_with_tokens::<BchCoin>).await,
         "enable_slp" => handle_mmrpc(ctx, request, enable_token::<SlpToken>).await,
         "get_new_address" => handle_mmrpc(ctx, request, get_new_address).await,

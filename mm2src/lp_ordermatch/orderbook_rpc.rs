@@ -1,9 +1,8 @@
-use super::{subscribe_to_orderbook_topic, OrdermatchContext, RpcOrderbookEntry};
+use super::{orderbook_address, subscribe_to_orderbook_topic, OrdermatchContext, RpcOrderbookEntry};
 use crate::mm2::lp_ordermatch::{addr_format_from_protocol_info, RpcOrderbookEntryV2};
-use coins::utxo::UtxoAddressFormat;
-use coins::{address_by_coin_conf_and_pubkey_str, coin_conf, is_wallet_only_conf, CoinProtocol};
+use coins::{address_by_coin_conf_and_pubkey_str, coin_conf, is_wallet_only_conf};
 use common::log::warn;
-use common::mm_error::prelude::{MapMmError, MapToMmResult};
+use common::mm_error::prelude::*;
 use common::mm_error::MmError;
 use common::mm_number::MmNumberMultiRepr;
 use common::{mm_ctx::MmArc, mm_number::MmNumber, now_ms, HttpStatusCode};
@@ -12,7 +11,7 @@ use derive_more::Display;
 use http::{Response, StatusCode};
 use num_rational::BigRational;
 use num_traits::Zero;
-use serde_json::{self as json, Error, Value as Json};
+use serde_json::{self as json, Value as Json};
 
 #[derive(Deserialize)]
 pub struct OrderbookReq {
@@ -362,62 +361,4 @@ pub async fn orderbook_rpc_v2(
         total_bids_base_vol,
         total_bids_rel_vol,
     })
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "address_type", content = "address_data")]
-pub enum OrderbookAddress {
-    Transparent(String),
-    Shielded,
-}
-
-#[derive(Debug, Display)]
-enum OrderbookAddrErr {
-    AddrFromPubkeyError(String),
-    CoinIsNotSupported(String),
-    DeserializationError(json::Error),
-    InvalidPlatformCoinProtocol(String),
-    PlatformCoinConfIsNull(String),
-}
-
-impl From<json::Error> for OrderbookAddrErr {
-    fn from(err: Error) -> Self { OrderbookAddrErr::DeserializationError(err) }
-}
-
-fn orderbook_address(
-    ctx: &MmArc,
-    coin: &str,
-    conf: &Json,
-    pubkey: &str,
-    addr_format: UtxoAddressFormat,
-) -> Result<OrderbookAddress, MmError<OrderbookAddrErr>> {
-    let protocol: CoinProtocol = json::from_value(conf["protocol"].clone())?;
-    match protocol {
-        CoinProtocol::ERC20 { .. } | CoinProtocol::ETH => coins::eth::addr_from_pubkey_str(pubkey)
-            .map(OrderbookAddress::Transparent)
-            .map_to_mm(OrderbookAddrErr::AddrFromPubkeyError),
-        CoinProtocol::UTXO | CoinProtocol::QTUM | CoinProtocol::QRC20 { .. } | CoinProtocol::BCH { .. } => {
-            coins::utxo::address_by_conf_and_pubkey_str(coin, conf, pubkey, addr_format)
-                .map(OrderbookAddress::Transparent)
-                .map_to_mm(OrderbookAddrErr::AddrFromPubkeyError)
-        },
-        CoinProtocol::SLPTOKEN { platform, .. } => {
-            let platform_conf = coin_conf(ctx, &platform);
-            if platform_conf.is_null() {
-                return MmError::err(OrderbookAddrErr::PlatformCoinConfIsNull(platform));
-            }
-            // TODO is there any way to make it better without duplicating the prefix in the SLP conf?
-            let platform_protocol: CoinProtocol = json::from_value(platform_conf["protocol"].clone())?;
-            match platform_protocol {
-                CoinProtocol::BCH { slp_prefix } => coins::utxo::slp::slp_addr_from_pubkey_str(pubkey, &slp_prefix)
-                    .map(OrderbookAddress::Transparent)
-                    .mm_err(|e| OrderbookAddrErr::AddrFromPubkeyError(e.to_string())),
-                _ => MmError::err(OrderbookAddrErr::InvalidPlatformCoinProtocol(platform)),
-            }
-        },
-        #[cfg(not(target_arch = "wasm32"))]
-        CoinProtocol::LIGHTNING { .. } => MmError::err(OrderbookAddrErr::CoinIsNotSupported(coin.to_owned())),
-        #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
-        CoinProtocol::ZHTLC => Ok(OrderbookAddress::Shielded),
-    }
 }

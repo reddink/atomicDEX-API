@@ -23,8 +23,8 @@ use best_orders::BestOrdersAction;
 use bigdecimal::BigDecimal;
 use blake2::digest::{Update, VariableOutput};
 use blake2::VarBlake2b;
-use coins::utxo::{compressed_pub_key_from_priv_raw, ChecksumType};
-use coins::{find_pair, lp_coinfind, BalanceTradeFeeUpdatedHandler, FeeApproxStage, MmCoinEnum};
+use coins::utxo::{compressed_pub_key_from_priv_raw, ChecksumType, UtxoAddressFormat};
+use coins::{coin_conf, find_pair, lp_coinfind, BalanceTradeFeeUpdatedHandler, CoinProtocol, FeeApproxStage, MmCoinEnum};
 use common::executor::{spawn, Timer};
 use common::log::{error, LogOnError};
 use common::mm_ctx::{from_ctx, MmArc, MmWeak};
@@ -66,7 +66,7 @@ use crate::mm2::lp_swap::{calc_max_maker_vol, check_balance_for_maker_swap, chec
                           lp_atomic_locktime, run_maker_swap, run_taker_swap, AtomicLocktimeVersion, MakerSwap,
                           RunMakerSwapInput, RunTakerSwapInput, SwapConfirmationsSettings, TakerSwap};
 
-pub use best_orders::best_orders_rpc;
+pub use best_orders::{best_orders_rpc, best_orders_rpc_v2};
 use my_orders_storage::{delete_my_maker_order, delete_my_taker_order, save_maker_order_on_update,
                         save_my_new_maker_order, save_my_new_taker_order, MyActiveOrders, MyOrdersFilteringHistory,
                         MyOrdersHistory, MyOrdersStorage};
@@ -82,7 +82,6 @@ cfg_wasm32! {
 
 #[path = "lp_ordermatch/best_orders.rs"] mod best_orders;
 #[path = "lp_ordermatch/lp_bot.rs"] mod lp_bot;
-use crate::mm2::lp_ordermatch::orderbook_rpc::OrderbookAddress;
 pub use lp_bot::{process_price_request, start_simple_market_maker_bot, stop_simple_market_maker_bot,
                  StartSimpleMakerBotRequest, TradingBotEvent, KMD_PRICE_ENDPOINT};
 
@@ -3702,6 +3701,36 @@ impl OrderbookP2PItem {
         }
     }
 
+    fn as_rpc_best_orders_buy_v2(
+        &self,
+        address: OrderbookAddress,
+        conf_settings: Option<&OrderConfirmationsSettings>,
+        is_mine: bool,
+    ) -> RpcOrderbookEntryV2 {
+        let price_mm = MmNumber::from(self.price.clone());
+        let max_vol_mm = MmNumber::from(self.max_volume.clone());
+        let min_vol_mm = MmNumber::from(self.min_volume.clone());
+
+        let base_max_volume = max_vol_mm.clone().into();
+        let base_min_volume = min_vol_mm.clone().into();
+        let rel_max_volume = (&max_vol_mm * &price_mm).into();
+        let rel_min_volume = (&min_vol_mm * &price_mm).into();
+
+        RpcOrderbookEntryV2 {
+            coin: self.rel.clone(),
+            address,
+            price: price_mm.into(),
+            pubkey: self.pubkey.clone(),
+            uuid: self.uuid,
+            is_mine,
+            base_max_volume,
+            base_min_volume,
+            rel_max_volume,
+            rel_min_volume,
+            conf_settings: conf_settings.cloned(),
+        }
+    }
+
     fn as_rpc_best_orders_sell(
         &self,
         address: String,
@@ -3733,6 +3762,37 @@ impl OrderbookP2PItem {
             pubkey: self.pubkey.clone(),
             age: (now_ms() as i64 / 1000),
             zcredits: 0,
+            uuid: self.uuid,
+            is_mine,
+            base_max_volume,
+            base_min_volume,
+            rel_max_volume,
+            rel_min_volume,
+            conf_settings,
+        }
+    }
+
+    fn as_rpc_best_orders_sell_v2(
+        &self,
+        address: OrderbookAddress,
+        conf_settings: Option<&OrderConfirmationsSettings>,
+        is_mine: bool,
+    ) -> RpcOrderbookEntryV2 {
+        let price_mm = MmNumber::from(1i32) / self.price.clone().into();
+        let max_vol_mm = MmNumber::from(self.max_volume.clone());
+        let min_vol_mm = MmNumber::from(self.min_volume.clone());
+
+        let base_max_volume = (&max_vol_mm / &price_mm).into();
+        let base_min_volume = (&min_vol_mm / &price_mm).into();
+        let rel_max_volume = max_vol_mm.into();
+        let rel_min_volume = min_vol_mm.into();
+        let conf_settings = conf_settings.map(|conf| conf.reversed());
+
+        RpcOrderbookEntryV2 {
+            coin: self.base.clone(),
+            address,
+            price: price_mm.into(),
+            pubkey: self.pubkey.clone(),
             uuid: self.uuid,
             is_mine,
             base_max_volume,
@@ -5367,5 +5427,63 @@ fn choose_taker_confs_and_notas(
         maker_coin_nota,
         taker_coin_confs,
         taker_coin_nota,
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "address_type", content = "address_data")]
+pub enum OrderbookAddress {
+    Transparent(String),
+    Shielded,
+}
+
+#[derive(Debug, Display)]
+enum OrderbookAddrErr {
+    AddrFromPubkeyError(String),
+    CoinIsNotSupported(String),
+    DeserializationError(json::Error),
+    InvalidPlatformCoinProtocol(String),
+    PlatformCoinConfIsNull(String),
+}
+
+impl From<json::Error> for OrderbookAddrErr {
+    fn from(err: json::Error) -> Self { OrderbookAddrErr::DeserializationError(err) }
+}
+
+fn orderbook_address(
+    ctx: &MmArc,
+    coin: &str,
+    conf: &Json,
+    pubkey: &str,
+    addr_format: UtxoAddressFormat,
+) -> Result<OrderbookAddress, MmError<OrderbookAddrErr>> {
+    let protocol: CoinProtocol = json::from_value(conf["protocol"].clone())?;
+    match protocol {
+        CoinProtocol::ERC20 { .. } | CoinProtocol::ETH => coins::eth::addr_from_pubkey_str(pubkey)
+            .map(OrderbookAddress::Transparent)
+            .map_to_mm(OrderbookAddrErr::AddrFromPubkeyError),
+        CoinProtocol::UTXO | CoinProtocol::QTUM | CoinProtocol::QRC20 { .. } | CoinProtocol::BCH { .. } => {
+            coins::utxo::address_by_conf_and_pubkey_str(coin, conf, pubkey, addr_format)
+                .map(OrderbookAddress::Transparent)
+                .map_to_mm(OrderbookAddrErr::AddrFromPubkeyError)
+        },
+        CoinProtocol::SLPTOKEN { platform, .. } => {
+            let platform_conf = coin_conf(ctx, &platform);
+            if platform_conf.is_null() {
+                return MmError::err(OrderbookAddrErr::PlatformCoinConfIsNull(platform));
+            }
+            // TODO is there any way to make it better without duplicating the prefix in the SLP conf?
+            let platform_protocol: CoinProtocol = json::from_value(platform_conf["protocol"].clone())?;
+            match platform_protocol {
+                CoinProtocol::BCH { slp_prefix } => coins::utxo::slp::slp_addr_from_pubkey_str(pubkey, &slp_prefix)
+                    .map(OrderbookAddress::Transparent)
+                    .mm_err(|e| OrderbookAddrErr::AddrFromPubkeyError(e.to_string())),
+                _ => MmError::err(OrderbookAddrErr::InvalidPlatformCoinProtocol(platform)),
+            }
+        },
+        #[cfg(not(target_arch = "wasm32"))]
+        CoinProtocol::LIGHTNING { .. } => MmError::err(OrderbookAddrErr::CoinIsNotSupported(coin.to_owned())),
+        #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
+        CoinProtocol::ZHTLC => Ok(OrderbookAddress::Shielded),
     }
 }

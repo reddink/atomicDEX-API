@@ -1,4 +1,5 @@
 use super::*;
+use common::for_tests::best_orders_v2;
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
@@ -636,4 +637,104 @@ fn test_best_orders_address_and_confirmations() {
 
     block_on(mm_bob.stop()).unwrap();
     block_on(mm_alice.stop()).unwrap();
+}
+
+#[cfg(feature = "zhtlc")]
+#[test]
+fn zhtlc_best_orders() {
+    let bob_passphrase = get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap();
+    let alice_passphrase = get_passphrase!(".env.client", "ALICE_PASSPHRASE").unwrap();
+
+    let coins = json!([
+        {"coin":"RICK","asset":"RICK","required_confirmations":0,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"}},
+        {"coin":"ZOMBIE","asset":"ZOMBIE","fname":"ZOMBIE (TESTCOIN)","txversion":4,"overwintered":1,"mm2":1,"protocol":{"type":"ZHTLC"},"required_confirmations":0}
+    ]);
+
+    let mm_bob = MarketMakerIt::start(
+        json!({
+            "gui": "nogui",
+            "netid": 9998,
+            "myipaddr": env::var ("BOB_TRADE_IP") .ok(),
+            "rpcip": env::var ("BOB_TRADE_IP") .ok(),
+            "canbind": env::var ("BOB_TRADE_PORT") .ok().map (|s| s.parse::<i64>().unwrap()),
+            "passphrase": bob_passphrase,
+            "coins": coins,
+            "rpc_password": "pass",
+            "i_am_seed": true,
+        }),
+        "pass".into(),
+        match var("LOCAL_THREAD_MM") {
+            Ok(ref e) if e == "bob" => Some(local_start()),
+            _ => None,
+        },
+    )
+    .unwrap();
+
+    let (_dump_log, _dump_dashboard) = mm_bob.mm_dump();
+    log!({"Bob log path: {}", mm_bob.log_path.display()});
+
+    let rmd = rmd160_from_passphrase(&bob_passphrase);
+    let bob_zombie_cache_path = mm_bob.folder.join("DB").join(hex::encode(rmd)).join("ZOMBIE_CACHE.db");
+    log!("bob_zombie_cache_path "(bob_zombie_cache_path.display()));
+    std::fs::copy("./mm2src/coins/for_tests/ZOMBIE_CACHE.db", bob_zombie_cache_path).unwrap();
+
+    block_on(enable_electrum_json(&mm_bob, "RICK", false, rick_electrums()));
+    block_on(enable_native(&mm_bob, "ZOMBIE", &[]));
+
+    let set_price_json = json!({
+        "userpass": mm_bob.userpass,
+        "method": "setprice",
+        "base": "ZOMBIE",
+        "rel": "RICK",
+        "price": 1,
+        "volume": "1",
+    });
+    log!("Issue sell request on Bob side by setting base/rel price…");
+    let rc = block_on(mm_bob.rpc(&set_price_json)).unwrap();
+    assert!(rc.0.is_success(), "!setprice: {}", rc.1);
+
+    let bob_set_price_res: SetPriceResponse = json::from_str(&rc.1).unwrap();
+
+    let mm_alice = MarketMakerIt::start(
+        json!({
+            "gui": "nogui",
+            "netid": 9998,
+            "dht": "on",  // Enable DHT without delay.
+            "myipaddr": env::var ("ALICE_TRADE_IP") .ok(),
+            "rpcip": env::var ("ALICE_TRADE_IP") .ok(),
+            "passphrase": alice_passphrase,
+            "coins": coins,
+            "seednodes": [fomat!((mm_bob.ip))],
+            "rpc_password": "pass",
+        }),
+        "pass".into(),
+        match var("LOCAL_THREAD_MM") {
+            Ok(ref e) if e == "alice" => Some(local_start()),
+            _ => None,
+        },
+    )
+    .unwrap();
+
+    let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
+    log!({"Alice log path: {}", mm_alice.log_path.display()});
+
+    let best_orders = block_on(best_orders_v2(&mm_alice, "RICK", "sell", "1"));
+    let best_orders: RpcV2Response<BestOrdersV2Response> = json::from_value(best_orders).unwrap();
+    let zombie_best_orders = best_orders.result.orders.get("ZOMBIE").unwrap();
+
+    assert_eq!(1, zombie_best_orders.len());
+    zombie_best_orders
+        .iter()
+        .find(|order| order.uuid == bob_set_price_res.result.uuid)
+        .unwrap();
+
+    let best_orders = block_on(best_orders_v2(&mm_alice, "ZOMBIE", "buy", "1"));
+    let best_orders: RpcV2Response<BestOrdersV2Response> = json::from_value(best_orders).unwrap();
+    let rick_best_orders = best_orders.result.orders.get("RICK").unwrap();
+
+    assert_eq!(1, rick_best_orders.len());
+    rick_best_orders
+        .iter()
+        .find(|order| order.uuid == bob_set_price_res.result.uuid)
+        .unwrap();
 }

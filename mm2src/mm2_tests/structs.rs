@@ -772,3 +772,10 @@ pub struct OrderbookV2Response {
     pub total_bids_base_vol: MmNumberMultiRepr,
     pub total_bids_rel_vol: MmNumberMultiRepr,
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BestOrdersV2Response {
+    pub orders: HashMap<String, Vec<RpcOrderbookEntryV2>>,
+    pub original_tickers: HashMap<String, HashSet<String>>,
+}
