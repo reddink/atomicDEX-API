@@ -22,6 +22,8 @@ use common::mm_error::prelude::*;
 use common::mm_number::{BigDecimal, MmNumber};
 use common::privkey::key_pair_from_secret;
 use common::{log, now_ms};
+use db_common::sqlite::rusqlite::types::Type;
+use db_common::sqlite::rusqlite::{Connection, Error as SqliteError, Row, ToSql, NO_PARAMS};
 use futures::compat::Future01CompatExt;
 use futures::lock::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 use futures::{FutureExt, TryFutureExt};
@@ -30,8 +32,6 @@ use keys::hash::H256;
 use keys::{KeyPair, Public};
 use primitives::bytes::Bytes;
 use rpc::v1::types::{Bytes as BytesJson, Transaction as RpcTransaction, H256 as H256Json};
-use rusqlite::types::Type;
-use rusqlite::{Connection, Error as SqliteError, Row, ToSql, NO_PARAMS};
 use script::{Builder as ScriptBuilder, Opcode, Script, TransactionInputSigner};
 use serde_json::Value as Json;
 use serialization::{deserialize, serialize_list, CoinVariant, Reader};
@@ -65,7 +65,8 @@ use z_rpc::{ZRpcOps, ZUnspent};
 mod z_coin_errors;
 use z_coin_errors::*;
 
-#[cfg(test)] mod z_coin_tests;
+#[cfg(all(test, feature = "zhtlc-native-tests"))]
+mod z_coin_tests;
 
 #[derive(Debug, Clone)]
 pub struct ARRRConsensusParams {}
@@ -637,7 +638,7 @@ impl<'a> UtxoCoinWithIguanaPrivKeyBuilder for ZCoinBuilder<'a> {
             .expect("DEX_FEE_Z_ADDR is a valid z-address")
             .expect("DEX_FEE_Z_ADDR is a valid z-address");
 
-        let z_tx_prover = LocalTxProver::bundled();
+        let z_tx_prover = LocalTxProver::with_default_location().or_mm_err(|| ZCoinBuildError::ZCashParamsNotFound)?;
         let my_z_addr_encoded = encode_payment_address(z_mainnet_constants::HRP_SAPLING_PAYMENT_ADDRESS, &my_z_addr);
         let my_z_key_encoded = encode_extended_spending_key(
             z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY,

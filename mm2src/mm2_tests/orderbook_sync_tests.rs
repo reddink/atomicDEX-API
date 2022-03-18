@@ -1313,7 +1313,7 @@ fn setprice_min_volume_should_be_displayed_in_orderbook() {
     assert_eq!(min_volume, "1", "Alice ETH/JST ask must display correct min_volume");
 }
 
-#[cfg(feature = "zhtlc")]
+#[cfg(feature = "zhtlc-native-tests")]
 #[test]
 fn zhtlc_orders_sync_alice_connected_before_creation() {
     let bob_passphrase = get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap();
@@ -1417,7 +1417,7 @@ fn zhtlc_orders_sync_alice_connected_before_creation() {
         .unwrap();
 }
 
-#[cfg(feature = "zhtlc")]
+#[cfg(feature = "zhtlc-native-tests")]
 #[test]
 fn zhtlc_orders_sync_alice_connected_after_creation() {
     let bob_passphrase = get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap();

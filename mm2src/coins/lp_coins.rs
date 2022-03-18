@@ -59,7 +59,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use utxo_signer::with_key_pair::UtxoSignWithKeyPairError;
-#[cfg(feature = "zhtlc")]
 use zcash_primitives::transaction::Transaction as ZTransaction;
 
 cfg_native! {
@@ -116,8 +115,7 @@ pub mod sql_tx_history_storage;
 pub mod test_coin;
 #[cfg(target_arch = "wasm32")] pub mod tx_history_db;
 pub mod utxo;
-#[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
-pub mod z_coin;
+#[cfg(not(target_arch = "wasm32"))] pub mod z_coin;
 
 use eth::{eth_coin_from_conf_and_request, EthCoin, EthTxFeeDetails, SignedEthTx};
 use hd_wallet::{HDAddress, HDAddressId};
@@ -136,7 +134,7 @@ use utxo::utxo_common::big_decimal_from_sat_unsigned;
 use utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
 use utxo::UtxoActivationParams;
 use utxo::{BlockchainNetwork, GenerateTxError, UtxoFeeDetails, UtxoTx};
-#[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
+#[cfg(not(target_arch = "wasm32"))]
 use z_coin::{z_coin_from_conf_and_params, ZCoin};
 
 pub use test_coin::TestCoin;
@@ -191,12 +189,10 @@ pub trait Transaction: fmt::Debug + 'static {
 pub enum TransactionEnum {
     UtxoTx(UtxoTx),
     SignedEthTx(SignedEthTx),
-    #[cfg(feature = "zhtlc")]
     ZTransaction(ZTransaction),
 }
 ifrom!(TransactionEnum, UtxoTx);
 ifrom!(TransactionEnum, SignedEthTx);
-#[cfg(feature = "zhtlc")]
 ifrom!(TransactionEnum, ZTransaction);
 
 // NB: When stable and groked by IDEs, `enum_dispatch` can be used instead of `Deref` to speed things up.
@@ -206,7 +202,6 @@ impl Deref for TransactionEnum {
         match self {
             TransactionEnum::UtxoTx(ref t) => t,
             TransactionEnum::SignedEthTx(ref t) => t,
-            #[cfg(feature = "zhtlc")]
             TransactionEnum::ZTransaction(ref t) => t,
         }
     }
@@ -1420,7 +1415,7 @@ pub enum MmCoinEnum {
     QtumCoin(QtumCoin),
     Qrc20Coin(Qrc20Coin),
     EthCoin(EthCoin),
-    #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
+    #[cfg(not(target_arch = "wasm32"))]
     ZCoin(ZCoin),
     Bch(BchCoin),
     SlpToken(SlpToken),
@@ -1462,7 +1457,7 @@ impl From<LightningCoin> for MmCoinEnum {
     fn from(c: LightningCoin) -> MmCoinEnum { MmCoinEnum::LightningCoin(Box::new(c)) }
 }
 
-#[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
+#[cfg(not(target_arch = "wasm32"))]
 impl From<ZCoin> for MmCoinEnum {
     fn from(c: ZCoin) -> MmCoinEnum { MmCoinEnum::ZCoin(c) }
 }
@@ -1480,7 +1475,7 @@ impl Deref for MmCoinEnum {
             MmCoinEnum::SlpToken(ref c) => c,
             #[cfg(not(target_arch = "wasm32"))]
             MmCoinEnum::LightningCoin(ref c) => &**c,
-            #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
+            #[cfg(not(target_arch = "wasm32"))]
             MmCoinEnum::ZCoin(ref c) => c,
             MmCoinEnum::Test(ref c) => c,
         }
@@ -1675,7 +1670,7 @@ pub enum CoinProtocol {
         network: BlockchainNetwork,
         confirmations: PlatformCoinConfirmations,
     },
-    #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
+    #[cfg(not(target_arch = "wasm32"))]
     ZHTLC,
 }
 
@@ -1917,7 +1912,7 @@ pub async fn lp_coininit(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoin
             let token = SlpToken::new(*decimals, ticker.into(), (*token_id).into(), platform_coin, confs);
             token.into()
         },
-        #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
+        #[cfg(not(target_arch = "wasm32"))]
         CoinProtocol::ZHTLC => {
             let dbdir = ctx.dbdir();
             let params = try_s!(UtxoActivationParams::from_legacy_req(req));
@@ -2492,7 +2487,7 @@ pub fn address_by_coin_conf_and_pubkey_str(
         CoinProtocol::LIGHTNING { .. } => {
             ERR!("address_by_coin_conf_and_pubkey_str is not implemented for lightning protocol yet!")
         },
-        #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
+        #[cfg(not(target_arch = "wasm32"))]
         CoinProtocol::ZHTLC => ERR!("address_by_coin_conf_and_pubkey_str is not supported for ZHTLC protocol!"),
     }
 }

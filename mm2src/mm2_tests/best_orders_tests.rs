@@ -639,7 +639,7 @@ fn test_best_orders_address_and_confirmations() {
     block_on(mm_alice.stop()).unwrap();
 }
 
-#[cfg(feature = "zhtlc")]
+#[cfg(feature = "zhtlc-native-tests")]
 #[test]
 fn zhtlc_best_orders() {
     let bob_passphrase = get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap();

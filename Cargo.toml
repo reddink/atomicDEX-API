@@ -12,8 +12,8 @@ default-run = "mm2"
 [features]
 # Deprecated
 native = []
-zhtlc = ["coins/zhtlc"]
 track-ctx-pointer = ["common/track-ctx-pointer"]
+zhtlc-native-tests = ["coins/zhtlc-native-tests"]
 
 [[bin]]
 name = "mm2"
