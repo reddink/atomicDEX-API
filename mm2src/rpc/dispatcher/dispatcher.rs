@@ -35,6 +35,7 @@ cfg_native! {
     use coins::lightning::{close_channel, connect_to_lightning_node, generate_invoice, get_channel_details,
         get_claimable_balances, get_payment_details, list_channels, list_payments, open_channel,
         send_payment, LightningCoin};
+    use coins::z_coin::ZCoin;
 }
 
 pub async fn process_single_request(
@@ -162,6 +163,9 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
             "get_channel_details" => handle_mmrpc(ctx, request, get_channel_details).await,
             "get_claimable_balances" => handle_mmrpc(ctx, request, get_claimable_balances).await,
             "get_payment_details" => handle_mmrpc(ctx, request, get_payment_details).await,
+            "init_zcoin" => handle_mmrpc(ctx, request, init_standalone_coin::<ZCoin>).await,
+            "init_zcoin_status" => handle_mmrpc(ctx, request, init_standalone_coin_status::<ZCoin>).await,
+            "init_zcoin_user_action" => handle_mmrpc(ctx, request, init_standalone_coin_user_action::<ZCoin>).await,
             "list_channels" => handle_mmrpc(ctx, request, list_channels).await,
             "list_payments" => handle_mmrpc(ctx, request, list_payments).await,
             "open_channel" => handle_mmrpc(ctx, request, open_channel).await,

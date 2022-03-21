@@ -134,8 +134,7 @@ use utxo::utxo_common::big_decimal_from_sat_unsigned;
 use utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
 use utxo::UtxoActivationParams;
 use utxo::{BlockchainNetwork, GenerateTxError, UtxoFeeDetails, UtxoTx};
-#[cfg(not(target_arch = "wasm32"))]
-use z_coin::{z_coin_from_conf_and_params, ZCoin};
+#[cfg(not(target_arch = "wasm32"))] use z_coin::ZCoin;
 
 pub use test_coin::TestCoin;
 
@@ -1916,11 +1915,7 @@ pub async fn lp_coininit(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoin
             token.into()
         },
         #[cfg(not(target_arch = "wasm32"))]
-        CoinProtocol::ZHTLC => {
-            let dbdir = ctx.dbdir();
-            let params = try_s!(UtxoActivationParams::from_legacy_req(req));
-            try_s!(z_coin_from_conf_and_params(ctx, ticker, &coins_en, &params, &secret, dbdir).await).into()
-        },
+        CoinProtocol::ZHTLC => return ERR!("ZHTLC protocol is not supported by lp_coininit"),
         #[cfg(not(target_arch = "wasm32"))]
         CoinProtocol::LIGHTNING { .. } => return ERR!("Lightning protocol is not supported by lp_coininit"),
     };
