@@ -1,3 +1,4 @@
+use coins::utxo::UtxoActivationParams;
 use coins::{coin_conf, CoinBalance, CoinProtocol, MmCoinEnum};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
@@ -7,6 +8,10 @@ use std::collections::HashMap;
 
 pub trait TxHistoryEnabled {
     fn tx_history_enabled(&self) -> bool;
+}
+
+impl TxHistoryEnabled for UtxoActivationParams {
+    fn tx_history_enabled(&self) -> bool { self.tx_history }
 }
 
 #[derive(Clone, Debug, Serialize)]

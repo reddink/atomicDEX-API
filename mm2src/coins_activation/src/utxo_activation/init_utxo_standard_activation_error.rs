@@ -1,4 +1,4 @@
-use crate::standalone_coin::InitStandaloneCoinError;
+use crate::standalone_coin::{FromRegisterErr, InitStandaloneCoinError};
 use coins::utxo::utxo_builder::UtxoCoinBuildError;
 use coins::RegisterCoinError;
 use crypto::CryptoInitError;
@@ -63,6 +63,20 @@ impl InitUtxoStandardError {
                 ticker,
                 error: build_err.to_string(),
             },
+        }
+    }
+}
+
+impl FromRegisterErr for InitUtxoStandardError {
+    fn from_register_err(reg_err: RegisterCoinError, ticker: String) -> InitUtxoStandardError {
+        match reg_err {
+            RegisterCoinError::CoinIsInitializedAlready { coin } => {
+                InitUtxoStandardError::CoinIsAlreadyActivated { ticker: coin }
+            },
+            RegisterCoinError::ErrorGettingBlockCount(error) => {
+                InitUtxoStandardError::CoinCreationError { ticker, error }
+            },
+            RegisterCoinError::Internal(internal) => InitUtxoStandardError::Internal(internal),
         }
     }
 }

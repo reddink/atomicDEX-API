@@ -1,6 +1,6 @@
 use crate::context::CoinsActivationContext;
-use crate::prelude::TryFromCoinProtocol;
-use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinError,
+use crate::prelude::{TryFromCoinProtocol, TxHistoryEnabled};
+use crate::standalone_coin::{FromRegisterErr, InitStandaloneCoinActivationOps, InitStandaloneCoinError,
                              InitStandaloneCoinInitialStatus, InitStandaloneCoinTaskHandle,
                              InitStandaloneCoinTaskManagerShared};
 use async_trait::async_trait;
@@ -9,7 +9,7 @@ use coins::hd_pubkey::RpcTaskXPubExtractor;
 use coins::utxo::rpc_clients::ElectrumRpcRequest;
 use coins::utxo::utxo_builder::UtxoArcBuilder;
 use coins::z_coin::ZCoin;
-use coins::{lp_register_coin, CoinProtocol, MmCoinEnum, PrivKeyBuildPolicy, RegisterCoinParams};
+use coins::{CoinProtocol, MmCoinEnum, PrivKeyBuildPolicy, RegisterCoinError, RegisterCoinParams};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use crypto::hw_rpc_task::{HwRpcTaskAwaitingStatus, HwRpcTaskUserAction};
@@ -61,9 +61,35 @@ pub struct ZcoinActivationParams {
     pub required_confirmations: Option<u64>,
 }
 
+impl TxHistoryEnabled for ZcoinActivationParams {
+    fn tx_history_enabled(&self) -> bool { false }
+}
+
 #[derive(Clone, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
-pub enum ZcoinInitError {}
+pub enum ZcoinInitError {
+    #[display(fmt = "Error on coin {} creation: {}", ticker, error)]
+    CoinCreationError {
+        ticker: String,
+        error: String,
+    },
+    CoinIsAlreadyActivated {
+        ticker: String,
+    },
+    Internal(String),
+}
+
+impl FromRegisterErr for ZcoinInitError {
+    fn from_register_err(reg_err: RegisterCoinError, ticker: String) -> ZcoinInitError {
+        match reg_err {
+            RegisterCoinError::CoinIsInitializedAlready { coin } => {
+                ZcoinInitError::CoinIsAlreadyActivated { ticker: coin }
+            },
+            RegisterCoinError::ErrorGettingBlockCount(error) => ZcoinInitError::CoinCreationError { ticker, error },
+            RegisterCoinError::Internal(internal) => ZcoinInitError::Internal(internal),
+        }
+    }
+}
 
 impl From<ZcoinInitError> for InitStandaloneCoinError {
     fn from(_: ZcoinInitError) -> Self { todo!() }

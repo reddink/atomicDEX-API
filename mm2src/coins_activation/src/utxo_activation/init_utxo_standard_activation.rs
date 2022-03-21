@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use coins::utxo::utxo_builder::{UtxoArcBuilder, UtxoCoinBuilder};
 use coins::utxo::utxo_standard::UtxoStandardCoin;
 use coins::utxo::UtxoActivationParams;
-use coins::{lp_register_coin, CoinProtocol, MmCoinEnum, PrivKeyBuildPolicy, RegisterCoinParams};
+use coins::{CoinProtocol, PrivKeyBuildPolicy};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use serde_json::Value as Json;
@@ -56,7 +56,6 @@ impl InitStandaloneCoinActivationOps for UtxoStandardCoin {
         priv_key_policy: PrivKeyBuildPolicy<'_>,
         _task_handle: &UtxoStandardRpcTaskHandle,
     ) -> MmResult<Self, InitUtxoStandardError> {
-        let tx_history = activation_request.tx_history;
         let coin = UtxoArcBuilder::new(
             &ctx,
             &ticker,
@@ -68,12 +67,6 @@ impl InitStandaloneCoinActivationOps for UtxoStandardCoin {
         .build()
         .await
         .mm_err(|e| InitUtxoStandardError::from_build_err(e, ticker.clone()))?;
-        lp_register_coin(&ctx, MmCoinEnum::from(coin.clone()), RegisterCoinParams {
-            ticker: ticker.clone(),
-            tx_history,
-        })
-        .await
-        .mm_err(|e| InitUtxoStandardError::from_register_err(e, ticker))?;
         Ok(coin)
     }
 

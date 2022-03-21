@@ -1,9 +1,9 @@
 use crate::context::CoinsActivationContext;
-use crate::prelude::{coin_conf_with_protocol, TryFromCoinProtocol};
+use crate::prelude::{coin_conf_with_protocol, TryFromCoinProtocol, TxHistoryEnabled};
 use crate::standalone_coin::init_standalone_coin_error::{InitStandaloneCoinError, InitStandaloneCoinStatusError,
                                                          InitStandaloneCoinUserActionError};
 use async_trait::async_trait;
-use coins::{lp_coinfind, lp_register_coin, MmCoinEnum, PrivKeyBuildPolicy, RegisterCoinParams};
+use coins::{lp_coinfind, lp_register_coin, MmCoinEnum, PrivKeyBuildPolicy, RegisterCoinError, RegisterCoinParams};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::{NotSame, SuccessResponse};
@@ -29,11 +29,18 @@ pub struct InitStandaloneCoinReq<T> {
 
 #[async_trait]
 pub trait InitStandaloneCoinActivationOps: Into<MmCoinEnum> + Send + Sync + 'static {
-    type ActivationRequest: Sync + Send;
+    type ActivationRequest: TxHistoryEnabled + Sync + Send;
     type StandaloneProtocol: TryFromCoinProtocol + Send;
     // The following types are related to `RpcTask` management.
     type ActivationResult: serde::Serialize + Clone + Send + Sync + 'static;
-    type ActivationError: Into<InitStandaloneCoinError> + SerMmErrorType + NotMmError + Clone + Send + Sync + 'static;
+    type ActivationError: FromRegisterErr
+        + Into<InitStandaloneCoinError>
+        + SerMmErrorType
+        + NotMmError
+        + Clone
+        + Send
+        + Sync
+        + 'static;
     type InProgressStatus: InitStandaloneCoinInitialStatus + serde::Serialize + Clone + Send + Sync + 'static;
     type AwaitingStatus: serde::Serialize + Clone + Send + Sync + 'static;
     type UserAction: serde::de::DeserializeOwned + NotMmError + Send + Sync + 'static;
@@ -157,10 +164,11 @@ where
     }
 
     async fn run(self, task_handle: &RpcTaskHandle<Self>) -> Result<Self::Item, MmError<Self::Error>> {
+        let ticker = self.request.ticker.clone();
         let priv_key_policy = PrivKeyBuildPolicy::from_crypto_ctx(&self.crypto_ctx);
         let coin = Standalone::init_standalone_coin(
             self.ctx.clone(),
-            self.request.ticker,
+            self.request.ticker.clone(),
             self.coin_conf,
             &self.request.activation_params,
             self.protocol_info,
@@ -170,17 +178,17 @@ where
         .await?;
 
         let result = coin
-            .get_activation_result(self.ctx, task_handle, &self.request.activation_params)
+            .get_activation_result(self.ctx.clone(), task_handle, &self.request.activation_params)
             .await?;
 
-        let tx_history = self.request.tx_history();
+        let tx_history = self.request.activation_params.tx_history_enabled();
 
-        lp_register_coin(&self.ctx, MmCoinEnum::from(coin.clone()), RegisterCoinParams {
-            ticker: self.request.ticker.clone(),
+        lp_register_coin(&self.ctx, coin.into(), RegisterCoinParams {
+            ticker: ticker.clone(),
             tx_history,
         })
         .await
-        .mm_err(|e| Self::Error::from_register_err(e, self.request.ticker))?;
+        .mm_err(|e| Self::Error::from_register_err(e, ticker))?;
 
         Ok(result)
     }
@@ -188,4 +196,8 @@ where
 
 pub trait InitStandaloneCoinInitialStatus {
     fn initial_status() -> Self;
+}
+
+pub trait FromRegisterErr {
+    fn from_register_err(e: RegisterCoinError, ticker: String) -> Self;
 }

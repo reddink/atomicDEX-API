@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use coins::utxo::qtum::{QtumCoin, QtumCoinBuilder};
 use coins::utxo::utxo_builder::UtxoCoinBuilder;
 use coins::utxo::UtxoActivationParams;
-use coins::{lp_register_coin, CoinProtocol, MmCoinEnum, PrivKeyBuildPolicy, RegisterCoinParams};
+use coins::{CoinProtocol, PrivKeyBuildPolicy};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use serde_json::Value as Json;
