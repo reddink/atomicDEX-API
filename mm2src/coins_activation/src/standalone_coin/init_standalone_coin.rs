@@ -3,7 +3,7 @@ use crate::prelude::{coin_conf_with_protocol, TryFromCoinProtocol};
 use crate::standalone_coin::init_standalone_coin_error::{InitStandaloneCoinError, InitStandaloneCoinStatusError,
                                                          InitStandaloneCoinUserActionError};
 use async_trait::async_trait;
-use coins::{lp_coinfind, MmCoinEnum, PrivKeyBuildPolicy};
+use coins::{lp_coinfind, lp_register_coin, MmCoinEnum, PrivKeyBuildPolicy, RegisterCoinParams};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::{NotSame, SuccessResponse};
@@ -169,8 +169,20 @@ where
         )
         .await?;
 
-        coin.get_activation_result(self.ctx, task_handle, &self.request.activation_params)
-            .await
+        let result = coin
+            .get_activation_result(self.ctx, task_handle, &self.request.activation_params)
+            .await?;
+
+        let tx_history = self.request.tx_history();
+
+        lp_register_coin(&self.ctx, MmCoinEnum::from(coin.clone()), RegisterCoinParams {
+            ticker: self.request.ticker.clone(),
+            tx_history,
+        })
+        .await
+        .mm_err(|e| Self::Error::from_register_err(e, self.request.ticker))?;
+
+        Ok(result)
     }
 }
 

@@ -101,7 +101,7 @@ impl InitStandaloneCoinActivationOps for ZCoin {
         ctx: MmArc,
         ticker: String,
         coin_conf: Json,
-        activation_request: Self::ActivationRequest,
+        activation_request: &Self::ActivationRequest,
         _protocol_info: Self::StandaloneProtocol,
         priv_key_policy: PrivKeyBuildPolicy<'_>,
         task_handle: &ZcoinRpcTaskHandle,
@@ -137,7 +137,9 @@ impl InitStandaloneCoinActivationOps for ZCoin {
 
     async fn get_activation_result(
         &self,
+        ctx: MmArc,
         task_handle: &ZcoinRpcTaskHandle,
+        activation_request: &Self::ActivationRequest,
     ) -> MmResult<Self::ActivationResult, ZcoinInitError> {
         unimplemented!()
         // get_activation_result(self, task_handle).await

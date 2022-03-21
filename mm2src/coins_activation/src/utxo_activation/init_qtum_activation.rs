@@ -56,17 +56,10 @@ impl InitStandaloneCoinActivationOps for QtumCoin {
         priv_key_policy: PrivKeyBuildPolicy<'_>,
         _task_handle: &QtumRpcTaskHandle,
     ) -> Result<Self, MmError<Self::ActivationError>> {
-        let tx_history = activation_request.tx_history;
         let coin = QtumCoinBuilder::new(&ctx, &ticker, &coin_conf, activation_request, priv_key_policy)
             .build()
             .await
             .mm_err(|e| InitUtxoStandardError::from_build_err(e, ticker.clone()))?;
-        lp_register_coin(&ctx, MmCoinEnum::from(coin.clone()), RegisterCoinParams {
-            ticker: ticker.clone(),
-            tx_history,
-        })
-        .await
-        .mm_err(|e| InitUtxoStandardError::from_register_err(e, ticker))?;
         Ok(coin)
     }
 
