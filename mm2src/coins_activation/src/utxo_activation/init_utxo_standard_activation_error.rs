@@ -1,4 +1,5 @@
-use crate::standalone_coin::{FromRegisterErr, InitStandaloneCoinError};
+use crate::prelude::*;
+use crate::standalone_coin::InitStandaloneCoinError;
 use coins::utxo::utxo_builder::UtxoCoinBuildError;
 use coins::RegisterCoinError;
 use crypto::CryptoInitError;

@@ -162,7 +162,7 @@ fn prepare_zombie_sapling_cache() {
     ))
     .unwrap();
 
-    while !coin.z_fields.sapling_state_synced.load(AtomicOrdering::Relaxed) {
+    while !coin.is_sapling_state_synced() {
         std::thread::sleep(Duration::from_secs(1));
     }
 }

@@ -1,9 +1,9 @@
 use crate::context::CoinsActivationContext;
-use crate::prelude::{coin_conf_with_protocol, TryFromCoinProtocol, TxHistoryEnabled};
+use crate::prelude::*;
 use crate::standalone_coin::init_standalone_coin_error::{InitStandaloneCoinError, InitStandaloneCoinStatusError,
                                                          InitStandaloneCoinUserActionError};
 use async_trait::async_trait;
-use coins::{lp_coinfind, lp_register_coin, MmCoinEnum, PrivKeyBuildPolicy, RegisterCoinError, RegisterCoinParams};
+use coins::{lp_coinfind, lp_register_coin, MmCoinEnum, PrivKeyBuildPolicy, RegisterCoinParams};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::{NotSame, SuccessResponse};
@@ -196,8 +196,4 @@ where
 
 pub trait InitStandaloneCoinInitialStatus {
     fn initial_status() -> Self;
-}
-
-pub trait FromRegisterErr {
-    fn from_register_err(e: RegisterCoinError, ticker: String) -> Self;
 }

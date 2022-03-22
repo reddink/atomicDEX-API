@@ -1,15 +1,15 @@
 use crate::context::CoinsActivationContext;
-use crate::prelude::{TryFromCoinProtocol, TxHistoryEnabled};
-use crate::standalone_coin::{FromRegisterErr, InitStandaloneCoinActivationOps, InitStandaloneCoinError,
+use crate::prelude::*;
+use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinError,
                              InitStandaloneCoinInitialStatus, InitStandaloneCoinTaskHandle,
                              InitStandaloneCoinTaskManagerShared};
 use async_trait::async_trait;
 use coins::coin_balance::EnableCoinBalance;
-use coins::hd_pubkey::RpcTaskXPubExtractor;
 use coins::utxo::rpc_clients::ElectrumRpcRequest;
-use coins::utxo::utxo_builder::UtxoArcBuilder;
-use coins::z_coin::ZCoin;
-use coins::{CoinProtocol, MmCoinEnum, PrivKeyBuildPolicy, RegisterCoinError, RegisterCoinParams};
+use coins::utxo::{UtxoActivationParams, UtxoRpcMode};
+use coins::z_coin::{z_coin_from_conf_and_params, ZCoin, ZCoinBuildError};
+use coins::{CoinProtocol, PrivKeyBuildPolicy, RegisterCoinError};
+use common::executor::Timer;
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use crypto::hw_rpc_task::{HwRpcTaskAwaitingStatus, HwRpcTaskUserAction};
@@ -32,7 +32,7 @@ pub struct ZcoinActivationResult {
 #[derive(Clone, Serialize)]
 pub enum ZcoinInProgressStatus {
     ActivatingCoin,
-    ScanningBlocks,
+    Scanning,
     RequestingWalletBalance,
     Finishing,
     /// This status doesn't require the user to send `UserAction`,
@@ -59,6 +59,7 @@ pub enum ZcoinRpcMode {
 pub struct ZcoinActivationParams {
     pub mode: ZcoinRpcMode,
     pub required_confirmations: Option<u64>,
+    pub requires_notarization: Option<bool>,
 }
 
 impl TxHistoryEnabled for ZcoinActivationParams {
@@ -76,6 +77,7 @@ pub enum ZcoinInitError {
     CoinIsAlreadyActivated {
         ticker: String,
     },
+    HardwareWalletsAreNotSupportedYet,
     Internal(String),
 }
 
@@ -93,6 +95,15 @@ impl FromRegisterErr for ZcoinInitError {
 
 impl From<ZcoinInitError> for InitStandaloneCoinError {
     fn from(_: ZcoinInitError) -> Self { todo!() }
+}
+
+impl ZcoinInitError {
+    pub fn from_build_err(build_err: ZCoinBuildError, ticker: String) -> Self {
+        ZcoinInitError::CoinCreationError {
+            ticker,
+            error: build_err.to_string(),
+        }
+    }
 }
 
 pub struct ZcoinProtocolInfo;
@@ -127,38 +138,43 @@ impl InitStandaloneCoinActivationOps for ZCoin {
         ctx: MmArc,
         ticker: String,
         coin_conf: Json,
-        activation_request: &Self::ActivationRequest,
-        _protocol_info: Self::StandaloneProtocol,
+        activation_request: &ZcoinActivationParams,
+        _protocol_info: ZcoinProtocolInfo,
         priv_key_policy: PrivKeyBuildPolicy<'_>,
         task_handle: &ZcoinRpcTaskHandle,
     ) -> MmResult<Self, ZcoinInitError> {
-        /*
-        // Construct an Xpub extractor without checking if the MarketMaker supports HD wallet ops.
-        // If the coin builder tries to extract an extended public key despite HD wallet is not supported,
-        // [`UtxoCoinBuilder::build`] fails with the [`UtxoCoinBuildError::IguanaPrivKeyNotAllowed`] error.
-        let xpub_extractor = RpcTaskXPubExtractor::new_unchecked(&ctx, task_handle, xpub_extractor_rpc_statuses());
-        let coin = UtxoArcBuilder::new(
-            &ctx,
-            &ticker,
-            &coin_conf,
-            &activation_request,
-            priv_key_policy,
-            xpub_extractor,
-            ZCoin::from,
-        )
-        .build()
-        .await
-        .mm_err(|e| InitUtxoStandardError::from_build_err(e, ticker.clone()))?;
-        lp_register_coin(&ctx, MmCoinEnum::from(coin.clone()), RegisterCoinParams {
-            ticker: ticker.clone(),
-            tx_history: true,
-        })
-        .await
-        .mm_err(|e| InitUtxoStandardError::from_register_err(e, ticker))?;
-        Ok(coin)
+        let priv_key = match priv_key_policy {
+            PrivKeyBuildPolicy::IguanaPrivKey(key) => key,
+            PrivKeyBuildPolicy::HardwareWallet => {
+                return MmError::err(ZcoinInitError::HardwareWalletsAreNotSupportedYet)
+            },
+        };
+        let utxo_mode = match &activation_request.mode {
+            ZcoinRpcMode::Native => UtxoRpcMode::Native,
+            ZcoinRpcMode::Light { electrum_servers, .. } => UtxoRpcMode::Electrum {
+                servers: electrum_servers.clone(),
+            },
+        };
+        let utxo_params = UtxoActivationParams {
+            mode: utxo_mode,
+            utxo_merge_params: None,
+            tx_history: false,
+            required_confirmations: activation_request.required_confirmations,
+            requires_notarization: activation_request.requires_notarization,
+            address_format: None,
+            gap_limit: None,
+            scan_policy: Default::default(),
+            check_utxo_maturity: None,
+        };
+        let coin = z_coin_from_conf_and_params(&ctx, &ticker, &coin_conf, &utxo_params, &priv_key)
+            .await
+            .mm_err(|e| ZcoinInitError::from_build_err(e, ticker))?;
 
-         */
-        unimplemented!()
+        task_handle.update_in_progress_status(ZcoinInProgressStatus::Scanning)?;
+        while !coin.is_sapling_state_synced() {
+            Timer::sleep(1.).await;
+        }
+        Ok(coin)
     }
 
     async fn get_activation_result(
@@ -167,6 +183,7 @@ impl InitStandaloneCoinActivationOps for ZCoin {
         task_handle: &ZcoinRpcTaskHandle,
         activation_request: &Self::ActivationRequest,
     ) -> MmResult<Self::ActivationResult, ZcoinInitError> {
+        task_handle.update_in_progress_status(ZcoinInProgressStatus::RequestingWalletBalance)?;
         unimplemented!()
         // get_activation_result(self, task_handle).await
     }

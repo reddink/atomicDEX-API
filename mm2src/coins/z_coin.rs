@@ -63,7 +63,7 @@ mod z_rpc;
 use z_rpc::{ZRpcOps, ZUnspent};
 
 mod z_coin_errors;
-use z_coin_errors::*;
+pub use z_coin_errors::*;
 
 #[cfg(all(test, feature = "zhtlc-native-tests"))]
 mod z_coin_tests;
@@ -152,6 +152,8 @@ impl ZCoin {
     pub fn z_rpc(&self) -> &(dyn ZRpcOps + Send + Sync) { self.utxo_arc.rpc_client.as_ref() }
 
     pub fn rpc_client(&self) -> &UtxoRpcClientEnum { &self.utxo_arc.rpc_client }
+
+    pub fn is_sapling_state_synced(&self) -> bool { self.z_fields.sapling_state_synced.load(AtomicOrdering::Relaxed) }
 
     /// Returns all unspents included currently unspendable (not confirmed)
     async fn my_z_unspents_ordered(&self) -> UtxoRpcResult<Vec<ZUnspent>> {
@@ -415,8 +417,8 @@ pub async fn z_coin_from_conf_and_params(
     conf: &Json,
     params: &UtxoActivationParams,
     secp_priv_key: &[u8],
-    db_dir_path: PathBuf,
 ) -> Result<ZCoin, MmError<ZCoinBuildError>> {
+    let db_dir_path = ctx.dbdir();
     let z_key = ExtendedSpendingKey::master(secp_priv_key);
     z_coin_from_conf_and_params_with_z_key(ctx, ticker, conf, params, secp_priv_key, db_dir_path, z_key).await
 }
@@ -617,18 +619,22 @@ impl<'a> UtxoCoinWithIguanaPrivKeyBuilder for ZCoinBuilder<'a> {
         let mut db_dir_path = self.db_dir_path;
 
         db_dir_path.push(&db_name);
-        if !db_dir_path.exists() {
-            let default_cache_path = PathBuf::new().join("./").join(db_name);
-            if !default_cache_path.exists() {
-                return MmError::err(ZCoinBuildError::SaplingCacheDbDoesNotExist {
-                    path: std::env::current_dir()?.join(&default_cache_path).display().to_string(),
-                });
+        let sqlite = tokio::task::block_in_place(move || {
+            if !db_dir_path.exists() {
+                let default_cache_path = PathBuf::new().join("./").join(db_name);
+                if !default_cache_path.exists() {
+                    return MmError::err(ZCoinBuildError::SaplingCacheDbDoesNotExist {
+                        path: std::env::current_dir()?.join(&default_cache_path).display().to_string(),
+                    });
+                }
+                std::fs::copy(default_cache_path, &db_dir_path)?;
             }
-            std::fs::copy(default_cache_path, &db_dir_path)?;
-        }
 
-        let sqlite = Connection::open(db_dir_path)?;
-        init_db(&sqlite)?;
+            let sqlite = Connection::open(db_dir_path)?;
+            init_db(&sqlite)?;
+            Ok(sqlite)
+        })?;
+
         let (_, my_z_addr) = self
             .z_spending_key
             .default_address()
@@ -638,7 +644,9 @@ impl<'a> UtxoCoinWithIguanaPrivKeyBuilder for ZCoinBuilder<'a> {
             .expect("DEX_FEE_Z_ADDR is a valid z-address")
             .expect("DEX_FEE_Z_ADDR is a valid z-address");
 
-        let z_tx_prover = LocalTxProver::with_default_location().or_mm_err(|| ZCoinBuildError::ZCashParamsNotFound)?;
+        let z_tx_prover = tokio::task::block_in_place(LocalTxProver::with_default_location)
+            .or_mm_err(|| ZCoinBuildError::ZCashParamsNotFound)?;
+
         let my_z_addr_encoded = encode_payment_address(z_mainnet_constants::HRP_SAPLING_PAYMENT_ADDRESS, &my_z_addr);
         let my_z_key_encoded = encode_extended_spending_key(
             z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY,
