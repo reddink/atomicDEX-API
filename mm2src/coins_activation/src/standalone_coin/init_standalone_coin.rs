@@ -3,7 +3,7 @@ use crate::prelude::*;
 use crate::standalone_coin::init_standalone_coin_error::{InitStandaloneCoinError, InitStandaloneCoinStatusError,
                                                          InitStandaloneCoinUserActionError};
 use async_trait::async_trait;
-use coins::{lp_coinfind, lp_register_coin, MmCoinEnum, PrivKeyBuildPolicy, RegisterCoinParams};
+use coins::{lp_coinfind, lp_register_coin, MmCoinEnum, PrivKeyBuildPolicy, RegisterCoinError, RegisterCoinParams};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::{NotSame, SuccessResponse};
@@ -33,9 +33,10 @@ pub trait InitStandaloneCoinActivationOps: Into<MmCoinEnum> + Send + Sync + 'sta
     type StandaloneProtocol: TryFromCoinProtocol + Send;
     // The following types are related to `RpcTask` management.
     type ActivationResult: serde::Serialize + Clone + Send + Sync + 'static;
-    type ActivationError: FromRegisterErr
+    type ActivationError: From<RegisterCoinError>
         + Into<InitStandaloneCoinError>
         + SerMmErrorType
+        + NotSame
         + NotMmError
         + Clone
         + Send
@@ -187,8 +188,7 @@ where
             ticker: ticker.clone(),
             tx_history,
         })
-        .await
-        .mm_err(|e| Self::Error::from_register_err(e, ticker))?;
+        .await?;
 
         Ok(result)
     }

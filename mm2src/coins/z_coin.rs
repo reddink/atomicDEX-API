@@ -155,6 +155,8 @@ impl ZCoin {
 
     pub fn is_sapling_state_synced(&self) -> bool { self.z_fields.sapling_state_synced.load(AtomicOrdering::Relaxed) }
 
+    pub fn my_z_address_encoded(&self) -> String { self.z_fields.my_z_addr_encoded.clone() }
+
     /// Returns all unspents included currently unspendable (not confirmed)
     async fn my_z_unspents_ordered(&self) -> UtxoRpcResult<Vec<ZUnspent>> {
         let min_conf = 0;

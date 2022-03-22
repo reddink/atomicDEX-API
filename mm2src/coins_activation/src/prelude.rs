@@ -1,5 +1,5 @@
 use coins::utxo::UtxoActivationParams;
-use coins::{coin_conf, CoinBalance, CoinProtocol, MmCoinEnum, RegisterCoinError};
+use coins::{coin_conf, CoinBalance, CoinProtocol, MmCoinEnum};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use serde_derive::Serialize;
@@ -12,10 +12,6 @@ pub trait TxHistoryEnabled {
 
 impl TxHistoryEnabled for UtxoActivationParams {
     fn tx_history_enabled(&self) -> bool { self.tx_history }
-}
-
-pub trait FromRegisterErr {
-    fn from_register_err(e: RegisterCoinError, ticker: String) -> Self;
 }
 
 #[derive(Clone, Debug, Serialize)]

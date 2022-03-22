@@ -1949,8 +1949,6 @@ pub enum RegisterCoinError {
     CoinIsInitializedAlready {
         coin: String,
     },
-    #[display(fmt = "Error getting block count: {}", _0)]
-    ErrorGettingBlockCount(String),
     Internal(String),
 }
 
@@ -1966,14 +1964,6 @@ pub async fn lp_register_coin(
 ) -> Result<(), MmError<RegisterCoinError>> {
     let RegisterCoinParams { ticker, tx_history } = params;
     let cctx = CoinsContext::from_ctx(ctx).map_to_mm(RegisterCoinError::Internal)?;
-
-    let block_count = coin
-        .current_block()
-        .compat()
-        .await
-        .map_to_mm(RegisterCoinError::ErrorGettingBlockCount)?;
-    // Warn the user when we know that the wallet is under-initialized.
-    log!([ticker]", "[block_count]);
 
     // TODO AP: locking the coins list during the entire initialization prevents different coins from being
     // activated concurrently which results in long activation time: https://github.com/KomodoPlatform/atomicDEX/issues/24

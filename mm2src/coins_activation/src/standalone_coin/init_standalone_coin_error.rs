@@ -1,5 +1,5 @@
 use crate::prelude::CoinConfWithProtocolError;
-use coins::{CoinProtocol, RegisterCoinError};
+use coins::CoinProtocol;
 use common::{HttpStatusCode, StatusCode};
 use derive_more::Display;
 use rpc_task::rpc_common::{RpcTaskStatusError, RpcTaskUserActionError};
@@ -45,20 +45,6 @@ pub enum InitStandaloneCoinError {
     UnexpectedDerivationMethod(String),
     Transport(String),
     Internal(String),
-}
-
-impl InitStandaloneCoinError {
-    pub fn from_register_err(reg_err: RegisterCoinError, ticker: String) -> InitStandaloneCoinError {
-        match reg_err {
-            RegisterCoinError::CoinIsInitializedAlready { coin } => {
-                InitStandaloneCoinError::CoinIsAlreadyActivated { ticker: coin }
-            },
-            RegisterCoinError::ErrorGettingBlockCount(error) => {
-                InitStandaloneCoinError::CoinCreationError { ticker, error }
-            },
-            RegisterCoinError::Internal(internal) => InitStandaloneCoinError::Internal(internal),
-        }
-    }
 }
 
 impl From<CoinConfWithProtocolError> for InitStandaloneCoinError {
