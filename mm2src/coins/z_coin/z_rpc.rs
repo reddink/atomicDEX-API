@@ -143,3 +143,44 @@ impl AsRef<dyn ZRpcOps + Send + Sync> for UtxoRpcClientEnum {
         }
     }
 }
+
+mod z_coin_grpc {
+    tonic::include_proto!("cash.z.wallet.sdk.rpc");
+}
+
+#[test]
+fn try_grpc() {
+    use common::block_on;
+    use rustls::ClientConfig;
+    use tonic::transport::{Channel, ClientTlsConfig};
+    use z_coin_grpc::compact_tx_streamer_client::CompactTxStreamerClient;
+    use z_coin_grpc::Empty;
+    /*
+    use super::z_coin_pb::LightdInfo;
+    let url = "https://mainnet.lightwalletd.com:9067/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLightdInfo";
+    let req = Empty {};
+    let response: LightdInfo = block_on(post_grpc_web(url, &req)).unwrap();
+    println!("{}", response.version);
+
+     */
+    let mut config = ClientConfig::new();
+    config
+        .root_store
+        .add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
+    config.set_protocols(&["h2".to_string().into()]);
+    let tls = ClientTlsConfig::new().rustls_client_config(config);
+
+    let channel = block_on(
+        Channel::from_static("http://mainnet.lightwalletd.com:9067")
+            .tls_config(tls)
+            .unwrap()
+            .connect(),
+    )
+    .unwrap();
+    let mut client = CompactTxStreamerClient::new(channel);
+
+    let request = tonic::Request::new(Empty {});
+
+    let response = block_on(client.get_lightd_info(request)).unwrap();
+    println!("RESPONSE={:?}", response);
+}

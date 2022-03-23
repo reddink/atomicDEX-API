@@ -56,6 +56,11 @@ use zcash_primitives::{consensus, constants::mainnet as z_mainnet_constants, sap
                        zip32::ExtendedSpendingKey};
 use zcash_proofs::prover::LocalTxProver;
 
+#[allow(clippy::all)]
+#[rustfmt::skip]
+#[path = "z_coin/cash.z.wallet.sdk.rpc.rs"]
+mod z_coin_pb;
+
 mod z_htlc;
 use z_htlc::{z_p2sh_spend, z_send_dex_fee, z_send_htlc};
 
@@ -205,7 +210,7 @@ impl ZCoin {
         z_outputs: Vec<ZOutput>,
     ) -> Result<(ZTransaction, AdditionalTxData), MmError<GenTxError>> {
         let _lock = self.z_fields.z_unspent_mutex.lock().await;
-        while !self.z_fields.sapling_state_synced.load(AtomicOrdering::Relaxed) {
+        while !self.is_sapling_state_synced() {
             Timer::sleep(0.5).await
         }
         let tx_fee = self.get_one_kbyte_tx_fee().await?;
@@ -312,7 +317,8 @@ impl ZCoin {
             tx_builder.add_tx_out(output);
         }
 
-        let (tx, _) = tx_builder.build(consensus::BranchId::Sapling, &self.z_fields.z_tx_prover)?;
+        let (tx, _) =
+            tokio::task::block_in_place(|| tx_builder.build(consensus::BranchId::Sapling, &self.z_fields.z_tx_prover))?;
 
         let additional_data = AdditionalTxData {
             received_by_me,
@@ -359,7 +365,7 @@ impl ZCoin {
     ) -> Result<IncrementalWitness<Node>, MmError<GetUnspentWitnessErr>> {
         let mut attempts = 0;
         let states = loop {
-            let states = query_states_after_height(&self.sqlite_conn(), tx_height)?;
+            let states = tokio::task::block_in_place(|| query_states_after_height(&self.sqlite_conn(), tx_height))?;
             if states.is_empty() {
                 if attempts > 2 {
                     return MmError::err(GetUnspentWitnessErr::EmptyDbResult);
@@ -506,7 +512,8 @@ fn insert_block_state(conn: &Connection, state: SaplingBlockState) -> Result<(),
 }
 
 async fn sapling_state_cache_loop(coin: ZCoin) {
-    let (mut processed_height, mut current_tree) = match query_latest_block(&coin.sqlite_conn()) {
+    let query = tokio::task::block_in_place(|| query_latest_block(&coin.sqlite_conn()));
+    let (mut processed_height, mut current_tree) = match query {
         Ok(state) => {
             let mut tree = state.prev_tree_state;
             for cmu in state.cmus {
