@@ -3,9 +3,7 @@
 /// The helper structs used in testing of RPC responses, these should be separated from actual MM2 code to ensure
 /// backwards compatibility
 /// Use `#[serde(deny_unknown_fields)]` for all structs for tests to fail in case of adding new fields to the response
-use bigdecimal::BigDecimal;
-use common::mm_number::{Fraction, MmNumber};
-use num_rational::BigRational;
+use common::mm_number::{BigDecimal, BigRational, Fraction, MmNumber};
 use rpc::v1::types::H256 as H256Json;
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
@@ -557,8 +555,80 @@ pub struct MyBalanceResponse {
     pub coin: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IguanaWalletBalance {
+    pub address: String,
+    pub balance: CoinBalance,
+}
+
+#[derive(Debug, Deserialize)]
+pub enum Bip44Chain {
+    External = 0,
+    Internal = 1,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HDWalletBalance {
+    pub accounts: Vec<HDAccountBalance>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HDAccountBalance {
+    pub account_index: u32,
+    pub derivation_path: String,
+    pub total_balance: CoinBalance,
+    pub addresses: Vec<HDAddressBalance>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HDAddressBalance {
+    pub address: String,
+    pub derivation_path: String,
+    pub chain: Bip44Chain,
+    pub balance: CoinBalance,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, tag = "wallet_type")]
+pub enum EnableCoinBalance {
+    Iguana(IguanaWalletBalance),
+    HD(HDWalletBalance),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ZcoinActivationResult {
+    pub current_block: u64,
+    pub wallet_balance: EnableCoinBalance,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InitTaskResult {
+    pub task_id: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, untagged)]
+pub enum MmRpcResult<T> {
+    Ok { result: T },
+    Err(Json),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, tag = "status", content = "details")]
+pub enum InitZcoinStatus {
+    Ready(MmRpcResult<ZcoinActivationResult>),
+    InProgress(Json),
+    UserActionRequired(Json),
+}
+
 pub mod withdraw_error {
-    use bigdecimal::BigDecimal;
+    use common::mm_number::BigDecimal;
 
     #[derive(Debug, Deserialize, PartialEq)]
     #[serde(deny_unknown_fields)]
@@ -577,7 +647,7 @@ pub mod withdraw_error {
 }
 
 pub mod trade_preimage_error {
-    use bigdecimal::BigDecimal;
+    use common::mm_number::BigDecimal;
 
     #[derive(Debug, Deserialize, PartialEq)]
     #[serde(deny_unknown_fields)]

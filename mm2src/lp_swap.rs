@@ -57,7 +57,6 @@
 
 use crate::mm2::lp_network::broadcast_p2p_msg;
 use async_std::sync as async_std_sync;
-use bigdecimal::BigDecimal;
 use coins::{lp_coinfind, MmCoinEnum, TradeFee, TransactionEnum};
 use common::log::{debug, warn};
 use common::mm_error::MmError;
@@ -65,13 +64,12 @@ use common::{bits256, calc_total_pages,
              executor::{spawn, Timer},
              log::{error, info},
              mm_ctx::{from_ctx, MmArc},
-             mm_number::MmNumber,
+             mm_number::{BigDecimal, BigRational, MmNumber},
              now_ms, var, PagingOptions};
 use derive_more::Display;
 use futures::future::{abortable, AbortHandle, TryFutureExt};
 use http::Response;
 use mm2_libp2p::{decode_signed, encode_and_sign, pub_sub_topic, Libp2pPublic, Libp2pSecpPublic, PeerId, TopicPrefix};
-use num_rational::BigRational;
 use primitives::hash::{H160, H264};
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
 use serde_json::{self as json, Value as Json};

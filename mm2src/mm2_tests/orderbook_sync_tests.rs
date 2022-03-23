@@ -1376,7 +1376,7 @@ fn zhtlc_orders_sync_alice_connected_before_creation() {
     std::fs::copy("./mm2src/coins/for_tests/ZOMBIE_CACHE.db", bob_zombie_cache_path).unwrap();
 
     block_on(enable_electrum_json(&mm_bob, "RICK", false, rick_electrums()));
-    block_on(enable_native(&mm_bob, "ZOMBIE", &[]));
+    block_on(enable_z_coin(&mm_bob, "ZOMBIE"));
 
     let set_price_json = json!({
         "userpass": mm_bob.userpass,
@@ -1457,7 +1457,7 @@ fn zhtlc_orders_sync_alice_connected_after_creation() {
     std::fs::copy("./mm2src/coins/for_tests/ZOMBIE_CACHE.db", bob_zombie_cache_path).unwrap();
 
     block_on(enable_electrum_json(&mm_bob, "RICK", false, rick_electrums()));
-    block_on(enable_native(&mm_bob, "ZOMBIE", &[]));
+    block_on(enable_z_coin(&mm_bob, "ZOMBIE"));
 
     let set_price_json = json!({
         "userpass": mm_bob.userpass,
@@ -1506,7 +1506,7 @@ fn zhtlc_orders_sync_alice_connected_after_creation() {
     std::fs::copy("./mm2src/coins/for_tests/ZOMBIE_CACHE.db", alice_cache_path).unwrap();
 
     block_on(enable_electrum_json(&mm_alice, "RICK", false, rick_electrums()));
-    block_on(enable_native(&mm_alice, "ZOMBIE", &[]));
+    block_on(enable_z_coin(&mm_alice, "ZOMBIE"));
 
     let set_price_json = json!({
         "userpass": mm_alice.userpass,

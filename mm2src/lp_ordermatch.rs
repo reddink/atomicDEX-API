@@ -20,7 +20,6 @@
 
 use async_trait::async_trait;
 use best_orders::BestOrdersAction;
-use bigdecimal::BigDecimal;
 use blake2::digest::{Update, VariableOutput};
 use blake2::VarBlake2b;
 use coins::utxo::{compressed_pub_key_from_priv_raw, ChecksumType, UtxoAddressFormat};
@@ -29,7 +28,7 @@ use common::executor::{spawn, Timer};
 use common::log::{error, LogOnError};
 use common::mm_ctx::{from_ctx, MmArc, MmWeak};
 use common::mm_error::prelude::*;
-use common::mm_number::{Fraction, MmNumber, MmNumberMultiRepr};
+use common::mm_number::{BigDecimal, BigRational, Fraction, MmNumber, MmNumberMultiRepr};
 use common::privkey::key_pair_from_secret;
 use common::time_cache::TimeCache;
 use common::{bits256, log, new_uuid, now_ms};
@@ -42,7 +41,6 @@ use http::Response;
 use keys::AddressFormat;
 use mm2_libp2p::{decode_signed, encode_and_sign, encode_message, pub_sub_topic, TopicPrefix, TOPIC_SEPARATOR};
 #[cfg(test)] use mocktopus::macros::*;
-use num_rational::BigRational;
 use num_traits::identities::Zero;
 use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::H256 as H256Json;

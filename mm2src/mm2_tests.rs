@@ -1,17 +1,17 @@
 use super::{lp_main, LpMainParams};
 use crate::mm2::lp_ordermatch::MIN_ORDER_KEEP_ALIVE_INTERVAL;
-use bigdecimal::BigDecimal;
 use common::executor::Timer;
 use common::for_tests::{check_my_swap_status, check_recent_swaps, check_stats_swap_status,
                         enable_native as enable_native_impl, enable_qrc20, find_metrics_in_json, from_env_file,
-                        mm_spat, wait_till_history_has_records, LocalStart, MarketMakerIt, RaiiDump,
-                        MAKER_ERROR_EVENTS, MAKER_SUCCESS_EVENTS, TAKER_ERROR_EVENTS, TAKER_SUCCESS_EVENTS};
+                        init_z_coin, init_z_coin_status, mm_spat, wait_till_history_has_records, LocalStart,
+                        MarketMakerIt, RaiiDump, MAKER_ERROR_EVENTS, MAKER_SUCCESS_EVENTS, TAKER_ERROR_EVENTS,
+                        TAKER_SUCCESS_EVENTS};
 use common::log::LogLevel;
 use common::mm_metrics::{MetricType, MetricsJson};
-use common::mm_number::{Fraction, MmNumber};
+use common::mm_number::{BigDecimal, BigRational, Fraction, MmNumber};
 use common::privkey::key_pair_from_seed;
+use gstuff::now_ms;
 use http::{HeaderMap, StatusCode};
-use num_rational::BigRational;
 use serde_json::{self as json, Value as Json};
 use std::collections::HashMap;
 use std::convert::identity;
@@ -21,6 +21,28 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
+
+async fn enable_z_coin(mm: &MarketMakerIt, coin: &str) -> ZcoinActivationResult {
+    let init = init_z_coin(mm, coin).await;
+    let init: RpcV2Response<InitTaskResult> = json::from_value(init).unwrap();
+    let timeout = now_ms() + 60000;
+
+    loop {
+        if now_ms() > timeout {
+            panic!("{} initialization timed out", coin);
+        }
+
+        let status = init_z_coin_status(mm, init.result.task_id).await;
+        let status: RpcV2Response<InitZcoinStatus> = json::from_value(status).unwrap();
+        if let InitZcoinStatus::Ready(rpc_result) = status.result {
+            match rpc_result {
+                MmRpcResult::Ok { result } => break result,
+                MmRpcResult::Err(e) => panic!("{} initialization error {:?}", coin, e),
+            }
+        }
+        Timer::sleep(1.).await;
+    }
+}
 
 cfg_native! {
     use common::block_on;
@@ -975,9 +997,9 @@ async fn trade_base_rel_electrum(
 
         std::fs::copy("./mm2src/coins/for_tests/ZOMBIE_CACHE.db", alice_zombie_cache_path).unwrap();
 
-        let zombie_bob = enable_native(&mm_bob, "ZOMBIE", &[]).await;
+        let zombie_bob = enable_z_coin(&mm_bob, "ZOMBIE").await;
         log!("enable ZOMBIE bob "[zombie_bob]);
-        let zombie_alice = enable_native(&mm_alice, "ZOMBIE", &[]).await;
+        let zombie_alice = enable_z_coin(&mm_alice, "ZOMBIE").await;
         log!("enable ZOMBIE alice "[zombie_alice]);
     }
     // Enable coins on Bob side. Print the replies in case we need the address.

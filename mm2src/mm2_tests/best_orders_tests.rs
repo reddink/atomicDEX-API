@@ -679,7 +679,7 @@ fn zhtlc_best_orders() {
     std::fs::copy("./mm2src/coins/for_tests/ZOMBIE_CACHE.db", bob_zombie_cache_path).unwrap();
 
     block_on(enable_electrum_json(&mm_bob, "RICK", false, rick_electrums()));
-    block_on(enable_native(&mm_bob, "ZOMBIE", &[]));
+    block_on(enable_z_coin(&mm_bob, "ZOMBIE"));
 
     let set_price_json = json!({
         "userpass": mm_bob.userpass,

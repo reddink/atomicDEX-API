@@ -4,12 +4,11 @@ use coins::{address_by_coin_conf_and_pubkey_str, coin_conf, is_wallet_only_conf}
 use common::log::warn;
 use common::mm_error::prelude::*;
 use common::mm_error::MmError;
-use common::mm_number::MmNumberMultiRepr;
+use common::mm_number::{BigRational, MmNumberMultiRepr};
 use common::{mm_ctx::MmArc, mm_number::MmNumber, now_ms, HttpStatusCode};
 use crypto::CryptoCtx;
 use derive_more::Display;
 use http::{Response, StatusCode};
-use num_rational::BigRational;
 use num_traits::Zero;
 use serde_json::{self as json, Value as Json};
 

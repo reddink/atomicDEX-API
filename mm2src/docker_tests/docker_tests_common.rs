@@ -9,7 +9,6 @@ pub use secp256k1::{PublicKey, SecretKey};
 pub use std::env;
 pub use std::thread;
 
-use bigdecimal::BigDecimal;
 use bitcrypto::{dhash160, ChecksumType};
 use coins::qrc20::rpc_clients::for_tests::Qrc20NativeWalletOps;
 use coins::qrc20::{qrc20_coin_from_conf_and_params, Qrc20ActivationParams, Qrc20Coin};
@@ -20,6 +19,7 @@ use coins::utxo::{coin_daemon_data_dir, sat_from_big_decimal, zcash_params_path,
                   UtxoAddressFormat, UtxoCoinFields};
 use coins::MarketCoinOps;
 use common::mm_ctx::{MmArc, MmCtxBuilder};
+use common::mm_number::BigDecimal;
 use ethereum_types::H160 as H160Eth;
 use futures01::Future;
 use http::StatusCode;

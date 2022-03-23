@@ -1243,3 +1243,40 @@ pub async fn best_orders_v2(mm: &MarketMakerIt, coin: &str, action: &str, volume
     assert_eq!(request.0, StatusCode::OK, "'best_orders' failed: {}", request.1);
     json::from_str(&request.1).unwrap()
 }
+
+pub async fn init_z_coin(mm: &MarketMakerIt, coin: &str) -> Json {
+    let request = mm
+        .rpc(&json! ({
+            "userpass": mm.userpass,
+            "method": "init_z_coin",
+            "mmrpc": "2.0",
+            "params": {
+                "ticker": coin,
+                "activation_params": {
+                    "mode": {
+                        "rpc": "Native",
+                    }
+                },
+            }
+        }))
+        .await
+        .unwrap();
+    assert_eq!(request.0, StatusCode::OK, "'init_z_coin' failed: {}", request.1);
+    json::from_str(&request.1).unwrap()
+}
+
+pub async fn init_z_coin_status(mm: &MarketMakerIt, task_id: u64) -> Json {
+    let request = mm
+        .rpc(&json! ({
+            "userpass": mm.userpass,
+            "method": "init_z_coin_status",
+            "mmrpc": "2.0",
+            "params": {
+                "task_id": task_id,
+            }
+        }))
+        .await
+        .unwrap();
+    assert_eq!(request.0, StatusCode::OK, "'init_z_coin_status' failed: {}", request.1);
+    json::from_str(&request.1).unwrap()
+}

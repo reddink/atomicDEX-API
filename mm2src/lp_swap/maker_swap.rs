@@ -12,14 +12,14 @@ use crate::mm2::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::mm2::lp_network::subscribe_to_topic;
 use crate::mm2::lp_ordermatch::{MakerOrderBuilder, OrderConfirmationsSettings};
 use crate::mm2::MM_VERSION;
-use bigdecimal::BigDecimal;
 use bitcrypto::dhash160;
 use coins::{CanRefundHtlc, FeeApproxStage, FoundSwapTxSpend, MmCoinEnum, TradeFee, TradePreimageValue,
             TransactionEnum, ValidatePaymentInput};
 use common::log::{debug, error, warn};
 use common::mm_error::prelude::*;
+use common::mm_number::{BigDecimal, MmNumber};
 use common::privkey::key_pair_from_secret;
-use common::{bits256, executor::Timer, mm_ctx::MmArc, mm_number::MmNumber, now_ms, DEX_FEE_ADDR_RAW_PUBKEY};
+use common::{bits256, executor::Timer, mm_ctx::MmArc, now_ms, DEX_FEE_ADDR_RAW_PUBKEY};
 use futures::{compat::Future01CompatExt, select, FutureExt};
 use keys::KeyPair;
 use parking_lot::Mutex as PaMutex;

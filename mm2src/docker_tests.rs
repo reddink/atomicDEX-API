@@ -100,7 +100,6 @@ mod docker_tests {
 
     use docker_tests_common::*;
 
-    use bigdecimal::BigDecimal;
     use bitcrypto::ChecksumType;
     use chain::{OutPoint, TransactionOutput};
     use coins::eth::{eth_coin_from_conf_and_request, EthCoin};
@@ -115,7 +114,7 @@ mod docker_tests {
                 WithdrawRequest};
     use common::for_tests::{check_my_swap_status_amounts, enable_electrum};
     use common::mm_ctx::{MmArc, MmCtxBuilder};
-    use common::mm_number::MmNumber;
+    use common::mm_number::{BigDecimal, MmNumber};
     use common::privkey::{key_pair_from_secret, key_pair_from_seed};
     use common::{block_on, now_ms};
     use futures01::Future;
