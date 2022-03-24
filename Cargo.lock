@@ -900,6 +900,7 @@ dependencies = [
  "webpki-roots 0.19.0",
  "winapi 0.3.9",
  "zcash_client_backend",
+ "zcash_client_sqlite",
  "zcash_primitives",
  "zcash_proofs",
 ]
@@ -4708,6 +4709,7 @@ dependencies = [
  "libsqlite3-sys",
  "memchr 2.3.3",
  "smallvec 1.6.1",
+ "time 0.2.25",
 ]
 
 [[package]]
@@ -6656,6 +6658,24 @@ dependencies = [
  "subtle 2.4.0",
  "time 0.2.25",
  "zcash_note_encryption",
+ "zcash_primitives",
+]
+
+[[package]]
+name = "zcash_client_sqlite"
+version = "0.3.0"
+source = "git+https://github.com/KomodoPlatform/librustzcash.git#4ffb4433942ed90c2b6035425c1c97d3e181609f"
+dependencies = [
+ "bech32",
+ "bs58",
+ "ff",
+ "group",
+ "jubjub",
+ "protobuf",
+ "rand_core 0.5.1",
+ "rusqlite",
+ "time 0.2.25",
+ "zcash_client_backend",
  "zcash_primitives",
 ]
 

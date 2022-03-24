@@ -56,11 +56,6 @@ use zcash_primitives::{consensus, constants::mainnet as z_mainnet_constants, sap
                        zip32::ExtendedSpendingKey};
 use zcash_proofs::prover::LocalTxProver;
 
-#[allow(clippy::all)]
-#[rustfmt::skip]
-#[path = "z_coin/cash.z.wallet.sdk.rpc.rs"]
-mod z_coin_pb;
-
 mod z_htlc;
 use z_htlc::{z_p2sh_spend, z_send_dex_fee, z_send_htlc};
 
