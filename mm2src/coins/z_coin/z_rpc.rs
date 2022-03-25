@@ -151,21 +151,20 @@ mod z_coin_grpc {
 #[test]
 fn try_grpc() {
     use common::block_on;
+    use db_common::sqlite::rusqlite::Connection;
     use prost::Message;
     use rustls::ClientConfig;
     use tonic::transport::{Channel, ClientTlsConfig};
     use z_coin_grpc::compact_tx_streamer_client::CompactTxStreamerClient;
-    use z_coin_grpc::BlockId;
-    use zcash_primitives::consensus::{BlockHeight, Network, Parameters};
-
+    use z_coin_grpc::{BlockId, BlockRange};
     use zcash_client_backend::data_api::{chain::{scan_cached_blocks, validate_chain},
                                          error::Error,
                                          BlockSource, WalletRead, WalletWrite};
-
     use zcash_client_sqlite::{chain::init::init_cache_database, error::SqliteClientError,
                               wallet::init::init_wallet_db, wallet::rewind_to_height, BlockDb, WalletDb};
+    use zcash_primitives::consensus::{BlockHeight, Network, Parameters};
 
-    fn insert_into_cache(db_cache: &db_common::sqlite::rusqlite::Connection, height: u32, cb_bytes: Vec<u8>) {
+    fn insert_into_cache(db_cache: &Connection, height: u32, cb_bytes: Vec<u8>) {
         db_cache
             .prepare("INSERT INTO compactblocks (height, data) VALUES (?, ?)")
             .unwrap()
@@ -181,7 +180,7 @@ fn try_grpc() {
     let tls = ClientTlsConfig::new().rustls_client_config(config);
 
     let channel = block_on(
-        Channel::from_static("http://mainnet.lightwalletd.com:9067")
+        Channel::from_static("http://testnet.lightwalletd.com:9067")
             .tls_config(tls)
             .unwrap()
             .connect(),
@@ -189,17 +188,29 @@ fn try_grpc() {
     .unwrap();
     let mut client = CompactTxStreamerClient::new(channel);
 
-    let request = tonic::Request::new(BlockId {
-        height: 419200,
-        hash: Vec::new(),
+    let request = tonic::Request::new(BlockRange {
+        start: Some(BlockId {
+            height: 280000,
+            hash: Vec::new(),
+        }),
+        end: Some(BlockId {
+            height: 1788302,
+            hash: Vec::new(),
+        }),
     });
 
-    let response = block_on(client.get_block(request)).unwrap();
+    let mut response = block_on(client.get_block_range(request)).unwrap();
     println!("RESPONSE={:?}", response);
 
-    let network = Network::TestNetwork;
     let cache_file = "test_cache.db";
+    let cache_sql = Connection::open(cache_file).unwrap();
 
+    while let Ok(Some(block)) = block_on(response.get_mut().message()) {
+        insert_into_cache(&cache_sql, block.height as u32, block.encode_to_vec());
+    }
+    drop(cache_sql);
+
+    let network = Network::TestNetwork;
     let db_cache = BlockDb::for_path(cache_file).unwrap();
     let db_file = "test_wallet.db";
     let db_read = WalletDb::for_path(db_file, network).unwrap();
