@@ -275,7 +275,9 @@ mod tests {
             .get_signatures_for_address(&sol_coin.key_pair.pubkey())
             .await
             .unwrap();
-        let mut history = Vec::new();
+        //println!("{:?}", res);
+        //let mut history = Vec::new();
+        //let mut others = Vec::new();
         for cur in res.iter() {
             let signature = Signature::from_str(cur.signature.clone().as_str()).unwrap();
             let res = sol_coin
@@ -283,12 +285,15 @@ mod tests {
                 .get_transaction(&signature, UiTransactionEncoding::JsonParsed)
                 .await
                 .unwrap();
-            println!("{}", serde_json::to_string(&res).unwrap());
+            //others.push(res);
+            //println!("{}", serde_json::to_string(&res).unwrap());
             let parsed = serde_json::to_value(&res).unwrap();
             let tx_infos: SolanaConfirmedTransaction = serde_json::from_value(parsed).unwrap();
-            let mut txs = tx_infos.extract_solana_transactions(&sol_coin);
-            history.append(&mut txs);
+            //println!("{:?}", tx_infos);
+            //let mut txs = tx_infos.extract_solana_transactions(&sol_coin);
+            //history.append(&mut txs);
         }
-        println!("{}", serde_json::to_string(&history).unwrap());
+        //println!("{}", serde_json::to_string(&others).unwrap());
+        //println!("{}", serde_json::to_string(&history).unwrap());
     }
 }

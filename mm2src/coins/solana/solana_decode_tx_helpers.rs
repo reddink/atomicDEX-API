@@ -1,4 +1,207 @@
+// Example code that deserializes and serializes the model.
+// extern crate serde;
+// #[macro_use]
+// extern crate serde_derive;
+// extern crate serde_json;
+//
+// use generated_module::[object Object];
+//
+// fn main() {
+//     let json = r#"{"answer": 42}"#;
+//     let model: [object Object] = serde_json::from_str(&json).unwrap();
+// }
+
 extern crate serde_derive;
+
+use crate::{SolanaCoin, TransactionDetails};
+
+//pub type Welcome = Vec<WelcomeElement>;
+
+#[derive(Serialize, Deserialize)]
+pub struct SolanaConfirmedTransaction {
+    slot: i64,
+    transaction: Transaction,
+    meta: Meta,
+    #[serde(rename = "blockTime")]
+    block_time: i64,
+}
+
+impl SolanaConfirmedTransaction {
+    pub fn extract_account_index(&self, address: String) -> usize {
+        // find the equivalent of index_of(needle) in rust, and return result later
+        let mut idx = 0_usize;
+        for account in self.transaction.message.account_keys.iter() {
+            if account.pubkey == address {
+                return idx;
+            }
+            idx += 1;
+        }
+        idx
+    }
+    //pub fn extract_solana_transactions(&self, solana_coin: &SolanaCoin) -> Vec<TransactionDetails> {}
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Meta {
+    err: Option<serde_json::Value>,
+    status: Status,
+    fee: i64,
+    #[serde(rename = "preBalances")]
+    pre_balances: Vec<i64>,
+    #[serde(rename = "postBalances")]
+    post_balances: Vec<i64>,
+    #[serde(rename = "innerInstructions")]
+    inner_instructions: Vec<InnerInstruction>,
+    #[serde(rename = "logMessages")]
+    log_messages: Vec<String>,
+    #[serde(rename = "preTokenBalances")]
+    pre_token_balances: Vec<TokenBalance>,
+    #[serde(rename = "postTokenBalances")]
+    post_token_balances: Vec<TokenBalance>,
+    rewards: Vec<Option<serde_json::Value>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct InnerInstruction {
+    index: i64,
+    instructions: Vec<Instruction>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Instruction {
+    program: Program,
+    #[serde(rename = "programId")]
+    program_id: String,
+    parsed: InnerInstructionParsed,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct InnerInstructionParsed {
+    info: InnerInstructionInfos,
+    #[serde(rename = "type")]
+    parsed_type: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct InnerInstructionInfos {
+    destination: Option<String>,
+    lamports: Option<i64>,
+    source: Option<String>,
+    account: Option<String>,
+    space: Option<i64>,
+    owner: Option<String>,
+    mint: Option<String>,
+    #[serde(rename = "rentSysvar")]
+    rent_sysvar: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TokenBalance {
+    #[serde(rename = "accountIndex")]
+    account_index: i64,
+    mint: String,
+    #[serde(rename = "uiTokenAmount")]
+    ui_token_amount: TokenAmount,
+    owner: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TokenAmount {
+    #[serde(rename = "uiAmount")]
+    ui_amount: f64,
+    decimals: i64,
+    amount: String,
+    #[serde(rename = "uiAmountString")]
+    ui_amount_string: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Status {
+    #[serde(rename = "Ok")]
+    ok: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Transaction {
+    signatures: Vec<String>,
+    message: Message,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Message {
+    #[serde(rename = "accountKeys")]
+    account_keys: Vec<AccountKey>,
+    #[serde(rename = "recentBlockhash")]
+    recent_blockhash: String,
+    instructions: Vec<MessageInstruction>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AccountKey {
+    pubkey: String,
+    writable: bool,
+    signer: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct MessageInstruction {
+    program: Program,
+    #[serde(rename = "programId")]
+    program_id: String,
+    parsed: InstructionParsed,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct InstructionParsed {
+    info: InstructionsInfos,
+    #[serde(rename = "type")]
+    parsed_type: Type,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct InstructionsInfos {
+    destination: Option<String>,
+    mint: Option<String>,
+    #[serde(rename = "multisigAuthority")]
+    multisig_authority: Option<String>,
+    signers: Option<Vec<String>>,
+    source: String,
+    #[serde(rename = "tokenAmount")]
+    token_amount: Option<TokenAmount>,
+    amount: Option<String>,
+    authority: Option<String>,
+    account: Option<String>,
+    #[serde(rename = "rentSysvar")]
+    rent_sysvar: Option<String>,
+    #[serde(rename = "systemProgram")]
+    system_program: Option<String>,
+    #[serde(rename = "tokenProgram")]
+    token_program: Option<String>,
+    wallet: Option<String>,
+    lamports: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum Program {
+    #[serde(rename = "spl-associated-token-account")]
+    SplAssociatedTokenAccount,
+    #[serde(rename = "spl-token")]
+    SplToken,
+    #[serde(rename = "system")]
+    System,
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum Type {
+    #[serde(rename = "create")]
+    Create,
+    #[serde(rename = "transfer")]
+    Transfer,
+    #[serde(rename = "transferChecked")]
+    TransferChecked,
+}
+
+/*extern crate serde_derive;
 
 use crate::{SolanaCoin, SolanaFeeDetails, TransactionDetails, TransactionType};
 use bigdecimal::BigDecimal;
@@ -156,6 +359,7 @@ impl Instruction {
     pub fn is_solana_transfer(&self) -> bool {
         let is_system = match self.program {
             Program::SplToken => return false,
+            Program::SplAssociatedTokenAccount => return false,
             Program::System => true,
         };
         let is_transfer = match self.parsed.parsed_type {
@@ -171,6 +375,7 @@ impl Instruction {
         let is_spl_token = match self.program {
             Program::SplToken => true,
             Program::System => return false,
+            Program::SplAssociatedTokenAccount => return false,
         };
         let is_transfer = match self.parsed.parsed_type {
             Type::Transfer => true,
@@ -216,6 +421,8 @@ pub enum Type {
 pub enum Program {
     #[serde(rename = "spl-token")]
     SplToken,
+    #[serde(rename = "spl-associated-token-account")]
+    SplAssociatedTokenAccount,
     #[serde(rename = "system")]
     System,
-}
+}*/
