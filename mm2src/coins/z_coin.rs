@@ -244,6 +244,9 @@ impl ZCoin {
         let mut tx_builder = ZTxBuilder::new(ARRRConsensusParams {}, current_block.into());
 
         let mut ext = HashMap::new();
+
+        // impl<'a> From<&'a ExtendedSpendingKey> for ExtendedFullViewingKey
+        #[allow(clippy::needless_borrow)]
         ext.insert(AccountId::default(), (&self.z_fields.z_spending_key).into());
         let mut selected_notes_with_witness: Vec<(_, IncrementalWitness<Node>)> =
             Vec::with_capacity(selected_unspents.len());
