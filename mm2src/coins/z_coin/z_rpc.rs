@@ -149,6 +149,8 @@ mod z_coin_grpc {
 }
 
 #[test]
+// This is a temporary test used to experiment with librustzcash and lightwalletd
+#[ignore]
 fn try_grpc() {
     use common::block_on;
     use db_common::sqlite::rusqlite::Connection;
