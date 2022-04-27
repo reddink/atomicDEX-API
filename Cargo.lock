@@ -890,6 +890,7 @@ dependencies = [
  "primitives",
  "prost",
  "prost-build",
+ "protobuf",
  "rand 0.7.3",
  "rlp 0.3.0",
  "rmp-serde",
