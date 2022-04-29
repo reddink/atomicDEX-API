@@ -5,9 +5,7 @@ use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoin
                              InitStandaloneCoinTaskManagerShared};
 use async_trait::async_trait;
 use coins::coin_balance::{EnableCoinBalance, IguanaWalletBalance};
-use coins::utxo::rpc_clients::ElectrumRpcRequest;
-use coins::utxo::{UtxoActivationParams, UtxoRpcMode};
-use coins::z_coin::{z_coin_from_conf_and_params, ZCoin, ZCoinBuildError};
+use coins::z_coin::{z_coin_from_conf_and_params, ZCoin, ZCoinBuildError, ZcoinActivationParams};
 use coins::{BalanceError, CoinProtocol, MarketCoinOps, PrivKeyBuildPolicy, RegisterCoinError};
 use common::executor::Timer;
 use common::mm_ctx::MmArc;
@@ -46,23 +44,6 @@ pub enum ZcoinInProgressStatus {
 
 impl InitStandaloneCoinInitialStatus for ZcoinInProgressStatus {
     fn initial_status() -> Self { ZcoinInProgressStatus::ActivatingCoin }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "rpc", content = "rpc_data")]
-pub enum ZcoinRpcMode {
-    Native,
-    Light {
-        electrum_servers: Vec<ElectrumRpcRequest>,
-        light_wallet_d_servers: Vec<String>,
-    },
-}
-
-#[derive(Deserialize)]
-pub struct ZcoinActivationParams {
-    pub mode: ZcoinRpcMode,
-    pub required_confirmations: Option<u64>,
-    pub requires_notarization: Option<bool>,
 }
 
 impl TxHistoryEnabled for ZcoinActivationParams {
@@ -170,24 +151,7 @@ impl InitStandaloneCoinActivationOps for ZCoin {
                 return MmError::err(ZcoinInitError::HardwareWalletsAreNotSupportedYet)
             },
         };
-        let utxo_mode = match &activation_request.mode {
-            ZcoinRpcMode::Native => UtxoRpcMode::Native,
-            ZcoinRpcMode::Light { electrum_servers, .. } => UtxoRpcMode::Electrum {
-                servers: electrum_servers.clone(),
-            },
-        };
-        let utxo_params = UtxoActivationParams {
-            mode: utxo_mode,
-            utxo_merge_params: None,
-            tx_history: false,
-            required_confirmations: activation_request.required_confirmations,
-            requires_notarization: activation_request.requires_notarization,
-            address_format: None,
-            gap_limit: None,
-            scan_policy: Default::default(),
-            check_utxo_maturity: None,
-        };
-        let coin = z_coin_from_conf_and_params(&ctx, &ticker, &coin_conf, &utxo_params, priv_key)
+        let coin = z_coin_from_conf_and_params(&ctx, &ticker, &coin_conf, &activation_request, priv_key)
             .await
             .mm_err(|e| ZcoinInitError::from_build_err(e, ticker))?;
 
