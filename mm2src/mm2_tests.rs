@@ -3,7 +3,7 @@ use crate::mm2::lp_ordermatch::MIN_ORDER_KEEP_ALIVE_INTERVAL;
 use common::executor::Timer;
 use common::for_tests::{check_my_swap_status, check_recent_swaps, check_stats_swap_status,
                         enable_native as enable_native_impl, enable_qrc20, find_metrics_in_json, from_env_file,
-                        init_z_coin, init_z_coin_status, mm_spat, wait_till_history_has_records, LocalStart,
+                        init_z_coin_native, init_z_coin_status, mm_spat, wait_till_history_has_records, LocalStart,
                         MarketMakerIt, RaiiDump, MAKER_ERROR_EVENTS, MAKER_SUCCESS_EVENTS, TAKER_ERROR_EVENTS,
                         TAKER_SUCCESS_EVENTS};
 use common::log::LogLevel;
@@ -23,9 +23,9 @@ use std::time::Duration;
 use uuid::Uuid;
 
 async fn enable_z_coin(mm: &MarketMakerIt, coin: &str) -> ZcoinActivationResult {
-    let init = init_z_coin(mm, coin).await;
+    let init = init_z_coin_native(mm, coin).await;
     let init: RpcV2Response<InitTaskResult> = json::from_value(init).unwrap();
-    let timeout = now_ms() + 60000;
+    let timeout = now_ms() + 120000;
 
     loop {
         if now_ms() > timeout {
@@ -94,6 +94,10 @@ mod lp_bot_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "mm2_tests/orderbook_sync_tests.rs"]
 mod orderbook_sync_tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "mm2_tests/z_coin_tests.rs"]
+mod z_coin_tests;
 
 #[path = "mm2_tests/structs.rs"] pub mod structs;
 
