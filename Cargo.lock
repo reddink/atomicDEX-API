@@ -858,6 +858,7 @@ dependencies = [
  "cfg-if 1.0.0",
  "chain",
  "common",
+ "crossbeam",
  "crypto",
  "db_common",
  "derive_more",

@@ -1343,3 +1343,22 @@ pub async fn init_z_coin_status(mm: &MarketMakerIt, task_id: u64) -> Json {
     assert_eq!(request.0, StatusCode::OK, "'init_z_coin_status' failed: {}", request.1);
     json::from_str(&request.1).unwrap()
 }
+
+pub async fn send_raw_transaction(mm: &MarketMakerIt, coin: &str, tx: &str) -> Json {
+    let request = mm
+        .rpc(&json! ({
+            "userpass": mm.userpass,
+            "method": "send_raw_transaction",
+            "coin": coin,
+            "tx_hex": tx,
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        request.0,
+        StatusCode::OK,
+        "'send_raw_transaction' failed: {}",
+        request.1
+    );
+    json::from_str(&request.1).unwrap()
+}

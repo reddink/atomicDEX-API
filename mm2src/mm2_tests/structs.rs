@@ -630,7 +630,7 @@ pub enum InitZcoinStatus {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, tag = "status", content = "details")]
 pub enum WithdrawStatus {
-    Ready(MmRpcResult<WithdrawResult>),
+    Ready(MmRpcResult<TransactionDetails>),
     InProgress(Json),
     UserActionRequired(Json),
 }
@@ -857,7 +857,3 @@ pub struct BestOrdersV2Response {
     pub orders: HashMap<String, Vec<RpcOrderbookEntryV2>>,
     pub original_tickers: HashMap<String, HashSet<String>>,
 }
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WithdrawResult {}
