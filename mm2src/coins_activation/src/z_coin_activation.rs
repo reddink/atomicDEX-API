@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use coins::coin_balance::{EnableCoinBalance, IguanaWalletBalance};
 use coins::z_coin::{z_coin_from_conf_and_params, ZCoin, ZCoinBuildError, ZcoinActivationParams, ZcoinConsensusParams};
 use coins::{BalanceError, CoinProtocol, MarketCoinOps, PrivKeyBuildPolicy, RegisterCoinError};
-use common::executor::Timer;
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use crypto::hw_rpc_task::{HwRpcTaskAwaitingStatus, HwRpcTaskUserAction};
@@ -172,9 +171,7 @@ impl InitStandaloneCoinActivationOps for ZCoin {
             .mm_err(|e| ZcoinInitError::from_build_err(e, ticker))?;
 
         task_handle.update_in_progress_status(ZcoinInProgressStatus::Scanning)?;
-        while !coin.is_sapling_state_synced() {
-            Timer::sleep(1.).await;
-        }
+        coin.wait_for_blockchain_scan().await;
         Ok(coin)
     }
 

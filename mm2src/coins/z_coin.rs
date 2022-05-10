@@ -7,8 +7,8 @@ use crate::utxo::{sat_from_big_decimal, utxo_common, ActualTxFee, AdditionalTxDa
                   FeePolicy, HistoryUtxoTx, HistoryUtxoTxMap, RecentlySpentOutPoints, UtxoActivationParams,
                   UtxoAddressFormat, UtxoArc, UtxoCoinFields, UtxoCommonOps, UtxoFeeDetails, UtxoRpcMode,
                   UtxoTxBroadcastOps, UtxoTxGenerationOps, UtxoWeak, VerboseTransactionFrom};
-use crate::{BalanceError, BalanceFut, CoinBalance, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps,
-            MmCoin, NegotiateSwapContractAddrErr, NumConversError, SwapOps, TradeFee, TradePreimageFut,
+use crate::{AsyncMutex, BalanceError, BalanceFut, CoinBalance, FeeApproxStage, FoundSwapTxSpend, HistorySyncState,
+            MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, NumConversError, SwapOps, TradeFee, TradePreimageFut,
             TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum, TransactionFut,
             TxFeeDetails, UnexpectedDerivationMethod, ValidateAddressResult, ValidatePaymentInput, WithdrawFut,
             WithdrawRequest};
@@ -31,7 +31,7 @@ use futures::channel::mpsc::channel as async_channel;
 use futures::channel::mpsc::Receiver as AsyncReceiver;
 use futures::compat::Future01CompatExt;
 use futures::lock::MutexGuard as AsyncMutexGuard;
-use futures::{FutureExt, TryFutureExt};
+use futures::{FutureExt, StreamExt, TryFutureExt};
 use futures01::Future;
 use http::Uri;
 use keys::hash::H256;
@@ -59,7 +59,7 @@ use zcash_primitives::sapling::note_encryption::try_sapling_output_recovery;
 use zcash_primitives::sapling::{Node, Note};
 use zcash_primitives::transaction::builder::Builder as ZTxBuilder;
 use zcash_primitives::transaction::components::{Amount, TxOut};
-use zcash_primitives::transaction::Transaction as ZTransaction;
+use zcash_primitives::transaction::{Transaction as ZTransaction, TxId};
 use zcash_primitives::zip32::ExtendedFullViewingKey;
 use zcash_primitives::{consensus, constants::mainnet as z_mainnet_constants, sapling::PaymentAddress,
                        zip32::ExtendedSpendingKey};
@@ -142,6 +142,8 @@ impl Parameters for ZcoinConsensusParams {
     fn b58_script_address_prefix(&self) -> [u8; 2] { self.b58_script_address_prefix }
 }
 
+type SyncStateWatcher = AsyncMutex<AsyncReceiver<BlockHeight>>;
+
 pub struct ZCoinFields {
     dex_fee_addr: PaymentAddress,
     my_z_addr: PaymentAddress,
@@ -150,8 +152,8 @@ pub struct ZCoinFields {
     z_tx_prover: LocalTxProver,
     z_rpc: ZcoinRpcClient,
     consensus_params: ZcoinConsensusParams,
-    // sync_state_watcher: AsyncReceiver<BlockHeight>,
-    // new_tx_notifier: CrossbeamSender<TxId>,
+    sync_state_watcher: SyncStateWatcher,
+    new_tx_notifier: CrossbeamSender<TxId>,
 }
 
 impl std::fmt::Debug for ZCoinFields {
@@ -418,6 +420,10 @@ impl ZCoin {
 
         Some(ZCoin { utxo_arc, z_fields })
     }
+
+    pub async fn wait_for_blockchain_scan(&self) -> Result<BlockHeight, ()> {
+        self.z_fields.sync_state_watcher.lock().await.next().await.ok_or(())
+    }
 }
 
 impl AsRef<UtxoCoinFields> for ZCoin {
@@ -681,8 +687,10 @@ impl<'a> UtxoCoinWithIguanaPrivKeyBuilder for ZCoinBuilder<'a> {
         let my_z_addr_encoded = encode_payment_address(self.consensus_params.hrp_sapling_payment_address(), &my_z_addr);
 
         let evk = ExtendedFullViewingKey::from(&self.z_spending_key);
-        let z_rpc = match &self.z_coin_params.mode {
+        let (z_rpc, new_tx_notifier, sync_state_watcher) = match &self.z_coin_params.mode {
             ZcoinRpcMode::Native => {
+                unimplemented!()
+                /*
                 let db_name = format!("{}_CACHE.db", self.ticker);
                 let db_path = self.db_dir_path.join(&db_name);
 
@@ -706,6 +714,8 @@ impl<'a> UtxoCoinWithIguanaPrivKeyBuilder for ZCoinBuilder<'a> {
                     sqlite: Mutex::new(sqlite),
                     sapling_state_synced: Default::default(),
                 })
+
+                 */
             },
             ZcoinRpcMode::Light {
                 light_wallet_d_servers, ..
@@ -725,7 +735,7 @@ impl<'a> UtxoCoinWithIguanaPrivKeyBuilder for ZCoinBuilder<'a> {
                     sync_state_notifier,
                 )
                 .await?;
-                client.into()
+                (client.into(), new_tx_notifier, sync_state_watcher)
             },
         };
 
@@ -737,6 +747,8 @@ impl<'a> UtxoCoinWithIguanaPrivKeyBuilder for ZCoinBuilder<'a> {
             z_tx_prover,
             z_rpc,
             consensus_params: self.consensus_params,
+            new_tx_notifier,
+            sync_state_watcher: AsyncMutex::new(sync_state_watcher),
         };
 
         let z_coin = ZCoin {
