@@ -42,7 +42,7 @@ jobs:
           cat MM_VERSION
           if [ $AGENT_OS = "Darwin" ]
           then
-            cargo build --bin mm2 --release --target x86_64-apple-darwin
+            cargo build --release --target x86_64-apple-darwin
           else
             cargo build --bin mm2 --release
           fi
@@ -109,7 +109,7 @@ jobs:
         condition: and ( eq( variables['Agent.OS'], 'Linux' ), ne ( variables['Build.Reason'], 'PullRequest' ) )
       - bash: |
           cd target/x86_64-apple-darwin/release
-          zip ../../../upload/mm2-$(COMMIT_HASH)-$(Agent.OS)-Release mm2.dSYM mm2 -r
+          zip ../../../upload/mm2-$(COMMIT_HASH)-$(Agent.OS)-Release mm2.dSYM mm2 libmm2.a -r
         displayName: 'Prepare release build upload MacOS'
         condition: and ( eq( variables['Agent.OS'], 'Darwin' ), ne ( variables['Build.Reason'], 'PullRequest' ) )
       - powershell: |
