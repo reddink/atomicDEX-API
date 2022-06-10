@@ -3288,7 +3288,7 @@ fn test_qtum_without_check_utxo_maturity() {
 
 #[test]
 #[ignore]
-fn test_qtum() {
+fn test_split_qtum() {
     let priv_key = [
         3, 98, 177, 3, 108, 39, 234, 144, 131, 178, 103, 103, 127, 80, 230, 166, 53, 68, 147, 215, 42, 216, 144, 72,
         172, 110, 180, 13, 123, 179, 10, 49,
@@ -3332,14 +3332,17 @@ fn test_qtum() {
 
     let unspents = vec![UnspentInfo {
         outpoint: Default::default(),
-        value: 402000,
+        value: 402000000,
         height: None,
     }];
 
-    let outputs = vec![TransactionOutput {
-        value: 10000,
-        script_pubkey: script.to_bytes(),
-    }; 40];
+    let outputs = vec![
+        TransactionOutput {
+            value: 10000000,
+            script_pubkey: script.to_bytes(),
+        };
+        40
+    ];
 
     let builder = UtxoTxBuilder::new(&coin)
         .add_available_inputs(unspents)
@@ -3348,6 +3351,18 @@ fn test_qtum() {
     let (_, data) = block_on(builder.build()).unwrap();
     let expected_fee = 2000;
     assert_eq!(expected_fee, data.fee_amount);
+
+    let withdraw_req = WithdrawRequest {
+        amount: 402000000.into(),
+        from: None,
+        to: "qXxsj5RtciAby9T7m98AgAATL4zTi4UwDG".into(),
+        coin: "QTUM".into(),
+        max: false,
+        fee: None,
+    };
+
+    let tx_details = coin.withdraw(withdraw_req).wait().unwrap();
+    println!("{:?}", tx_details);
 }
 
 /// `QtumCoin` hasn't to check UTXO maturity if `check_utxo_maturity` is `false`.
