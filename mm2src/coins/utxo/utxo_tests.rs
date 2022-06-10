@@ -3293,7 +3293,6 @@ fn test_split_qtum() {
         3, 98, 177, 3, 108, 39, 234, 144, 131, 178, 103, 103, 127, 80, 230, 166, 53, 68, 147, 215, 42, 216, 144, 72,
         172, 110, 180, 13, 123, 179, 10, 49,
     ];
-
     let conf = json!([{
       "coin": "tQTUM",
       "name": "qtumtest",
@@ -3352,17 +3351,30 @@ fn test_split_qtum() {
     let expected_fee = 2000;
     assert_eq!(expected_fee, data.fee_amount);
 
+    let p2pkh_address = Address {
+        prefix: coin.as_ref().conf.pub_addr_prefix,
+        hash: coin.as_ref().derivation_method.unwrap_iguana().hash.clone(),
+        t_addr_prefix: coin.as_ref().conf.pub_t_addr_prefix,
+        checksum_type: coin.as_ref().derivation_method.unwrap_iguana().checksum_type,
+        hrp: coin.as_ref().conf.bech32_hrp.clone(),
+        addr_format: UtxoAddressFormat::Standard,
+    };
+
     let withdraw_req = WithdrawRequest {
-        amount: 402000000.into(),
+        amount: 40.into(),
         from: None,
-        to: "qXxsj5RtciAby9T7m98AgAATL4zTi4UwDG".into(),
+        to: p2pkh_address.to_string(),
         coin: "QTUM".into(),
         max: false,
         fee: None,
     };
 
     let tx_details = coin.withdraw(withdraw_req).wait().unwrap();
-    println!("{:?}", tx_details);
+    println!("tx_details = {:?}", tx_details);
+    let tx_str = hex::encode(tx_details.tx_hex.0);
+    println!("tx_str = {:?}", tx_str);
+    let res = coin.send_raw_tx(&tx_str).wait().unwrap();
+    println!("res = {:?}", res);
 }
 
 /// `QtumCoin` hasn't to check UTXO maturity if `check_utxo_maturity` is `false`.
