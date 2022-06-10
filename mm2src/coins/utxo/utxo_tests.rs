@@ -3319,14 +3319,10 @@ fn test_split_qtum() {
             {"url":"electrum3.cipig.net:10071"},
         ],
     });
-
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-
     let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, &priv_key)).unwrap();
-
     let address = Address::from("qXxsj5RtciAby9T7m98AgAATL4zTi4UwDG");
-
     let script: Script = output_script(&address, ScriptType::P2PKH);
 
     let unspents = vec![UnspentInfo {
@@ -3334,7 +3330,6 @@ fn test_split_qtum() {
         value: 402000000,
         height: None,
     }];
-
     let outputs = vec![
         TransactionOutput {
             value: 10000000,
@@ -3342,7 +3337,6 @@ fn test_split_qtum() {
         };
         40
     ];
-
     let builder = UtxoTxBuilder::new(&coin)
         .add_available_inputs(unspents)
         .add_outputs(outputs);
@@ -3359,7 +3353,6 @@ fn test_split_qtum() {
         hrp: coin.as_ref().conf.bech32_hrp.clone(),
         addr_format: UtxoAddressFormat::Standard,
     };
-
     let withdraw_req = WithdrawRequest {
         amount: 40.into(),
         from: None,
@@ -3368,12 +3361,11 @@ fn test_split_qtum() {
         max: false,
         fee: None,
     };
-
-    let tx_details = coin.withdraw(withdraw_req).wait().unwrap();
+    let tx_details = block_on(coin.withdraw(withdraw_req).compat()).unwrap();
     println!("tx_details = {:?}", tx_details);
     let tx_str = hex::encode(tx_details.tx_hex.0);
     println!("tx_str = {:?}", tx_str);
-    let res = coin.send_raw_tx(&tx_str).wait().unwrap();
+    let res = block_on(coin.send_raw_tx(&tx_str).compat()).unwrap();
     println!("res = {:?}", res);
 }
 
