@@ -74,7 +74,7 @@ pub trait Bip32ChildValue: Sized {
     fn from_bip32_number(child_number: ChildNumber, child_index: usize) -> Result<Self, Bip32DerPathError>;
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct AnyValue<const HARDENED: bool> {
     number: u32,
 }
@@ -102,7 +102,7 @@ impl<const HARDENED: bool> Bip32ChildValue for AnyValue<HARDENED> {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct Bip32Child<Value, Child> {
     value: Value,
     child: Child,
@@ -226,7 +226,7 @@ impl<Value: Bip32ChildValue, Child> Bip32Child<Value, Child> {
     pub fn child(&self) -> &Child { &self.child }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct Bip44Tail;
 
 impl Bip32DerPathOps for Bip44Tail {}

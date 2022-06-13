@@ -242,12 +242,11 @@ pub mod utxo;
 #[cfg(not(target_arch = "wasm32"))] pub mod z_coin;
 
 use eth::{eth_coin_from_conf_and_request, EthCoin, EthTxFeeDetails, SignedEthTx};
-use hd_wallet::{HDAddress, HDAddressId};
+use hd_wallet::{HDAccountAddressId, HDAddress};
 use qrc20::Qrc20ActivationParams;
 use qrc20::{qrc20_coin_from_conf_and_params, Qrc20Coin, Qrc20FeeDetails};
 use qtum::{Qrc20AddressError, ScriptHashTypeNotSupported};
 use rpc_command::init_create_account::{CreateAccountTaskManager, CreateAccountTaskManagerShared};
-use rpc_command::init_scan_for_new_addresses::{ScanAddressesTaskManager, ScanAddressesTaskManagerShared};
 use rpc_command::init_withdraw::{WithdrawTaskManager, WithdrawTaskManagerShared};
 use utxo::bch::{bch_coin_from_conf_and_params, BchActivationRequest, BchCoin};
 use utxo::qtum::{self, qtum_coin_with_priv_key, QtumCoin};
@@ -711,7 +710,7 @@ pub trait GetWithdrawSenderAddress {
 #[serde(untagged)]
 pub enum WithdrawFrom {
     // AccountId { account_id: u32 },
-    AddressId(HDAddressId),
+    AddressId(HDAccountAddressId),
     /// Don't use `Bip44DerivationPath` or `RpcDerivationPath` because if there is an error in the path,
     /// `serde::Deserialize` returns "data did not match any variant of untagged enum WithdrawFrom".
     /// It's better to show the user an informative error.
@@ -1895,7 +1894,6 @@ pub struct CoinsContext {
     balance_update_handlers: AsyncMutex<Vec<Box<dyn BalanceTradeFeeUpdatedHandler + Send + Sync>>>,
     withdraw_task_manager: WithdrawTaskManagerShared,
     create_account_manager: CreateAccountTaskManagerShared,
-    scan_addresses_manager: ScanAddressesTaskManagerShared,
     #[cfg(target_arch = "wasm32")]
     tx_history_db: SharedDb<TxHistoryDb>,
     #[cfg(target_arch = "wasm32")]
@@ -1921,7 +1919,6 @@ impl CoinsContext {
                 balance_update_handlers: AsyncMutex::new(vec![]),
                 withdraw_task_manager: WithdrawTaskManager::new_shared(),
                 create_account_manager: CreateAccountTaskManager::new_shared(),
-                scan_addresses_manager: ScanAddressesTaskManager::new_shared(),
                 #[cfg(target_arch = "wasm32")]
                 tx_history_db: ConstructibleDb::new_shared(ctx),
                 #[cfg(target_arch = "wasm32")]

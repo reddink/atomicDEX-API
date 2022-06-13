@@ -1,4 +1,4 @@
-use crate::hd_wallet::{AddressDerivingError, InvalidBip44ChainError};
+use crate::hd_wallet::{AddressDerivingError, InvalidBip44ChainError, InvalidDerivationPath};
 use crate::{BalanceError, CoinFindError, UnexpectedDerivationMethod};
 use common::HttpStatusCode;
 use crypto::Bip44Chain;
@@ -87,6 +87,20 @@ impl From<AddressDerivingError> for HDAccountBalanceRpcError {
         match e {
             AddressDerivingError::Bip32Error(bip32) => {
                 HDAccountBalanceRpcError::ErrorDerivingAddress(bip32.to_string())
+            },
+        }
+    }
+}
+
+// TODO
+impl From<InvalidDerivationPath> for HDAccountBalanceRpcError {
+    fn from(e: InvalidDerivationPath) -> Self {
+        match e {
+            InvalidDerivationPath::InvalidBip44Chain(ref chain_err) => {
+                HDAccountBalanceRpcError::InvalidBip44Chain { chain: chain_err.chain }
+            },
+            InvalidDerivationPath::UnexpectedCoinType { .. } | InvalidDerivationPath::UnexpectedAccountId { .. } => {
+                HDAccountBalanceRpcError::ErrorDerivingAddress(e.to_string())
             },
         }
     }

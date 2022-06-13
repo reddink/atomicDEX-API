@@ -1,3 +1,4 @@
+use crate::hd_wallet::HDAddressIds;
 use crate::hd_wallet_storage::{HDAccountStorageItem, HDWalletId, HDWalletStorageInternalOps, HDWalletStorageResult};
 use async_trait::async_trait;
 use mm2_core::mm_ctx::MmArc;
@@ -25,6 +26,15 @@ impl HDWalletStorageInternalOps for HDWalletMockStorage {
         _account_id: u32,
     ) -> HDWalletStorageResult<Option<HDAccountStorageItem>> {
         unimplemented!()
+    }
+
+    async fn upload_addresses(
+        &self,
+        wallet_id: HDWalletId,
+        account_id: u32,
+        addresses: HDAddressIds,
+    ) -> HDWalletStorageResult<()> {
+        todo!()
     }
 
     async fn update_external_addresses_number(

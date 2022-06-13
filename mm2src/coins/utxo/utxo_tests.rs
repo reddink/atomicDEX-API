@@ -1,15 +1,11 @@
 use super::*;
-use crate::coin_balance::HDAddressBalance;
 use crate::hd_wallet::HDAccountsMap;
-use crate::hd_wallet_storage::{HDWalletMockStorage, HDWalletStorageInternalOps};
-use crate::rpc_command::account_balance::{AccountBalanceParams, AccountBalanceRpcOps, HDAccountBalanceResponse};
-use crate::rpc_command::init_scan_for_new_addresses::{InitScanAddressesRpcOps, ScanAddressesParams,
-                                                      ScanAddressesResponse};
+use crate::rpc_command::account_balance::AccountBalanceResponse;
+use crate::rpc_command::list_address::{ListAddressParams, ListAddressResponse, ListAddressRpcOps};
 use crate::utxo::qtum::{qtum_coin_with_priv_key, QtumCoin, QtumDelegationOps, QtumDelegationRequest};
 use crate::utxo::rpc_clients::{BlockHashOrHeight, ElectrumBalance, ElectrumClient, ElectrumClientImpl,
-                               GetAddressInfoRes, ListSinceBlockRes, ListTransactionsItem, NativeClient,
-                               NativeClientImpl, NativeUnspent, NetworkInfo, UtxoRpcClientOps, ValidateAddressRes,
-                               VerboseBlock};
+                               GetAddressInfoRes, ListSinceBlockRes, NativeClient, NativeClientImpl, NativeUnspent,
+                               NetworkInfo, UtxoRpcClientOps, ValidateAddressRes, VerboseBlock};
 use crate::utxo::tx_cache::dummy_tx_cache::DummyVerboseCache;
 use crate::utxo::tx_cache::UtxoVerboseCacheOps;
 use crate::utxo::utxo_builder::{UtxoArcBuilder, UtxoCoinBuilderCommonOps};
@@ -22,7 +18,7 @@ use bigdecimal::{BigDecimal, Signed};
 use chain::OutPoint;
 use common::executor::Timer;
 use common::{block_on, now_ms, OrdRange, PagingOptionsEnum, DEX_FEE_ADDR_RAW_PUBKEY};
-use crypto::{privkey::key_pair_from_seed, Bip44Chain, RpcDerivationPath};
+use crypto::privkey::key_pair_from_seed;
 use futures::future::join_all;
 use futures::TryFutureExt;
 use mm2_core::mm_ctx::MmCtxBuilder;
@@ -3328,48 +3324,8 @@ fn test_qtum_with_check_utxo_maturity_false() {
 }
 
 #[test]
-fn test_account_balance_rpc() {
+fn test_list_address_rpc() {
     let mut addresses_map: HashMap<String, u64> = HashMap::new();
-    let mut balances_by_der_path: HashMap<String, HDAddressBalance> = HashMap::new();
-
-    macro_rules! known_address {
-        ($der_path:literal, $address:literal, $chain:expr, balance = $balance:literal) => {
-            addresses_map.insert($address.to_string(), $balance);
-            balances_by_der_path.insert($der_path.to_string(), HDAddressBalance {
-                address: $address.to_string(),
-                derivation_path: RpcDerivationPath(DerivationPath::from_str($der_path).unwrap()),
-                chain: $chain,
-                balance: CoinBalance::new(BigDecimal::from($balance)),
-            })
-        };
-    }
-
-    macro_rules! get_balances {
-        ($($der_paths:literal),*) => {
-            [$($der_paths),*].iter().map(|der_path| balances_by_der_path.get(*der_path).unwrap().clone()).collect()
-        };
-    }
-
-    #[rustfmt::skip]
-    {
-        // Account#0, external addresses.
-        known_address!("m/44'/141'/0'/0/0", "RRqF4cYniMwYs66S4QDUUZ4GJQFQF69rBE", Bip44Chain::External, balance = 0);
-        known_address!("m/44'/141'/0'/0/1", "RSVLsjXc9LJ8fm9Jq7gXjeubfja3bbgSDf", Bip44Chain::External, balance = 0);
-        known_address!("m/44'/141'/0'/0/2", "RSSZjtgfnLzvqF4cZQJJEpN5gvK3pWmd3h", Bip44Chain::External, balance = 0);
-        known_address!("m/44'/141'/0'/0/3", "RU1gRFXWXNx7uPRAEJ7wdZAW1RZ4TE6Vv1", Bip44Chain::External, balance = 98);
-        known_address!("m/44'/141'/0'/0/4", "RUkEvRzb7mtwfVeKiSFEbYupLkcvU5KJBw", Bip44Chain::External, balance = 1);
-        known_address!("m/44'/141'/0'/0/5", "RP8deqVfjBbkvxbGbsQ2EGdamMaP1wxizR", Bip44Chain::External, balance = 0);
-        known_address!("m/44'/141'/0'/0/6", "RSvKMMegKGP5e2EanH7fnD4yNsxdJvLAmL", Bip44Chain::External, balance = 32);
-
-        // Account#0, internal addresses.
-        known_address!("m/44'/141'/0'/1/0", "RLZxcZSYtKe74JZd1hBAmmD9PNHZqb72oL", Bip44Chain::Internal, balance = 13);
-        known_address!("m/44'/141'/0'/1/1", "RPj9JXUVnewWwVpxZDeqGB25qVqz5qJzwP", Bip44Chain::Internal, balance = 44);
-        known_address!("m/44'/141'/0'/1/2", "RSYdSLRYWuzBson2GDbWBa632q2PmFnCaH", Bip44Chain::Internal, balance = 10);
-
-        // Account#1, internal addresses.
-        known_address!("m/44'/141'/1'/1/0", "RGo7sYzivPtzv8aRQ4A6vRJDxoqkRRBRhZ", Bip44Chain::Internal, balance = 0);
-    }
-
     NativeClient::display_balances.mock_safe(move |_, addresses: Vec<Address>, _| {
         let result: Vec<_> = addresses
             .into_iter()
@@ -3391,399 +3347,492 @@ fn test_account_balance_rpc() {
         account_id: 0,
         extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPM59RPw7Eg6PKdU7E2ehxJWtYdrfQ6JFmMGBsrR6jA78ANCLgzKYm4s5UqQ4ydLEYPbh3TRVvn5oAZVtWfi4qJLMntpZ8uGJ").unwrap(),
         account_derivation_path: Bip44PathToAccount::from_str("m/44'/141'/0'").unwrap(),
-        external_addresses_number: 7,
-        internal_addresses_number: 3,
-    });
-    hd_accounts.insert(1, UtxoHDAccount {
-        account_id: 1,
-        extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPQq2FdGT6JoieiQZUpTZ3WZn8fcuLJhFVmtCpXbuXxp5aPzaokwcLV2V9LE55Dwt8JYkpuMv7jXKwmyD28WbHYjBH2zhbW2p").unwrap(),
-        account_derivation_path: Bip44PathToAccount::from_str("m/44'/141'/1'").unwrap(),
-        external_addresses_number: 0,
-        internal_addresses_number: 1,
+        addresses: HDAddressIds::new(),
     });
     fields.derivation_method = DerivationMethod::HDWallet(UtxoHDWallet {
         hd_wallet_storage: HDWalletCoinStorage::default(),
         address_format: UtxoAddressFormat::Standard,
         derivation_path: Bip44PathToCoin::from_str("m/44'/141'").unwrap(),
         accounts: HDAccountsMutex::new(hd_accounts),
-        gap_limit: 3,
     });
     let coin = utxo_coin_from_fields(fields);
 
     // Request a balance of Account#0, external addresses, 1st page
-
-    let params = AccountBalanceParams {
+    let params = ListAddressParams {
         account_index: 0,
         chain: Bip44Chain::External,
         limit: 3,
         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()),
     };
-    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
-    let expected = HDAccountBalanceResponse {
+    let actual = block_on(coin.list_address_rpc(params)).expect("!list_address_rpc");
+    let expected = ListAddressResponse {
         account_index: 0,
         derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
         addresses: get_balances!("m/44'/141'/0'/0/0", "m/44'/141'/0'/0/1", "m/44'/141'/0'/0/2"),
-        page_balance: CoinBalance::new(BigDecimal::from(0)),
         limit: 3,
         skipped: 0,
-        total: 7,
-        total_pages: 3,
         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()),
-    };
-    assert_eq!(actual, expected);
-
-    // Request a balance of Account#0, external addresses, 2nd page
-
-    let params = AccountBalanceParams {
-        account_index: 0,
-        chain: Bip44Chain::External,
-        limit: 3,
-        paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(2).unwrap()),
-    };
-    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
-    let expected = HDAccountBalanceResponse {
-        account_index: 0,
-        derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
-        addresses: get_balances!("m/44'/141'/0'/0/3", "m/44'/141'/0'/0/4", "m/44'/141'/0'/0/5"),
-        page_balance: CoinBalance::new(BigDecimal::from(99)),
-        limit: 3,
-        skipped: 3,
-        total: 7,
-        total_pages: 3,
-        paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(2).unwrap()),
-    };
-    assert_eq!(actual, expected);
-
-    // Request a balance of Account#0, external addresses, 3rd page
-
-    let params = AccountBalanceParams {
-        account_index: 0,
-        chain: Bip44Chain::External,
-        limit: 3,
-        paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(3).unwrap()),
-    };
-    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
-    let expected = HDAccountBalanceResponse {
-        account_index: 0,
-        derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
-        addresses: get_balances!("m/44'/141'/0'/0/6"),
-        page_balance: CoinBalance::new(BigDecimal::from(32)),
-        limit: 3,
-        skipped: 6,
-        total: 7,
-        total_pages: 3,
-        paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(3).unwrap()),
-    };
-    assert_eq!(actual, expected);
-
-    // Request a balance of Account#0, external addresses, page 4 (out of bound)
-
-    let params = AccountBalanceParams {
-        account_index: 0,
-        chain: Bip44Chain::External,
-        limit: 3,
-        paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(4).unwrap()),
-    };
-    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
-    let expected = HDAccountBalanceResponse {
-        account_index: 0,
-        derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
-        addresses: Vec::new(),
-        page_balance: CoinBalance::default(),
-        limit: 3,
-        skipped: 7,
-        total: 7,
-        total_pages: 3,
-        paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(4).unwrap()),
-    };
-    assert_eq!(actual, expected);
-
-    // Request a balance of Account#0, internal addresses, where idx > 0
-
-    let params = AccountBalanceParams {
-        account_index: 0,
-        chain: Bip44Chain::Internal,
-        limit: 3,
-        paging_options: PagingOptionsEnum::FromId(0),
-    };
-    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
-    let expected = HDAccountBalanceResponse {
-        account_index: 0,
-        derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
-        addresses: get_balances!("m/44'/141'/0'/1/1", "m/44'/141'/0'/1/2"),
-        page_balance: CoinBalance::new(BigDecimal::from(54)),
-        limit: 3,
-        skipped: 1,
-        total: 3,
-        total_pages: 1,
-        paging_options: PagingOptionsEnum::FromId(0),
-    };
-    assert_eq!(actual, expected);
-
-    // Request a balance of Account#1, external addresses, page 1 (out of bound)
-
-    let params = AccountBalanceParams {
-        account_index: 1,
-        chain: Bip44Chain::External,
-        limit: 3,
-        paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()),
-    };
-    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
-    let expected = HDAccountBalanceResponse {
-        account_index: 1,
-        derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap().into(),
-        addresses: Vec::new(),
-        page_balance: CoinBalance::default(),
-        limit: 3,
-        skipped: 0,
-        total: 0,
-        total_pages: 0,
-        paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()),
-    };
-    assert_eq!(actual, expected);
-
-    // Request a balance of Account#1, external addresses, page 1
-
-    let params = AccountBalanceParams {
-        account_index: 1,
-        chain: Bip44Chain::Internal,
-        limit: 3,
-        paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()),
-    };
-    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
-    let expected = HDAccountBalanceResponse {
-        account_index: 1,
-        derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap().into(),
-        addresses: get_balances!("m/44'/141'/1'/1/0"),
-        page_balance: CoinBalance::new(BigDecimal::from(0)),
-        limit: 3,
-        skipped: 0,
-        total: 1,
-        total_pages: 1,
-        paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()),
-    };
-    assert_eq!(actual, expected);
-
-    // Request a balance of Account#1, external addresses, where idx > 0 (out of bound)
-
-    let params = AccountBalanceParams {
-        account_index: 1,
-        chain: Bip44Chain::Internal,
-        limit: 3,
-        paging_options: PagingOptionsEnum::FromId(0),
-    };
-    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
-    let expected = HDAccountBalanceResponse {
-        account_index: 1,
-        derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap().into(),
-        addresses: Vec::new(),
-        page_balance: CoinBalance::default(),
-        limit: 3,
-        skipped: 1,
-        total: 1,
-        total_pages: 1,
-        paging_options: PagingOptionsEnum::FromId(0),
     };
     assert_eq!(actual, expected);
 }
 
-#[test]
-fn test_scan_for_new_addresses() {
-    static mut ACCOUNT_ID: u32 = 0;
-    static mut NEW_EXTERNAL_ADDRESSES_NUMBER: u32 = 0;
-    static mut NEW_INTERNAL_ADDRESSES_NUMBER: u32 = 0;
-
-    HDWalletMockStorage::update_external_addresses_number.mock_safe(
-        |_, _, account_id, new_external_addresses_number| {
-            assert_eq!(account_id, unsafe { ACCOUNT_ID });
-            assert_eq!(new_external_addresses_number, unsafe { NEW_EXTERNAL_ADDRESSES_NUMBER });
-            MockResult::Return(Box::pin(futures::future::ok(())))
-        },
-    );
-
-    HDWalletMockStorage::update_internal_addresses_number.mock_safe(
-        |_, _, account_id, new_internal_addresses_number| {
-            assert_eq!(account_id, unsafe { ACCOUNT_ID });
-            assert_eq!(new_internal_addresses_number, unsafe { NEW_INTERNAL_ADDRESSES_NUMBER });
-            MockResult::Return(Box::pin(futures::future::ok(())))
-        },
-    );
-
-    let mut checking_addresses: HashMap<String, Option<u64>> = HashMap::new();
-    let mut non_empty_addresses: Vec<String> = Vec::new();
-    let mut balances_by_der_path: HashMap<String, HDAddressBalance> = HashMap::new();
-
-    macro_rules! new_address {
-        ($der_path:literal, $address:literal, $chain:expr, balance = $balance:expr) => {{
-            let balance = $balance;
-            checking_addresses.insert($address.to_string(), balance);
-            balances_by_der_path.insert($der_path.to_string(), HDAddressBalance {
-                address: $address.to_string(),
-                derivation_path: RpcDerivationPath(DerivationPath::from_str($der_path).unwrap()),
-                chain: $chain,
-                balance: CoinBalance::new(BigDecimal::from(balance.unwrap_or(0))),
-            });
-            if balance.is_some() {
-                non_empty_addresses.push($address.to_string());
-            }
-        }};
-    }
-
-    macro_rules! unused_address {
-        ($_der_path:literal, $address:literal) => {
-            checking_addresses.insert($address.to_string(), None)
-        };
-    }
-
-    macro_rules! get_balances {
-        ($($der_paths:literal),*) => {
-            [$($der_paths),*].iter().map(|der_path| balances_by_der_path.get(*der_path).unwrap().clone()).collect()
-        };
-    }
-
-    // Please note that the order of the `known` and `new` addresses is important.
-    #[rustfmt::skip]
-    {
-        // Account#0, external addresses.
-        new_address!("m/44'/141'/0'/0/3", "RU1gRFXWXNx7uPRAEJ7wdZAW1RZ4TE6Vv1", Bip44Chain::External, balance = Some(98));
-        unused_address!("m/44'/141'/0'/0/4", "RUkEvRzb7mtwfVeKiSFEbYupLkcvU5KJBw");
-        unused_address!("m/44'/141'/0'/0/5", "RP8deqVfjBbkvxbGbsQ2EGdamMaP1wxizR");
-        unused_address!("m/44'/141'/0'/0/6", "RSvKMMegKGP5e2EanH7fnD4yNsxdJvLAmL"); // Stop searching for a non-empty address (gap_limit = 3).
-
-        // Account#0, internal addresses.
-        new_address!("m/44'/141'/0'/1/1", "RPj9JXUVnewWwVpxZDeqGB25qVqz5qJzwP", Bip44Chain::Internal, balance = Some(98));
-        new_address!("m/44'/141'/0'/1/2", "RSYdSLRYWuzBson2GDbWBa632q2PmFnCaH", Bip44Chain::Internal, balance = None);
-        new_address!("m/44'/141'/0'/1/3", "RQstQeTUEZLh6c3YWJDkeVTTQoZUsfvNCr", Bip44Chain::Internal, balance = Some(14));
-        unused_address!("m/44'/141'/0'/1/4", "RT54m6pfj9scqwSLmYdfbmPcrpxnWGAe9J");
-        unused_address!("m/44'/141'/0'/1/5", "RYWfEFxqA6zya9c891Dj7vxiDojCmuWR9T");
-        unused_address!("m/44'/141'/0'/1/6", "RSkY6twW8knTcn6wGACUAG9crJHcuQ2kEH"); // Stop searching for a non-empty address (gap_limit = 3).
-
-        // Account#1, external addresses.
-        new_address!("m/44'/141'/1'/0/0", "RBQFLwJ88gVcnfkYvJETeTAB6AAYLow12K", Bip44Chain::External, balance = Some(9));
-        new_address!("m/44'/141'/1'/0/1", "RCyy77sRWFa2oiFPpyimeTQfenM1aRoiZs", Bip44Chain::External, balance = Some(7));
-        new_address!("m/44'/141'/1'/0/2", "RDnNa3pQmisfi42KiTZrfYfuxkLC91PoTJ", Bip44Chain::External, balance = None);
-        new_address!("m/44'/141'/1'/0/3", "RQRGgXcGJz93CoAfQJoLgBz2r9HtJYMX3Z", Bip44Chain::External, balance = None);
-        new_address!("m/44'/141'/1'/0/4", "RM6cqSFCFZ4J1LngLzqKkwo2ouipbDZUbm", Bip44Chain::External, balance = Some(11));
-        unused_address!("m/44'/141'/1'/0/5", "RX2fGBZjNZMNdNcnc5QBRXvmsXTvadvTPN");
-        unused_address!("m/44'/141'/1'/0/6", "RJJ7muUETyp59vxVXna9KAZ9uQ1QSqmcjE");
-        unused_address!("m/44'/141'/1'/0/7", "RYJ6vbhxFre5yChCMiJJFNTTBhAQbKM9AY"); // Stop searching for a non-empty address (gap_limit = 3).
-
-        // Account#1, internal addresses.
-        unused_address!("m/44'/141'/1'/0/2", "RCjRDibDAXKYpVYSUeJXrbTzZ1UEKYAwJa");
-        unused_address!("m/44'/141'/1'/0/3", "REs1NRzg8XjwN3v8Jp1wQUAyQb3TzeT8EB");
-        unused_address!("m/44'/141'/1'/0/4", "RS4UZtkwZ8eYaTL1xodXgFNryJoTbPJYE5"); // Stop searching for a non-empty address (gap_limit = 3).
-    }
-
-    NativeClient::display_balance.mock_safe(move |_, address: Address, _| {
-        let address = address.to_string();
-        let balance = checking_addresses
-            .remove(&address)
-            .expect(&format!("Unexpected address: {}", address))
-            .expect(&format!(
-                "'{}' address is empty. 'NativeClient::display_balance' must not be called for this address",
-                address
-            ));
-        MockResult::Return(Box::new(futures01::future::ok(BigDecimal::from(balance))))
-    });
-
-    NativeClient::list_all_transactions.mock_safe(move |_, _| {
-        let tx_history = non_empty_addresses
-            .clone()
-            .into_iter()
-            .map(|address| ListTransactionsItem {
-                address,
-                ..ListTransactionsItem::default()
-            })
-            .collect();
-        MockResult::Return(Box::new(futures01::future::ok(tx_history)))
-    });
-
-    let client = NativeClient(Arc::new(NativeClientImpl::default()));
-    let mut fields = utxo_coin_fields_for_test(UtxoRpcClientEnum::Native(client), None, false);
-    let mut hd_accounts = HDAccountsMap::new();
-    hd_accounts.insert(0, UtxoHDAccount {
-        account_id: 0,
-        extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPM59RPw7Eg6PKdU7E2ehxJWtYdrfQ6JFmMGBsrR6jA78ANCLgzKYm4s5UqQ4ydLEYPbh3TRVvn5oAZVtWfi4qJLMntpZ8uGJ").unwrap(),
-        account_derivation_path: Bip44PathToAccount::from_str("m/44'/141'/0'").unwrap(),
-        external_addresses_number: 3,
-        internal_addresses_number: 1,
-    });
-    hd_accounts.insert(1, UtxoHDAccount {
-        account_id: 1,
-        extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPQq2FdGT6JoieiQZUpTZ3WZn8fcuLJhFVmtCpXbuXxp5aPzaokwcLV2V9LE55Dwt8JYkpuMv7jXKwmyD28WbHYjBH2zhbW2p").unwrap(),
-        account_derivation_path: Bip44PathToAccount::from_str("m/44'/141'/1'").unwrap(),
-        external_addresses_number: 0,
-        internal_addresses_number: 2,
-    });
-    fields.derivation_method = DerivationMethod::HDWallet(UtxoHDWallet {
-        hd_wallet_storage: HDWalletCoinStorage::default(),
-        address_format: UtxoAddressFormat::Standard,
-        derivation_path: Bip44PathToCoin::from_str("m/44'/141'").unwrap(),
-        accounts: HDAccountsMutex::new(hd_accounts),
-        gap_limit: 3,
-    });
-    let coin = utxo_coin_from_fields(fields);
-
-    // Check balance of Account#0
-
-    unsafe {
-        ACCOUNT_ID = 0;
-        NEW_EXTERNAL_ADDRESSES_NUMBER = 4;
-        NEW_INTERNAL_ADDRESSES_NUMBER = 4;
-    }
-
-    let params = ScanAddressesParams {
-        account_index: 0,
-        gap_limit: Some(3),
-    };
-    let actual = block_on(coin.init_scan_for_new_addresses_rpc(params)).expect("!account_balance_rpc");
-    let expected = ScanAddressesResponse {
-        account_index: 0,
-        derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
-        new_addresses: get_balances!(
-            "m/44'/141'/0'/0/3",
-            "m/44'/141'/0'/1/1",
-            "m/44'/141'/0'/1/2",
-            "m/44'/141'/0'/1/3"
-        ),
-    };
-    assert_eq!(actual, expected);
-
-    // Check balance of Account#1
-
-    unsafe {
-        ACCOUNT_ID = 1;
-        NEW_EXTERNAL_ADDRESSES_NUMBER = 5;
-        NEW_INTERNAL_ADDRESSES_NUMBER = 2;
-    }
-
-    let params = ScanAddressesParams {
-        account_index: 1,
-        gap_limit: None,
-    };
-    let actual = block_on(coin.init_scan_for_new_addresses_rpc(params)).expect("!account_balance_rpc");
-    let expected = ScanAddressesResponse {
-        account_index: 1,
-        derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap().into(),
-        new_addresses: get_balances!(
-            "m/44'/141'/1'/0/0",
-            "m/44'/141'/1'/0/1",
-            "m/44'/141'/1'/0/2",
-            "m/44'/141'/1'/0/3",
-            "m/44'/141'/1'/0/4"
-        ),
-    };
-    assert_eq!(actual, expected);
-
-    let accounts = match coin.as_ref().derivation_method {
-        DerivationMethod::HDWallet(UtxoHDWallet { ref accounts, .. }) => block_on(accounts.lock()).clone(),
-        _ => unreachable!(),
-    };
-    assert_eq!(accounts[&0].external_addresses_number, 4);
-    assert_eq!(accounts[&0].internal_addresses_number, 4);
-    assert_eq!(accounts[&1].external_addresses_number, 5);
-    assert_eq!(accounts[&1].internal_addresses_number, 2);
-}
+// #[test]
+// fn test_account_balance_rpc() {
+//     let mut addresses_map: HashMap<String, u64> = HashMap::new();
+//     let mut balances_by_der_path: HashMap<String, HDAddressBalance> = HashMap::new();
+//
+//     macro_rules! known_address {
+//         ($der_path:literal, $address:literal, $chain:expr, balance = $balance:literal) => {
+//             addresses_map.insert($address.to_string(), $balance);
+//             balances_by_der_path.insert($der_path.to_string(), HDAddressBalance {
+//                 address: $address.to_string(),
+//                 derivation_path: RpcDerivationPath(DerivationPath::from_str($der_path).unwrap()),
+//                 chain: $chain,
+//                 balance: CoinBalance::new(BigDecimal::from($balance)),
+//             })
+//         };
+//     }
+//
+//     macro_rules! get_balances {
+//         ($($der_paths:literal),*) => {
+//             [$($der_paths),*].iter().map(|der_path| balances_by_der_path.get(*der_path).unwrap().clone()).collect()
+//         };
+//     }
+//
+//     #[rustfmt::skip]
+//     {
+//         // Account#0, external addresses.
+//         known_address!("m/44'/141'/0'/0/0", "RRqF4cYniMwYs66S4QDUUZ4GJQFQF69rBE", Bip44Chain::External, balance = 0);
+//         known_address!("m/44'/141'/0'/0/1", "RSVLsjXc9LJ8fm9Jq7gXjeubfja3bbgSDf", Bip44Chain::External, balance = 0);
+//         known_address!("m/44'/141'/0'/0/2", "RSSZjtgfnLzvqF4cZQJJEpN5gvK3pWmd3h", Bip44Chain::External, balance = 0);
+//         known_address!("m/44'/141'/0'/0/3", "RU1gRFXWXNx7uPRAEJ7wdZAW1RZ4TE6Vv1", Bip44Chain::External, balance = 98);
+//         known_address!("m/44'/141'/0'/0/4", "RUkEvRzb7mtwfVeKiSFEbYupLkcvU5KJBw", Bip44Chain::External, balance = 1);
+//         known_address!("m/44'/141'/0'/0/5", "RP8deqVfjBbkvxbGbsQ2EGdamMaP1wxizR", Bip44Chain::External, balance = 0);
+//         known_address!("m/44'/141'/0'/0/6", "RSvKMMegKGP5e2EanH7fnD4yNsxdJvLAmL", Bip44Chain::External, balance = 32);
+//
+//         // Account#0, internal addresses.
+//         known_address!("m/44'/141'/0'/1/0", "RLZxcZSYtKe74JZd1hBAmmD9PNHZqb72oL", Bip44Chain::Internal, balance = 13);
+//         known_address!("m/44'/141'/0'/1/1", "RPj9JXUVnewWwVpxZDeqGB25qVqz5qJzwP", Bip44Chain::Internal, balance = 44);
+//         known_address!("m/44'/141'/0'/1/2", "RSYdSLRYWuzBson2GDbWBa632q2PmFnCaH", Bip44Chain::Internal, balance = 10);
+//
+//         // Account#1, internal addresses.
+//         known_address!("m/44'/141'/1'/1/0", "RGo7sYzivPtzv8aRQ4A6vRJDxoqkRRBRhZ", Bip44Chain::Internal, balance = 0);
+//     }
+//
+//     NativeClient::display_balances.mock_safe(move |_, addresses: Vec<Address>, _| {
+//         let result: Vec<_> = addresses
+//             .into_iter()
+//             .map(|address| {
+//                 let address_str = address.to_string();
+//                 let balance = addresses_map
+//                     .remove(&address_str)
+//                     .expect(&format!("Unexpected address: {}", address_str));
+//                 (address, BigDecimal::from(balance))
+//             })
+//             .collect();
+//         MockResult::Return(Box::new(futures01::future::ok(result)))
+//     });
+//
+//     let client = NativeClient(Arc::new(NativeClientImpl::default()));
+//     let mut fields = utxo_coin_fields_for_test(UtxoRpcClientEnum::Native(client), None, false);
+//     let mut hd_accounts = HDAccountsMap::new();
+//     hd_accounts.insert(0, UtxoHDAccount {
+//         account_id: 0,
+//         extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPM59RPw7Eg6PKdU7E2ehxJWtYdrfQ6JFmMGBsrR6jA78ANCLgzKYm4s5UqQ4ydLEYPbh3TRVvn5oAZVtWfi4qJLMntpZ8uGJ").unwrap(),
+//         account_derivation_path: Bip44PathToAccount::from_str("m/44'/141'/0'").unwrap(),
+//         external_addresses_number: 7,
+//         internal_addresses_number: 3,
+//     });
+//     hd_accounts.insert(1, UtxoHDAccount {
+//         account_id: 1,
+//         extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPQq2FdGT6JoieiQZUpTZ3WZn8fcuLJhFVmtCpXbuXxp5aPzaokwcLV2V9LE55Dwt8JYkpuMv7jXKwmyD28WbHYjBH2zhbW2p").unwrap(),
+//         account_derivation_path: Bip44PathToAccount::from_str("m/44'/141'/1'").unwrap(),
+//         external_addresses_number: 0,
+//         internal_addresses_number: 1,
+//     });
+//     fields.derivation_method = DerivationMethod::HDWallet(UtxoHDWallet {
+//         hd_wallet_storage: HDWalletCoinStorage::default(),
+//         address_format: UtxoAddressFormat::Standard,
+//         derivation_path: Bip44PathToCoin::from_str("m/44'/141'").unwrap(),
+//         accounts: HDAccountsMutex::new(hd_accounts),
+//         gap_limit: 3,
+//     });
+//     let coin = utxo_coin_from_fields(fields);
+//
+//     // Request a balance of Account#0, external addresses, 1st page
+//
+//     let params = AccountBalanceParams {
+//         account_index: 0,
+//         chain: Bip44Chain::External,
+//         limit: 3,
+//         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()),
+//     };
+//     let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
+//     let expected = HDAccountBalanceResponse {
+//         account_index: 0,
+//         derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
+//         addresses: get_balances!("m/44'/141'/0'/0/0", "m/44'/141'/0'/0/1", "m/44'/141'/0'/0/2"),
+//         page_balance: CoinBalance::new(BigDecimal::from(0)),
+//         limit: 3,
+//         skipped: 0,
+//         total: 7,
+//         total_pages: 3,
+//         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()),
+//     };
+//     assert_eq!(actual, expected);
+//
+//     // Request a balance of Account#0, external addresses, 2nd page
+//
+//     let params = AccountBalanceParams {
+//         account_index: 0,
+//         chain: Bip44Chain::External,
+//         limit: 3,
+//         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(2).unwrap()),
+//     };
+//     let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
+//     let expected = HDAccountBalanceResponse {
+//         account_index: 0,
+//         derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
+//         addresses: get_balances!("m/44'/141'/0'/0/3", "m/44'/141'/0'/0/4", "m/44'/141'/0'/0/5"),
+//         page_balance: CoinBalance::new(BigDecimal::from(99)),
+//         limit: 3,
+//         skipped: 3,
+//         total: 7,
+//         total_pages: 3,
+//         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(2).unwrap()),
+//     };
+//     assert_eq!(actual, expected);
+//
+//     // Request a balance of Account#0, external addresses, 3rd page
+//
+//     let params = AccountBalanceParams {
+//         account_index: 0,
+//         chain: Bip44Chain::External,
+//         limit: 3,
+//         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(3).unwrap()),
+//     };
+//     let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
+//     let expected = HDAccountBalanceResponse {
+//         account_index: 0,
+//         derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
+//         addresses: get_balances!("m/44'/141'/0'/0/6"),
+//         page_balance: CoinBalance::new(BigDecimal::from(32)),
+//         limit: 3,
+//         skipped: 6,
+//         total: 7,
+//         total_pages: 3,
+//         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(3).unwrap()),
+//     };
+//     assert_eq!(actual, expected);
+//
+//     // Request a balance of Account#0, external addresses, page 4 (out of bound)
+//
+//     let params = AccountBalanceParams {
+//         account_index: 0,
+//         chain: Bip44Chain::External,
+//         limit: 3,
+//         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(4).unwrap()),
+//     };
+//     let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
+//     let expected = HDAccountBalanceResponse {
+//         account_index: 0,
+//         derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
+//         addresses: Vec::new(),
+//         page_balance: CoinBalance::default(),
+//         limit: 3,
+//         skipped: 7,
+//         total: 7,
+//         total_pages: 3,
+//         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(4).unwrap()),
+//     };
+//     assert_eq!(actual, expected);
+//
+//     // Request a balance of Account#0, internal addresses, where idx > 0
+//
+//     let params = AccountBalanceParams {
+//         account_index: 0,
+//         chain: Bip44Chain::Internal,
+//         limit: 3,
+//         paging_options: PagingOptionsEnum::FromId(0),
+//     };
+//     let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
+//     let expected = HDAccountBalanceResponse {
+//         account_index: 0,
+//         derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
+//         addresses: get_balances!("m/44'/141'/0'/1/1", "m/44'/141'/0'/1/2"),
+//         page_balance: CoinBalance::new(BigDecimal::from(54)),
+//         limit: 3,
+//         skipped: 1,
+//         total: 3,
+//         total_pages: 1,
+//         paging_options: PagingOptionsEnum::FromId(0),
+//     };
+//     assert_eq!(actual, expected);
+//
+//     // Request a balance of Account#1, external addresses, page 1 (out of bound)
+//
+//     let params = AccountBalanceParams {
+//         account_index: 1,
+//         chain: Bip44Chain::External,
+//         limit: 3,
+//         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()),
+//     };
+//     let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
+//     let expected = HDAccountBalanceResponse {
+//         account_index: 1,
+//         derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap().into(),
+//         addresses: Vec::new(),
+//         page_balance: CoinBalance::default(),
+//         limit: 3,
+//         skipped: 0,
+//         total: 0,
+//         total_pages: 0,
+//         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()),
+//     };
+//     assert_eq!(actual, expected);
+//
+//     // Request a balance of Account#1, external addresses, page 1
+//
+//     let params = AccountBalanceParams {
+//         account_index: 1,
+//         chain: Bip44Chain::Internal,
+//         limit: 3,
+//         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()),
+//     };
+//     let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
+//     let expected = HDAccountBalanceResponse {
+//         account_index: 1,
+//         derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap().into(),
+//         addresses: get_balances!("m/44'/141'/1'/1/0"),
+//         page_balance: CoinBalance::new(BigDecimal::from(0)),
+//         limit: 3,
+//         skipped: 0,
+//         total: 1,
+//         total_pages: 1,
+//         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()),
+//     };
+//     assert_eq!(actual, expected);
+//
+//     // Request a balance of Account#1, external addresses, where idx > 0 (out of bound)
+//
+//     let params = AccountBalanceParams {
+//         account_index: 1,
+//         chain: Bip44Chain::Internal,
+//         limit: 3,
+//         paging_options: PagingOptionsEnum::FromId(0),
+//     };
+//     let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
+//     let expected = HDAccountBalanceResponse {
+//         account_index: 1,
+//         derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap().into(),
+//         addresses: Vec::new(),
+//         page_balance: CoinBalance::default(),
+//         limit: 3,
+//         skipped: 1,
+//         total: 1,
+//         total_pages: 1,
+//         paging_options: PagingOptionsEnum::FromId(0),
+//     };
+//     assert_eq!(actual, expected);
+// }
+//
+// #[test]
+// fn test_scan_for_new_addresses() {
+//     static mut ACCOUNT_ID: u32 = 0;
+//     static mut NEW_EXTERNAL_ADDRESSES_NUMBER: u32 = 0;
+//     static mut NEW_INTERNAL_ADDRESSES_NUMBER: u32 = 0;
+//
+//     HDWalletMockStorage::update_external_addresses_number.mock_safe(
+//         |_, _, account_id, new_external_addresses_number| {
+//             assert_eq!(account_id, unsafe { ACCOUNT_ID });
+//             assert_eq!(new_external_addresses_number, unsafe { NEW_EXTERNAL_ADDRESSES_NUMBER });
+//             MockResult::Return(Box::pin(futures::future::ok(())))
+//         },
+//     );
+//
+//     HDWalletMockStorage::update_internal_addresses_number.mock_safe(
+//         |_, _, account_id, new_internal_addresses_number| {
+//             assert_eq!(account_id, unsafe { ACCOUNT_ID });
+//             assert_eq!(new_internal_addresses_number, unsafe { NEW_INTERNAL_ADDRESSES_NUMBER });
+//             MockResult::Return(Box::pin(futures::future::ok(())))
+//         },
+//     );
+//
+//     let mut checking_addresses: HashMap<String, Option<u64>> = HashMap::new();
+//     let mut non_empty_addresses: Vec<String> = Vec::new();
+//     let mut balances_by_der_path: HashMap<String, HDAddressBalance> = HashMap::new();
+//
+//     macro_rules! new_address {
+//         ($der_path:literal, $address:literal, $chain:expr, balance = $balance:expr) => {{
+//             let balance = $balance;
+//             checking_addresses.insert($address.to_string(), balance);
+//             balances_by_der_path.insert($der_path.to_string(), HDAddressBalance {
+//                 address: $address.to_string(),
+//                 derivation_path: RpcDerivationPath(DerivationPath::from_str($der_path).unwrap()),
+//                 chain: $chain,
+//                 balance: CoinBalance::new(BigDecimal::from(balance.unwrap_or(0))),
+//             });
+//             if balance.is_some() {
+//                 non_empty_addresses.push($address.to_string());
+//             }
+//         }};
+//     }
+//
+//     macro_rules! unused_address {
+//         ($_der_path:literal, $address:literal) => {
+//             checking_addresses.insert($address.to_string(), None)
+//         };
+//     }
+//
+//     macro_rules! get_balances {
+//         ($($der_paths:literal),*) => {
+//             [$($der_paths),*].iter().map(|der_path| balances_by_der_path.get(*der_path).unwrap().clone()).collect()
+//         };
+//     }
+//
+//     // Please note that the order of the `known` and `new` addresses is important.
+//     #[rustfmt::skip]
+//     {
+//         // Account#0, external addresses.
+//         new_address!("m/44'/141'/0'/0/3", "RU1gRFXWXNx7uPRAEJ7wdZAW1RZ4TE6Vv1", Bip44Chain::External, balance = Some(98));
+//         unused_address!("m/44'/141'/0'/0/4", "RUkEvRzb7mtwfVeKiSFEbYupLkcvU5KJBw");
+//         unused_address!("m/44'/141'/0'/0/5", "RP8deqVfjBbkvxbGbsQ2EGdamMaP1wxizR");
+//         unused_address!("m/44'/141'/0'/0/6", "RSvKMMegKGP5e2EanH7fnD4yNsxdJvLAmL"); // Stop searching for a non-empty address (gap_limit = 3).
+//
+//         // Account#0, internal addresses.
+//         new_address!("m/44'/141'/0'/1/1", "RPj9JXUVnewWwVpxZDeqGB25qVqz5qJzwP", Bip44Chain::Internal, balance = Some(98));
+//         new_address!("m/44'/141'/0'/1/2", "RSYdSLRYWuzBson2GDbWBa632q2PmFnCaH", Bip44Chain::Internal, balance = None);
+//         new_address!("m/44'/141'/0'/1/3", "RQstQeTUEZLh6c3YWJDkeVTTQoZUsfvNCr", Bip44Chain::Internal, balance = Some(14));
+//         unused_address!("m/44'/141'/0'/1/4", "RT54m6pfj9scqwSLmYdfbmPcrpxnWGAe9J");
+//         unused_address!("m/44'/141'/0'/1/5", "RYWfEFxqA6zya9c891Dj7vxiDojCmuWR9T");
+//         unused_address!("m/44'/141'/0'/1/6", "RSkY6twW8knTcn6wGACUAG9crJHcuQ2kEH"); // Stop searching for a non-empty address (gap_limit = 3).
+//
+//         // Account#1, external addresses.
+//         new_address!("m/44'/141'/1'/0/0", "RBQFLwJ88gVcnfkYvJETeTAB6AAYLow12K", Bip44Chain::External, balance = Some(9));
+//         new_address!("m/44'/141'/1'/0/1", "RCyy77sRWFa2oiFPpyimeTQfenM1aRoiZs", Bip44Chain::External, balance = Some(7));
+//         new_address!("m/44'/141'/1'/0/2", "RDnNa3pQmisfi42KiTZrfYfuxkLC91PoTJ", Bip44Chain::External, balance = None);
+//         new_address!("m/44'/141'/1'/0/3", "RQRGgXcGJz93CoAfQJoLgBz2r9HtJYMX3Z", Bip44Chain::External, balance = None);
+//         new_address!("m/44'/141'/1'/0/4", "RM6cqSFCFZ4J1LngLzqKkwo2ouipbDZUbm", Bip44Chain::External, balance = Some(11));
+//         unused_address!("m/44'/141'/1'/0/5", "RX2fGBZjNZMNdNcnc5QBRXvmsXTvadvTPN");
+//         unused_address!("m/44'/141'/1'/0/6", "RJJ7muUETyp59vxVXna9KAZ9uQ1QSqmcjE");
+//         unused_address!("m/44'/141'/1'/0/7", "RYJ6vbhxFre5yChCMiJJFNTTBhAQbKM9AY"); // Stop searching for a non-empty address (gap_limit = 3).
+//
+//         // Account#1, internal addresses.
+//         unused_address!("m/44'/141'/1'/0/2", "RCjRDibDAXKYpVYSUeJXrbTzZ1UEKYAwJa");
+//         unused_address!("m/44'/141'/1'/0/3", "REs1NRzg8XjwN3v8Jp1wQUAyQb3TzeT8EB");
+//         unused_address!("m/44'/141'/1'/0/4", "RS4UZtkwZ8eYaTL1xodXgFNryJoTbPJYE5"); // Stop searching for a non-empty address (gap_limit = 3).
+//     }
+//
+//     NativeClient::display_balance.mock_safe(move |_, address: Address, _| {
+//         let address = address.to_string();
+//         let balance = checking_addresses
+//             .remove(&address)
+//             .expect(&format!("Unexpected address: {}", address))
+//             .expect(&format!(
+//                 "'{}' address is empty. 'NativeClient::display_balance' must not be called for this address",
+//                 address
+//             ));
+//         MockResult::Return(Box::new(futures01::future::ok(BigDecimal::from(balance))))
+//     });
+//
+//     NativeClient::list_all_transactions.mock_safe(move |_, _| {
+//         let tx_history = non_empty_addresses
+//             .clone()
+//             .into_iter()
+//             .map(|address| ListTransactionsItem {
+//                 address,
+//                 ..ListTransactionsItem::default()
+//             })
+//             .collect();
+//         MockResult::Return(Box::new(futures01::future::ok(tx_history)))
+//     });
+//
+//     let client = NativeClient(Arc::new(NativeClientImpl::default()));
+//     let mut fields = utxo_coin_fields_for_test(UtxoRpcClientEnum::Native(client), None, false);
+//     let mut hd_accounts = HDAccountsMap::new();
+//     hd_accounts.insert(0, UtxoHDAccount {
+//         account_id: 0,
+//         extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPM59RPw7Eg6PKdU7E2ehxJWtYdrfQ6JFmMGBsrR6jA78ANCLgzKYm4s5UqQ4ydLEYPbh3TRVvn5oAZVtWfi4qJLMntpZ8uGJ").unwrap(),
+//         account_derivation_path: Bip44PathToAccount::from_str("m/44'/141'/0'").unwrap(),
+//         external_addresses_number: 3,
+//         internal_addresses_number: 1,
+//     });
+//     hd_accounts.insert(1, UtxoHDAccount {
+//         account_id: 1,
+//         extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPQq2FdGT6JoieiQZUpTZ3WZn8fcuLJhFVmtCpXbuXxp5aPzaokwcLV2V9LE55Dwt8JYkpuMv7jXKwmyD28WbHYjBH2zhbW2p").unwrap(),
+//         account_derivation_path: Bip44PathToAccount::from_str("m/44'/141'/1'").unwrap(),
+//         external_addresses_number: 0,
+//         internal_addresses_number: 2,
+//     });
+//     fields.derivation_method = DerivationMethod::HDWallet(UtxoHDWallet {
+//         hd_wallet_storage: HDWalletCoinStorage::default(),
+//         address_format: UtxoAddressFormat::Standard,
+//         derivation_path: Bip44PathToCoin::from_str("m/44'/141'").unwrap(),
+//         accounts: HDAccountsMutex::new(hd_accounts),
+//         gap_limit: 3,
+//     });
+//     let coin = utxo_coin_from_fields(fields);
+//
+//     // Check balance of Account#0
+//
+//     unsafe {
+//         ACCOUNT_ID = 0;
+//         NEW_EXTERNAL_ADDRESSES_NUMBER = 4;
+//         NEW_INTERNAL_ADDRESSES_NUMBER = 4;
+//     }
+//
+//     let params = ScanAddressesParams {
+//         account_index: 0,
+//         gap_limit: Some(3),
+//     };
+//     let actual = block_on(coin.init_scan_for_new_addresses_rpc(params)).expect("!account_balance_rpc");
+//     let expected = ScanAddressesResponse {
+//         account_index: 0,
+//         derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
+//         new_addresses: get_balances!(
+//             "m/44'/141'/0'/0/3",
+//             "m/44'/141'/0'/1/1",
+//             "m/44'/141'/0'/1/2",
+//             "m/44'/141'/0'/1/3"
+//         ),
+//     };
+//     assert_eq!(actual, expected);
+//
+//     // Check balance of Account#1
+//
+//     unsafe {
+//         ACCOUNT_ID = 1;
+//         NEW_EXTERNAL_ADDRESSES_NUMBER = 5;
+//         NEW_INTERNAL_ADDRESSES_NUMBER = 2;
+//     }
+//
+//     let params = ScanAddressesParams {
+//         account_index: 1,
+//         gap_limit: None,
+//     };
+//     let actual = block_on(coin.init_scan_for_new_addresses_rpc(params)).expect("!account_balance_rpc");
+//     let expected = ScanAddressesResponse {
+//         account_index: 1,
+//         derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap().into(),
+//         new_addresses: get_balances!(
+//             "m/44'/141'/1'/0/0",
+//             "m/44'/141'/1'/0/1",
+//             "m/44'/141'/1'/0/2",
+//             "m/44'/141'/1'/0/3",
+//             "m/44'/141'/1'/0/4"
+//         ),
+//     };
+//     assert_eq!(actual, expected);
+//
+//     let accounts = match coin.as_ref().derivation_method {
+//         DerivationMethod::HDWallet(UtxoHDWallet { ref accounts, .. }) => block_on(accounts.lock()).clone(),
+//         _ => unreachable!(),
+//     };
+//     assert_eq!(accounts[&0].external_addresses_number, 4);
+//     assert_eq!(accounts[&0].internal_addresses_number, 4);
+//     assert_eq!(accounts[&1].external_addresses_number, 5);
+//     assert_eq!(accounts[&1].internal_addresses_number, 2);
+// }
 
 /// https://github.com/KomodoPlatform/atomicDEX-API/issues/1196
 #[test]

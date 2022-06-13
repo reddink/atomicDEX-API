@@ -1,19 +1,16 @@
-use crate::coin_balance::HDAddressBalance;
 use crate::hd_pubkey::HDXPubExtractor;
 use crate::hd_wallet_storage::HDWalletStorageError;
-use crate::{lp_coinfind_or_err, BalanceError, CoinFindError, CoinWithDerivationMethod, MmCoinEnum,
-            UnexpectedDerivationMethod, WithdrawError};
+use crate::{BalanceError, CoinFindError, UnexpectedDerivationMethod, WithdrawError};
 use async_trait::async_trait;
 use common::HttpStatusCode;
-use crypto::{Bip32DerPathError, Bip32Error, Bip44Chain, Bip44DerPathError, Bip44DerivationPath, ChildNumber,
-             DerivationPath, HwError};
+use crypto::{Bip32DerPathError, Bip32Error, Bip44Chain, Bip44DerPathError, Bip44DerivationPath, DerivationPath,
+             HwError};
 use derive_more::Display;
 use http::StatusCode;
-use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc_task::RpcTaskError;
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 pub use futures::lock::{MappedMutexGuard as AsyncMappedMutexGuard, Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
@@ -22,6 +19,7 @@ pub type HDAccountsMap<HDAccount> = BTreeMap<u32, HDAccount>;
 pub type HDAccountsMutex<HDAccount> = AsyncMutex<HDAccountsMap<HDAccount>>;
 pub type HDAccountsMut<'a, HDAccount> = AsyncMutexGuard<'a, HDAccountsMap<HDAccount>>;
 pub type HDAccountMut<'a, HDAccount> = AsyncMappedMutexGuard<'a, HDAccountsMap<HDAccount>, HDAccount>;
+pub type HDAddressIds = BTreeSet<HDAddressId>;
 
 #[derive(Display)]
 pub enum AddressDerivingError {
@@ -45,39 +43,14 @@ impl From<AddressDerivingError> for WithdrawError {
     fn from(e: AddressDerivingError) -> Self { WithdrawError::UnexpectedFromAddress(e.to_string()) }
 }
 
-pub enum NewAddressDerivingError {
-    AddressLimitReached { max_addresses_number: u32 },
-    InvalidBip44Chain { chain: Bip44Chain },
-    Bip32Error(Bip32Error),
-    WalletStorageError(HDWalletStorageError),
-}
-
-impl From<Bip32Error> for NewAddressDerivingError {
-    fn from(e: Bip32Error) -> Self { NewAddressDerivingError::Bip32Error(e) }
-}
-
-impl From<AddressDerivingError> for NewAddressDerivingError {
-    fn from(e: AddressDerivingError) -> Self {
-        match e {
-            AddressDerivingError::Bip32Error(bip32) => NewAddressDerivingError::Bip32Error(bip32),
-        }
-    }
-}
-
-impl From<InvalidBip44ChainError> for NewAddressDerivingError {
-    fn from(e: InvalidBip44ChainError) -> Self { NewAddressDerivingError::InvalidBip44Chain { chain: e.chain } }
-}
-
-impl From<AccountUpdatingError> for NewAddressDerivingError {
-    fn from(e: AccountUpdatingError) -> Self {
-        match e {
-            AccountUpdatingError::AddressLimitReached { max_addresses_number } => {
-                NewAddressDerivingError::AddressLimitReached { max_addresses_number }
-            },
-            AccountUpdatingError::InvalidBip44Chain(e) => NewAddressDerivingError::from(e),
-            AccountUpdatingError::WalletStorageError(storage) => NewAddressDerivingError::WalletStorageError(storage),
-        }
-    }
+#[derive(Display)]
+pub enum InvalidDerivationPath {
+    #[display(fmt = "Expected '{}' coin_type, found '{}'", expected, found)]
+    UnexpectedCoinType { expected: u32, found: u32 },
+    #[display(fmt = "Expected '{}' account_id, found '{}'", expected, found)]
+    UnexpectedAccountId { expected: u32, found: u32 },
+    #[display(fmt = "{}", _0)]
+    InvalidBip44Chain(InvalidBip44ChainError),
 }
 
 #[derive(Display)]
@@ -148,30 +121,11 @@ pub struct InvalidBip44ChainError {
 
 #[derive(Display)]
 pub enum AccountUpdatingError {
-    AddressLimitReached { max_addresses_number: u32 },
-    InvalidBip44Chain(InvalidBip44ChainError),
     WalletStorageError(HDWalletStorageError),
-}
-
-impl From<InvalidBip44ChainError> for AccountUpdatingError {
-    fn from(e: InvalidBip44ChainError) -> Self { AccountUpdatingError::InvalidBip44Chain(e) }
 }
 
 impl From<HDWalletStorageError> for AccountUpdatingError {
     fn from(e: HDWalletStorageError) -> Self { AccountUpdatingError::WalletStorageError(e) }
-}
-
-impl From<AccountUpdatingError> for BalanceError {
-    fn from(e: AccountUpdatingError) -> Self {
-        let error = e.to_string();
-        match e {
-            AccountUpdatingError::AddressLimitReached { .. } | AccountUpdatingError::InvalidBip44Chain(_) => {
-                // Account updating is expected to be called after `address_id` and `chain` validation.
-                BalanceError::Internal(format!("Unexpected internal error: {}", error))
-            },
-            AccountUpdatingError::WalletStorageError(_) => BalanceError::WalletStorageError(error),
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Display, Serialize, SerializeErrorType)]
@@ -207,8 +161,6 @@ pub enum HDWalletRpcError {
     ErrorDerivingAddress(String),
     #[display(fmt = "Accounts limit reached. Max number of accounts: {}", max_accounts_number)]
     AccountLimitReached { max_accounts_number: u32 },
-    #[display(fmt = "Addresses limit reached. Max number of addresses: {}", max_addresses_number)]
-    AddressLimitReached { max_addresses_number: u32 },
     #[display(fmt = "Electrum/Native RPC invalid response: {}", _0)]
     RpcInvalidResponse(String),
     #[display(fmt = "HD wallet storage error: {}", _0)]
@@ -242,15 +194,27 @@ impl From<BalanceError> for HDWalletRpcError {
             BalanceError::Transport(transport) => HDWalletRpcError::Transport(transport),
             BalanceError::InvalidResponse(rpc) => HDWalletRpcError::RpcInvalidResponse(rpc),
             BalanceError::UnexpectedDerivationMethod(der_path) => HDWalletRpcError::from(der_path),
-            BalanceError::WalletStorageError(internal) | BalanceError::Internal(internal) => {
-                HDWalletRpcError::Internal(internal)
-            },
+            BalanceError::WalletStorageError(storage) => HDWalletRpcError::WalletStorageError(storage),
+            BalanceError::Internal(internal) => HDWalletRpcError::Internal(internal),
         }
     }
 }
 
 impl From<InvalidBip44ChainError> for HDWalletRpcError {
     fn from(e: InvalidBip44ChainError) -> Self { HDWalletRpcError::InvalidBip44Chain { chain: e.chain } }
+}
+
+impl From<InvalidDerivationPath> for HDWalletRpcError {
+    fn from(e: InvalidDerivationPath) -> Self {
+        match e {
+            InvalidDerivationPath::UnexpectedCoinType { .. } | InvalidDerivationPath::UnexpectedAccountId { .. } => {
+                HDWalletRpcError::ErrorDerivingAddress(e.to_string())
+            },
+            InvalidDerivationPath::InvalidBip44Chain(chain_err) => {
+                HDWalletRpcError::InvalidBip44Chain { chain: chain_err.chain }
+            },
+        }
+    }
 }
 
 impl From<AddressDerivingError> for HDWalletRpcError {
@@ -261,15 +225,10 @@ impl From<AddressDerivingError> for HDWalletRpcError {
     }
 }
 
-impl From<NewAddressDerivingError> for HDWalletRpcError {
-    fn from(e: NewAddressDerivingError) -> HDWalletRpcError {
+impl From<AccountUpdatingError> for HDWalletRpcError {
+    fn from(e: AccountUpdatingError) -> Self {
         match e {
-            NewAddressDerivingError::AddressLimitReached { max_addresses_number } => {
-                HDWalletRpcError::AddressLimitReached { max_addresses_number }
-            },
-            NewAddressDerivingError::InvalidBip44Chain { chain } => HDWalletRpcError::InvalidBip44Chain { chain },
-            NewAddressDerivingError::Bip32Error(bip32) => HDWalletRpcError::Internal(bip32.to_string()),
-            NewAddressDerivingError::WalletStorageError(storage) => {
+            AccountUpdatingError::WalletStorageError(storage) => {
                 HDWalletRpcError::WalletStorageError(storage.to_string())
             },
         }
@@ -311,7 +270,6 @@ impl HttpStatusCode for HDWalletRpcError {
             | HDWalletRpcError::UnknownAccount { .. }
             | HDWalletRpcError::InvalidBip44Chain { .. }
             | HDWalletRpcError::ErrorDerivingAddress(_)
-            | HDWalletRpcError::AddressLimitReached { .. }
             | HDWalletRpcError::AccountLimitReached { .. } => StatusCode::BAD_REQUEST,
             HDWalletRpcError::TrezorDisconnected
             | HDWalletRpcError::HardwareWalletInternal(_)
@@ -332,19 +290,73 @@ pub struct HDAddress<Address, Pubkey> {
     pub derivation_path: DerivationPath,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct HDAddressId {
+    pub chain: Bip44Chain,
+    pub address_id: u32,
+}
+
+impl HDAddressId {
+    /// Tries to convert `der_path` into `HDAddressId` by validating its `coin_type`, `chain` and `account_id`.
+    pub fn try_from_derivation_path(
+        hd_wallet: &impl HDWalletOps,
+        hd_account: &impl HDAccountOps,
+        der_path: &Bip44DerivationPath,
+    ) -> MmResult<HDAddressId, InvalidDerivationPath> {
+        let HDAccountAddressId { account_id, chain, .. } =
+            HDAccountAddressId::try_from_derivation_path(hd_wallet, der_path)?;
+        if hd_account.account_id() != account_id {
+            return MmError::err(InvalidDerivationPath::UnexpectedAccountId {
+                expected: hd_account.account_id(),
+                found: account_id,
+            });
+        }
+
+        Ok(HDAddressId {
+            chain,
+            address_id: der_path.address_id(),
+        })
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct HDAccountAddressId {
     pub account_id: u32,
     pub chain: Bip44Chain,
     pub address_id: u32,
 }
 
-impl From<Bip44DerivationPath> for HDAddressId {
-    fn from(der_path: Bip44DerivationPath) -> Self {
-        HDAddressId {
+impl HDAccountAddressId {
+    /// Tries to convert `der_path` into `HDAddressId` by validating its `coin_type` and `chain`.
+    pub fn try_from_derivation_path(
+        hd_wallet: &impl HDWalletOps,
+        der_path: &Bip44DerivationPath,
+    ) -> MmResult<HDAccountAddressId, InvalidDerivationPath> {
+        if hd_wallet.coin_type() != der_path.coin_type() {
+            return MmError::err(InvalidDerivationPath::UnexpectedCoinType {
+                expected: hd_wallet.coin_type(),
+                found: der_path.coin_type(),
+            });
+        }
+
+        let chain = der_path.chain();
+        if !hd_wallet.supports_chain(&chain) {
+            return MmError::err(InvalidDerivationPath::InvalidBip44Chain(InvalidBip44ChainError {
+                chain,
+            }));
+        }
+
+        Ok(HDAccountAddressId {
             account_id: der_path.account_id(),
-            chain: der_path.chain(),
+            chain,
             address_id: der_path.address_id(),
+        })
+    }
+
+    pub fn to_address_id(&self) -> HDAddressId {
+        HDAddressId {
+            chain: self.chain,
+            address_id: self.address_id,
         }
     }
 }
@@ -360,32 +372,8 @@ pub trait HDWalletCoinOps {
     fn derive_address(
         &self,
         hd_account: &Self::HDAccount,
-        chain: Bip44Chain,
-        address_id: u32,
+        address_id: HDAddressId,
     ) -> MmResult<HDAddress<Self::Address, Self::Pubkey>, AddressDerivingError>;
-
-    /// Generates a new address and updates the corresponding number of used `hd_account` addresses.
-    async fn generate_new_address(
-        &self,
-        hd_wallet: &Self::HDWallet,
-        hd_account: &mut Self::HDAccount,
-        chain: Bip44Chain,
-    ) -> MmResult<HDAddress<Self::Address, Self::Pubkey>, NewAddressDerivingError> {
-        let known_addresses_number = hd_account.known_addresses_number(chain)?;
-        // Address IDs start from 0, so the `known_addresses_number = last_known_address_id + 1`.
-        let new_address_id = known_addresses_number;
-        if new_address_id >= ChildNumber::HARDENED_FLAG {
-            return MmError::err(NewAddressDerivingError::AddressLimitReached {
-                max_addresses_number: ChildNumber::HARDENED_FLAG,
-            });
-        }
-        let new_address = self
-            .derive_address(hd_account, chain, new_address_id)
-            .mm_err(NewAddressDerivingError::from)?;
-        self.set_known_addresses_number(hd_wallet, hd_account, chain, known_addresses_number + 1)
-            .await?;
-        Ok(new_address)
-    }
 
     /// Creates a new HD account, registers it within the given `hd_wallet`
     /// and returns a mutable reference to the registered account.
@@ -397,12 +385,11 @@ pub trait HDWalletCoinOps {
     where
         XPubExtractor: HDXPubExtractor + Sync;
 
-    async fn set_known_addresses_number(
+    async fn enable_addresses(
         &self,
         hd_wallet: &Self::HDWallet,
         hd_account: &mut Self::HDAccount,
-        chain: Bip44Chain,
-        new_known_addresses_number: u32,
+        addresses: HDAddressIds,
     ) -> MmResult<(), AccountUpdatingError>;
 }
 
@@ -412,7 +399,7 @@ pub trait HDWalletOps: Send + Sync {
 
     fn coin_type(&self) -> u32;
 
-    fn gap_limit(&self) -> u32;
+    fn supports_chain(&self, chain: &Bip44Chain) -> bool;
 
     fn get_accounts_mutex(&self) -> &HDAccountsMutex<Self::HDAccount>;
 
@@ -444,106 +431,15 @@ pub trait HDWalletOps: Send + Sync {
 }
 
 pub trait HDAccountOps: Send + Sync {
-    /// Returns a number of used addresses of this account
-    /// or an `InvalidBip44ChainError` error if the coin doesn't support the given `chain`.
-    fn known_addresses_number(&self, chain: Bip44Chain) -> MmResult<u32, InvalidBip44ChainError>;
-
     /// Returns a derivation path of this account.
     fn account_derivation_path(&self) -> DerivationPath;
 
     /// Returns an index of this account.
     fn account_id(&self) -> u32;
 
-    /// Returns true if the given address is known at this time.
-    fn is_address_activated(&self, chain: Bip44Chain, address_id: u32) -> MmResult<bool, InvalidBip44ChainError> {
-        let is_activated = address_id < self.known_addresses_number(chain)?;
-        Ok(is_activated)
-    }
-}
+    /// Returns the enabled HD addresses.
+    fn enabled_addresses(&self) -> &HDAddressIds;
 
-#[derive(Deserialize)]
-pub struct GetNewHDAddressRequest {
-    coin: String,
-    #[serde(flatten)]
-    params: GetNewHDAddressParams,
-}
-
-#[derive(Deserialize)]
-pub struct GetNewHDAddressParams {
-    account_id: u32,
-    chain: Bip44Chain,
-}
-
-#[derive(Serialize)]
-pub struct GetNewHDAddressResponse {
-    new_address: HDAddressBalance,
-}
-
-#[async_trait]
-pub trait HDWalletRpcOps {
-    async fn get_new_address_rpc(
-        &self,
-        params: GetNewHDAddressParams,
-    ) -> MmResult<GetNewHDAddressResponse, HDWalletRpcError>;
-}
-
-pub async fn get_new_address(
-    ctx: MmArc,
-    req: GetNewHDAddressRequest,
-) -> MmResult<GetNewHDAddressResponse, HDWalletRpcError> {
-    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
-    match coin {
-        MmCoinEnum::UtxoCoin(utxo) => utxo.get_new_address_rpc(req.params).await,
-        MmCoinEnum::QtumCoin(qtum) => qtum.get_new_address_rpc(req.params).await,
-        _ => MmError::err(HDWalletRpcError::CoinIsActivatedNotWithHDWallet),
-    }
-}
-
-pub mod common_impl {
-    use super::*;
-    use crate::coin_balance::HDWalletBalanceOps;
-    use crate::MarketCoinOps;
-    use crypto::RpcDerivationPath;
-    use std::fmt;
-    use std::ops::DerefMut;
-
-    pub async fn get_new_address_rpc<Coin>(
-        coin: &Coin,
-        params: GetNewHDAddressParams,
-    ) -> MmResult<GetNewHDAddressResponse, HDWalletRpcError>
-    where
-        Coin: HDWalletBalanceOps
-            + CoinWithDerivationMethod<HDWallet = <Coin as HDWalletCoinOps>::HDWallet>
-            + MarketCoinOps
-            + Sync
-            + Send,
-        <Coin as HDWalletCoinOps>::Address: fmt::Display,
-    {
-        let account_id = params.account_id;
-        let chain = params.chain;
-
-        let hd_wallet = coin.derivation_method().hd_wallet_or_err()?;
-        let mut hd_account = hd_wallet
-            .get_account_mut(params.account_id)
-            .await
-            .or_mm_err(|| HDWalletRpcError::UnknownAccount { account_id })?;
-
-        let HDAddress {
-            address,
-            derivation_path,
-            ..
-        } = coin
-            .generate_new_address(hd_wallet, hd_account.deref_mut(), chain)
-            .await?;
-        let balance = coin.known_address_balance(&address).await?;
-
-        Ok(GetNewHDAddressResponse {
-            new_address: HDAddressBalance {
-                address: address.to_string(),
-                derivation_path: RpcDerivationPath(derivation_path),
-                chain,
-                balance,
-            },
-        })
-    }
+    /// Returns true if the given address is enabled.
+    fn is_address_enabled(&self, address_id: &HDAddressId) -> bool { self.enabled_addresses().contains(address_id) }
 }

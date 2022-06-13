@@ -1,4 +1,4 @@
-use crate::hd_wallet::HDWalletCoinOps;
+use crate::hd_wallet::{HDAddressIds, HDWalletCoinOps};
 use async_trait::async_trait;
 use crypto::{CryptoCtx, CryptoInitError, XPub};
 use derive_more::Display;
@@ -103,6 +103,13 @@ pub trait HDWalletStorageInternalOps {
         account_id: u32,
     ) -> HDWalletStorageResult<Option<HDAccountStorageItem>>;
 
+    async fn upload_addresses(
+        &self,
+        wallet_id: HDWalletId,
+        account_id: u32,
+        addresses: HDAddressIds,
+    ) -> HDWalletStorageResult<()>;
+
     async fn update_external_addresses_number(
         &self,
         wallet_id: HDWalletId,
@@ -142,6 +149,16 @@ pub trait HDWalletCoinWithStorageOps: HDWalletCoinOps {
     ) -> HDWalletStorageResult<Option<HDAccountStorageItem>> {
         let storage = self.hd_wallet_storage(hd_wallet);
         storage.load_account(account_id).await
+    }
+
+    async fn upload_addresses(
+        &self,
+        hd_wallet: &Self::HDWallet,
+        account_id: u32,
+        addresses: HDAddressIds,
+    ) -> HDWalletStorageResult<()> {
+        let storage = self.hd_wallet_storage(hd_wallet);
+        storage.upload_addresses(account_id, addresses).await
     }
 
     async fn update_external_addresses_number(
@@ -263,6 +280,11 @@ impl HDWalletCoinStorage {
     async fn load_account(&self, account_id: u32) -> HDWalletStorageResult<Option<HDAccountStorageItem>> {
         let wallet_id = self.wallet_id();
         self.inner.load_account(wallet_id, account_id).await
+    }
+
+    async fn upload_addresses(&self, account_id: u32, addresses: HDAddressIds) -> HDWalletStorageResult<()> {
+        let wallet_id = self.wallet_id();
+        self.inner.upload_addresses(wallet_id, account_id, addresses).await
     }
 
     async fn update_external_addresses_number(

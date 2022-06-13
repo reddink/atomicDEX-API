@@ -121,7 +121,7 @@ pub enum Bip44Index {
     AddressId = 4,
 }
 
-#[derive(Debug, Copy, Clone, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum Bip44Chain {
     External = 0,
     Internal = 1,
@@ -143,7 +143,7 @@ impl Bip44Chain {
     pub fn to_child_number(&self) -> ChildNumber { ChildNumber::from(*self as u32) }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct Bip44ChainValue {
     chain: Bip44Chain,
 }
@@ -168,7 +168,7 @@ impl Bip32ChildValue for Bip44ChainValue {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct Bip44PurposeValue;
 
 impl Bip32ChildValue for Bip44PurposeValue {

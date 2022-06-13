@@ -186,8 +186,6 @@ impl InitStandaloneCoinActivationOps for ZCoin {
             required_confirmations: activation_request.required_confirmations,
             requires_notarization: activation_request.requires_notarization,
             address_format: None,
-            gap_limit: None,
-            scan_policy: Default::default(),
             priv_key_policy: PrivKeyActivationPolicy::IguanaPrivKey,
             check_utxo_maturity: None,
         };
@@ -208,7 +206,6 @@ impl InitStandaloneCoinActivationOps for ZCoin {
         &self,
         _ctx: MmArc,
         task_handle: &ZcoinRpcTaskHandle,
-        _activation_request: &Self::ActivationRequest,
     ) -> MmResult<Self::ActivationResult, ZcoinInitError> {
         task_handle.update_in_progress_status(ZcoinInProgressStatus::RequestingWalletBalance)?;
         let current_block = self

@@ -59,7 +59,6 @@ pub trait InitStandaloneCoinActivationOps: Into<MmCoinEnum> + Send + Sync + 'sta
         &self,
         ctx: MmArc,
         task_handle: &InitStandaloneCoinTaskHandle<Self>,
-        activation_request: &Self::ActivationRequest,
     ) -> Result<Self::ActivationResult, MmError<Self::ActivationError>>;
 }
 
@@ -168,13 +167,10 @@ where
         )
         .await?;
 
-        let result = coin
-            .get_activation_result(self.ctx.clone(), task_handle, &self.request.activation_params)
-            .await?;
+        let result = coin.get_activation_result(self.ctx.clone(), task_handle).await?;
         log::info!("{} current block {}", ticker, result.current_block());
 
         let tx_history = self.request.activation_params.tx_history();
-
         lp_register_coin(&self.ctx, coin.into(), RegisterCoinParams { ticker, tx_history }).await?;
 
         Ok(result)

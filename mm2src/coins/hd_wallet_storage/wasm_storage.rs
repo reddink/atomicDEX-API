@@ -209,6 +209,15 @@ impl HDWalletStorageInternalOps for HDWalletIndexedDbStorage {
         }
     }
 
+    async fn upload_addresses(
+        &self,
+        wallet_id: HDWalletId,
+        account_id: u32,
+        addresses: HDAddressIds,
+    ) -> HDWalletStorageResult<()> {
+        todo!()
+    }
+
     async fn update_external_addresses_number(
         &self,
         wallet_id: HDWalletId,

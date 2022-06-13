@@ -85,9 +85,8 @@ use utxo_common::{big_decimal_from_sat, UtxoTxBuilder};
 use utxo_signer::with_key_pair::sign_tx;
 use utxo_signer::{TxProvider, TxProviderError, UtxoSignTxError, UtxoSignTxResult};
 
-use self::rpc_clients::{electrum_script_hash, ElectrumClient, ElectrumRpcRequest, EstimateFeeMethod, EstimateFeeMode,
-                        NativeClient, UnspentInfo, UnspentMap, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcFut,
-                        UtxoRpcResult};
+use self::rpc_clients::{ElectrumClient, ElectrumRpcRequest, EstimateFeeMethod, EstimateFeeMode, NativeClient,
+                        UnspentInfo, UnspentMap, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcFut, UtxoRpcResult};
 use super::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BalanceResult, CoinBalance, CoinsContext,
             DerivationMethod, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, KmdRewardsDetails, MarketCoinOps,
             MmCoin, NumConversError, NumConversResult, PrivKeyActivationPolicy, PrivKeyNotAllowed, PrivKeyPolicy,
@@ -95,8 +94,7 @@ use super::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BalanceResu
             RpcTransportEventHandlerShared, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
             Transaction, TransactionDetails, TransactionEnum, UnexpectedDerivationMethod, WithdrawError,
             WithdrawRequest};
-use crate::coin_balance::{EnableCoinScanPolicy, HDAddressBalanceScanner};
-use crate::hd_wallet::{HDAccountOps, HDAccountsMutex, HDAddress, HDWalletCoinOps, HDWalletOps, InvalidBip44ChainError};
+use crate::hd_wallet::{HDAccountOps, HDAccountsMutex, HDAddress, HDAddressIds, HDWalletCoinOps, HDWalletOps};
 use crate::hd_wallet_storage::{HDAccountStorageItem, HDWalletCoinStorage, HDWalletStorageError, HDWalletStorageResult};
 use crate::utxo::tx_cache::UtxoVerboseCacheShared;
 use crate::utxo::utxo_block_header_storage::BlockHeaderStorageError;
@@ -127,7 +125,6 @@ const UTXO_DUST_AMOUNT: u64 = 1000;
 /// 11 > 0
 const KMD_MTP_BLOCK_COUNT: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(11u64) };
 const DEFAULT_DYNAMIC_FEE_VOLATILITY_PERCENT: f64 = 0.5;
-const DEFAULT_GAP_LIMIT: u32 = 20;
 
 pub type GenerateTxResult = Result<(TransactionInputSigner, AdditionalTxData), MmError<GenerateTxError>>;
 pub type HistoryUtxoTxMap = HashMap<H256Json, HistoryUtxoTx>;
@@ -701,29 +698,6 @@ pub enum UtxoAddressScanner {
     Electrum(ElectrumClient),
 }
 
-#[async_trait]
-impl HDAddressBalanceScanner for UtxoAddressScanner {
-    type Address = Address;
-
-    async fn is_address_used(&self, address: &Self::Address) -> BalanceResult<bool> {
-        let is_used = match self {
-            UtxoAddressScanner::Native { non_empty_addresses } => non_empty_addresses.contains(&address.to_string()),
-            UtxoAddressScanner::Electrum(electrum_client) => {
-                let script = output_script(address, ScriptType::P2PKH);
-                let script_hash = electrum_script_hash(&script);
-
-                let electrum_history = electrum_client
-                    .scripthash_get_history(&hex::encode(script_hash))
-                    .compat()
-                    .await?;
-
-                !electrum_history.is_empty()
-            },
-        };
-        Ok(is_used)
-    }
-}
-
 impl UtxoAddressScanner {
     pub async fn init(rpc_client: UtxoRpcClientEnum) -> UtxoRpcResult<UtxoAddressScanner> {
         match rpc_client {
@@ -1211,9 +1185,6 @@ pub struct UtxoActivationParams {
     pub required_confirmations: Option<u64>,
     pub requires_notarization: Option<bool>,
     pub address_format: Option<UtxoAddressFormat>,
-    pub gap_limit: Option<u32>,
-    #[serde(default)]
-    pub scan_policy: EnableCoinScanPolicy,
     #[serde(default = "PrivKeyActivationPolicy::iguana_priv_key")]
     pub priv_key_policy: PrivKeyActivationPolicy,
     /// The flag determines whether to use mature unspent outputs *only* to generate transactions.
@@ -1258,9 +1229,6 @@ impl UtxoActivationParams {
             json::from_value(req["address_format"].clone()).map_to_mm(UtxoFromLegacyReqErr::InvalidAddressFormat)?;
         let check_utxo_maturity = json::from_value(req["check_utxo_maturity"].clone())
             .map_to_mm(UtxoFromLegacyReqErr::InvalidCheckUtxoMaturity)?;
-        let scan_policy = json::from_value::<Option<EnableCoinScanPolicy>>(req["scan_policy"].clone())
-            .map_to_mm(UtxoFromLegacyReqErr::InvalidScanPolicy)?
-            .unwrap_or_default();
         let priv_key_policy = json::from_value::<Option<PrivKeyActivationPolicy>>(req["priv_key_policy"].clone())
             .map_to_mm(UtxoFromLegacyReqErr::InvalidPrivKeyPolicy)?
             .unwrap_or(PrivKeyActivationPolicy::IguanaPrivKey);
@@ -1272,8 +1240,6 @@ impl UtxoActivationParams {
             required_confirmations,
             requires_notarization,
             address_format,
-            gap_limit: None,
-            scan_policy,
             priv_key_policy,
             check_utxo_maturity,
         })
@@ -1315,7 +1281,6 @@ pub struct UtxoHDWallet {
     pub derivation_path: Bip44PathToCoin,
     /// User accounts.
     pub accounts: HDAccountsMutex<UtxoHDAccount>,
-    pub gap_limit: u32,
 }
 
 impl HDWalletOps for UtxoHDWallet {
@@ -1323,7 +1288,7 @@ impl HDWalletOps for UtxoHDWallet {
 
     fn coin_type(&self) -> u32 { self.derivation_path.coin_type() }
 
-    fn gap_limit(&self) -> u32 { self.gap_limit }
+    fn supports_chain(&self, _chain: &Bip44Chain) -> bool { true }
 
     fn get_accounts_mutex(&self) -> &HDAccountsMutex<Self::HDAccount> { &self.accounts }
 }
@@ -1336,24 +1301,16 @@ pub struct UtxoHDAccount {
     pub extended_pubkey: Secp256k1ExtendedPublicKey,
     /// [`UtxoHDWallet::derivation_path`] derived by [`UtxoHDAccount::account_id`].
     pub account_derivation_path: Bip44PathToAccount,
-    /// The number of addresses that we know have been used by the user.
-    /// This is used in order not to check the transaction history for each address,
-    /// but to request the balance of addresses whose index is less than `address_number`.
-    pub external_addresses_number: u32,
-    pub internal_addresses_number: u32,
+    /// The set of enabled addresses.
+    pub addresses: HDAddressIds,
 }
 
 impl HDAccountOps for UtxoHDAccount {
-    fn known_addresses_number(&self, chain: Bip44Chain) -> MmResult<u32, InvalidBip44ChainError> {
-        match chain {
-            Bip44Chain::External => Ok(self.external_addresses_number),
-            Bip44Chain::Internal => Ok(self.internal_addresses_number),
-        }
-    }
-
     fn account_derivation_path(&self) -> DerivationPath { self.account_derivation_path.to_derivation_path() }
 
     fn account_id(&self) -> u32 { self.account_id }
+
+    fn enabled_addresses(&self) -> &HDAddressIds { &self.addresses }
 }
 
 impl UtxoHDAccount {
@@ -1372,8 +1329,7 @@ impl UtxoHDAccount {
             account_id: account_info.account_id,
             extended_pubkey,
             account_derivation_path,
-            external_addresses_number: account_info.external_addresses_number,
-            internal_addresses_number: account_info.internal_addresses_number,
+            addresses: todo!(),
         })
     }
 
@@ -1381,8 +1337,8 @@ impl UtxoHDAccount {
         HDAccountStorageItem {
             account_id: self.account_id,
             account_xpub: self.extended_pubkey.to_string(bip32::Prefix::XPUB),
-            external_addresses_number: self.external_addresses_number,
-            internal_addresses_number: self.internal_addresses_number,
+            external_addresses_number: todo!(),
+            internal_addresses_number: todo!(),
         }
     }
 }
@@ -1661,8 +1617,6 @@ pub fn address_by_conf_and_pubkey_str(
         required_confirmations: None,
         requires_notarization: None,
         address_format: None,
-        gap_limit: None,
-        scan_policy: EnableCoinScanPolicy::default(),
         priv_key_policy: PrivKeyActivationPolicy::IguanaPrivKey,
         check_utxo_maturity: None,
     };

@@ -1,16 +1,15 @@
 use super::rpc_clients::TxMerkleBranch;
 use super::*;
-use crate::coin_balance::{AddressBalanceStatus, HDAddressBalance, HDWalletBalanceOps};
 use crate::hd_pubkey::{ExtractExtendedPubkey, HDExtractPubkeyError, HDXPubExtractor};
-use crate::hd_wallet::{AccountUpdatingError, AddressDerivingError, HDAccountMut, HDAccountsMap,
-                       NewAccountCreatingError};
+use crate::hd_wallet::{AccountUpdatingError, AddressDerivingError, HDAccountMut, HDAccountsMap, HDAddressId,
+                       HDAddressIds, NewAccountCreatingError};
 use crate::hd_wallet_storage::{HDWalletCoinWithStorageOps, HDWalletStorageResult};
 use crate::rpc_command::init_withdraw::WithdrawTaskHandle;
 use crate::utxo::rpc_clients::{electrum_script_hash, BlockHashOrHeight, UnspentInfo, UnspentMap, UtxoRpcClientEnum,
                                UtxoRpcClientOps, UtxoRpcResult};
 use crate::utxo::tx_cache::TxCacheResult;
 use crate::utxo::utxo_withdraw::{InitUtxoWithdraw, StandardUtxoWithdraw, UtxoWithdraw};
-use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, GetWithdrawSenderAddress, HDAddressId,
+use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, GetWithdrawSenderAddress, HDAccountAddressId,
             RawTransactionError, RawTransactionRequest, RawTransactionRes, SignatureError, SignatureResult,
             TradePreimageValue, TransactionFut, TxFeeDetails, ValidateAddressResult, ValidatePaymentInput,
             VerificationError, VerificationResult, WithdrawFrom, WithdrawResult, WithdrawSenderAddress};
@@ -26,7 +25,7 @@ use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
 use common::{now_ms, one_hundred, ten_f64};
 use crypto::privkey::key_pair_from_secret;
-use crypto::{Bip32DerPathOps, Bip44Chain, Bip44DerPathError, Bip44DerivationPath, RpcDerivationPath};
+use crypto::{Bip32DerPathOps, Bip44DerPathError, Bip44DerivationPath};
 use futures::compat::Future01CompatExt;
 use futures::future::{FutureExt, TryFutureExt};
 use futures01::future::Either;
@@ -105,11 +104,10 @@ pub async fn get_tx_fee(coin: &UtxoCoinFields) -> UtxoRpcResult<ActualTxFee> {
 pub fn derive_address<T: UtxoCommonOps>(
     coin: &T,
     hd_account: &UtxoHDAccount,
-    chain: Bip44Chain,
-    address_id: u32,
+    address_id: HDAddressId,
 ) -> MmResult<HDAddress<Address, Public>, AddressDerivingError> {
-    let change_child = chain.to_child_number();
-    let address_id_child = ChildNumber::from(address_id);
+    let change_child = address_id.chain.to_child_number();
+    let address_id_child = ChildNumber::from(address_id.address_id);
 
     let derived_pubkey = hd_account
         .extended_pubkey
@@ -168,9 +166,7 @@ where
         account_id: new_account_id,
         extended_pubkey: account_pubkey,
         account_derivation_path,
-        // We don't know how many addresses are used by the user at this moment.
-        external_addresses_number: 0,
-        internal_addresses_number: 0,
+        addresses: HDAddressIds::new(),
     };
 
     let accounts = hd_wallet.accounts.lock().await;
@@ -193,176 +189,20 @@ where
     }))
 }
 
-pub async fn set_known_addresses_number<T>(
+/// [`HDWalletCoinOps::enable_addresses`] implementation.
+pub async fn enable_addresses<T>(
     coin: &T,
     hd_wallet: &UtxoHDWallet,
     hd_account: &mut UtxoHDAccount,
-    chain: Bip44Chain,
-    new_known_addresses_number: u32,
+    addresses: HDAddressIds,
 ) -> MmResult<(), AccountUpdatingError>
 where
     T: HDWalletCoinWithStorageOps<HDWallet = UtxoHDWallet, HDAccount = UtxoHDAccount> + Sync,
 {
-    if new_known_addresses_number >= ChildNumber::HARDENED_FLAG {
-        return MmError::err(AccountUpdatingError::AddressLimitReached {
-            max_addresses_number: ChildNumber::HARDENED_FLAG,
-        });
-    }
-    match chain {
-        Bip44Chain::External => {
-            coin.update_external_addresses_number(hd_wallet, hd_account.account_id, new_known_addresses_number)
-                .await?;
-            hd_account.external_addresses_number = new_known_addresses_number;
-        },
-        Bip44Chain::Internal => {
-            coin.update_internal_addresses_number(hd_wallet, hd_account.account_id, new_known_addresses_number)
-                .await?;
-            hd_account.internal_addresses_number = new_known_addresses_number;
-        },
-    }
-    Ok(())
-}
-
-pub async fn produce_hd_address_scanner<T>(coin: &T) -> BalanceResult<UtxoAddressScanner>
-where
-    T: AsRef<UtxoCoinFields>,
-{
-    Ok(UtxoAddressScanner::init(coin.as_ref().rpc_client.clone()).await?)
-}
-
-pub async fn scan_for_new_addresses<T>(
-    coin: &T,
-    hd_wallet: &T::HDWallet,
-    hd_account: &mut T::HDAccount,
-    address_scanner: &T::HDAddressScanner,
-    gap_limit: u32,
-) -> BalanceResult<Vec<HDAddressBalance>>
-where
-    T: HDWalletBalanceOps + Sync,
-    T::Address: std::fmt::Display,
-{
-    let mut addresses = scan_for_new_addresses_impl(
-        coin,
-        hd_wallet,
-        hd_account,
-        address_scanner,
-        Bip44Chain::External,
-        gap_limit,
-    )
-    .await?;
-    addresses.extend(
-        scan_for_new_addresses_impl(
-            coin,
-            hd_wallet,
-            hd_account,
-            address_scanner,
-            Bip44Chain::Internal,
-            gap_limit,
-        )
-        .await?,
-    );
-
-    Ok(addresses)
-}
-
-/// Checks addresses that either had empty transaction history last time we checked or has not been checked before.
-/// The checking stops at the moment when we find `gap_limit` consecutive empty addresses.
-pub async fn scan_for_new_addresses_impl<T>(
-    coin: &T,
-    hd_wallet: &T::HDWallet,
-    hd_account: &mut T::HDAccount,
-    address_scanner: &T::HDAddressScanner,
-    chain: Bip44Chain,
-    gap_limit: u32,
-) -> BalanceResult<Vec<HDAddressBalance>>
-where
-    T: HDWalletBalanceOps + Sync,
-    T::Address: std::fmt::Display,
-{
-    let mut balances = Vec::with_capacity(gap_limit as usize);
-
-    // Get the first unknown address id.
-    let mut checking_address_id = hd_account
-        .known_addresses_number(chain)
-        // A UTXO coin should support both [`Bip44Chain::External`] and [`Bip44Chain::Internal`].
-        .mm_err(|e| BalanceError::Internal(e.to_string()))?;
-
-    let mut unused_addresses_counter = 0;
-    while checking_address_id < ChildNumber::HARDENED_FLAG && unused_addresses_counter < gap_limit {
-        let HDAddress {
-            address: checking_address,
-            derivation_path: checking_address_der_path,
-            ..
-        } = coin.derive_address(hd_account, chain, checking_address_id)?;
-
-        match coin.is_address_used(&checking_address, address_scanner).await? {
-            // We found a non-empty address, so we have to fill up the balance list
-            // with zeros starting from `last_non_empty_address_id = checking_address_id - unused_addresses_counter`.
-            AddressBalanceStatus::Used(non_empty_balance) => {
-                let last_non_empty_address_id = checking_address_id - unused_addresses_counter;
-                for empty_address_id in last_non_empty_address_id..checking_address_id {
-                    let empty_address = coin.derive_address(hd_account, chain, empty_address_id)?;
-
-                    balances.push(HDAddressBalance {
-                        address: empty_address.address.to_string(),
-                        derivation_path: RpcDerivationPath(empty_address.derivation_path),
-                        chain,
-                        balance: CoinBalance::default(),
-                    });
-                }
-
-                balances.push(HDAddressBalance {
-                    address: checking_address.to_string(),
-                    derivation_path: RpcDerivationPath(checking_address_der_path),
-                    chain,
-                    balance: non_empty_balance,
-                });
-                // Reset the counter of unused addresses to zero since we found a non-empty address.
-                unused_addresses_counter = 0;
-            },
-            AddressBalanceStatus::NotUsed => unused_addresses_counter += 1,
-        }
-
-        checking_address_id += 1;
-    }
-
-    coin.set_known_addresses_number(
-        hd_wallet,
-        hd_account,
-        chain,
-        checking_address_id - unused_addresses_counter,
-    )
-    .await?;
-
-    Ok(balances)
-}
-
-pub async fn all_known_addresses_balances<T>(
-    coin: &T,
-    hd_account: &T::HDAccount,
-) -> BalanceResult<Vec<HDAddressBalance>>
-where
-    T: HDWalletBalanceOps + Sync,
-    T::Address: std::fmt::Display + Clone,
-{
-    let external_addresses = hd_account
-        .known_addresses_number(Bip44Chain::External)
-        // A UTXO coin should support both [`Bip44Chain::External`] and [`Bip44Chain::Internal`].
-        .mm_err(|e| BalanceError::Internal(e.to_string()))?;
-    let internal_addresses = hd_account
-        .known_addresses_number(Bip44Chain::Internal)
-        // A UTXO coin should support both [`Bip44Chain::External`] and [`Bip44Chain::Internal`].
-        .mm_err(|e| BalanceError::Internal(e.to_string()))?;
-
-    let mut balances = coin
-        .known_addresses_balances_with_ids(hd_account, Bip44Chain::External, 0..external_addresses)
+    coin.upload_addresses(hd_wallet, hd_account.account_id, addresses.clone())
         .await?;
-    balances.extend(
-        coin.known_addresses_balances_with_ids(hd_account, Bip44Chain::Internal, 0..internal_addresses)
-            .await?,
-    );
-
-    Ok(balances)
+    hd_account.addresses.extend(addresses.into_iter());
+    Ok(())
 }
 
 pub async fn load_hd_accounts_from_storage(
@@ -1938,40 +1778,27 @@ pub async fn get_withdraw_hd_sender<T>(
 where
     T: HDWalletCoinOps<Address = Address, Pubkey = Public>,
 {
-    let HDAddressId {
-        account_id,
-        chain,
-        address_id,
-    } = match req.from.clone().or_mm_err(|| WithdrawError::FromAddressNotFound)? {
+    let account_addr_id = match req.from.clone().or_mm_err(|| WithdrawError::FromAddressNotFound)? {
         WithdrawFrom::AddressId(id) => id,
         WithdrawFrom::DerivationPath { derivation_path } => {
             let derivation_path = Bip44DerivationPath::from_str(&derivation_path)
                 .map_to_mm(Bip44DerPathError::from)
                 .mm_err(|e| WithdrawError::UnexpectedFromAddress(e.to_string()))?;
-            let coin_type = derivation_path.coin_type();
-            let expected_coin_type = hd_wallet.coin_type();
-            if coin_type != expected_coin_type {
-                let error = format!(
-                    "Derivation path '{}' must has '{}' coin type",
-                    derivation_path, expected_coin_type
-                );
-                return MmError::err(WithdrawError::UnexpectedFromAddress(error));
-            }
-            HDAddressId::from(derivation_path)
+            HDAccountAddressId::try_from_derivation_path(hd_wallet, &derivation_path)
+                .mm_err(|e| WithdrawError::UnexpectedFromAddress(e.to_string()))?
         },
     };
 
-    let hd_account = hd_wallet
-        .get_account(account_id)
-        .await
-        .or_mm_err(|| WithdrawError::UnknownAccount { account_id })?;
-    let hd_address = coin.derive_address(&hd_account, chain, address_id)?;
+    let hd_account =
+        hd_wallet
+            .get_account(account_addr_id.account_id)
+            .await
+            .or_mm_err(|| WithdrawError::UnknownAccount {
+                account_id: account_addr_id.account_id,
+            })?;
+    let hd_address = coin.derive_address(&hd_account, account_addr_id.to_address_id())?;
 
-    let is_address_activated = hd_account
-        .is_address_activated(chain, address_id)
-        // If [`HDWalletCoinOps::derive_address`] succeeds, [`HDAccountOps::is_address_activated`] shouldn't fails with an `InvalidBip44ChainError`.
-        .mm_err(|e| WithdrawError::InternalError(e.to_string()))?;
-    if !is_address_activated {
+    if !hd_account.is_address_enabled(&account_addr_id.to_address_id()) {
         let error = format!("'{}' address is not activated", hd_address.address);
         return MmError::err(WithdrawError::UnexpectedFromAddress(error));
     }

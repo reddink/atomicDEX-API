@@ -1,3 +1,4 @@
+use crate::hd_wallet::HDAddressIds;
 use crate::hd_wallet_storage::{HDAccountStorageItem, HDWalletId, HDWalletStorageError, HDWalletStorageInternalOps,
                                HDWalletStorageResult};
 use async_trait::async_trait;
@@ -155,6 +156,15 @@ impl HDWalletStorageInternalOps for HDWalletSqliteStorage {
             .mm_err(HDWalletStorageError::from)
         })
         .await
+    }
+
+    async fn upload_addresses(
+        &self,
+        _wallet_id: HDWalletId,
+        _account_id: u32,
+        _addresses: HDAddressIds,
+    ) -> HDWalletStorageResult<()> {
+        todo!()
     }
 
     async fn update_external_addresses_number(

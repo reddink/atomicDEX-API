@@ -5,7 +5,6 @@ use crate::utxo_activation::init_utxo_standard_statuses::{UtxoStandardAwaitingSt
 use crate::utxo_activation::utxo_standard_activation_result::UtxoStandardActivationResult;
 use coins::coin_balance::EnableCoinBalanceOps;
 use coins::hd_pubkey::RpcTaskXPubExtractor;
-use coins::utxo::UtxoActivationParams;
 use coins::{MarketCoinOps, PrivKeyActivationPolicy, PrivKeyBuildPolicy};
 use crypto::hw_rpc_task::HwConnectStatuses;
 use crypto::CryptoCtx;
@@ -17,7 +16,6 @@ pub async fn get_activation_result<Coin>(
     ctx: &MmArc,
     coin: &Coin,
     task_handle: &InitStandaloneCoinTaskHandle<Coin>,
-    activation_params: &UtxoActivationParams,
 ) -> MmResult<UtxoStandardActivationResult, InitUtxoStandardError>
 where
     Coin: InitStandaloneCoinActivationOps<
@@ -42,13 +40,13 @@ where
     // if the coin has been initialized with an Iguana priv key.
     let xpub_extractor = RpcTaskXPubExtractor::new_unchecked(ctx, task_handle, xpub_extractor_rpc_statuses());
     task_handle.update_in_progress_status(UtxoStandardInProgressStatus::RequestingWalletBalance)?;
-    let wallet_balance = coin
-        .enable_coin_balance(&xpub_extractor, activation_params.scan_policy)
-        .await
-        .mm_err(|error| InitUtxoStandardError::CoinCreationError {
-            ticker: coin.ticker().to_owned(),
-            error: error.to_string(),
-        })?;
+    let wallet_balance =
+        coin.enable_coin_balance(&xpub_extractor)
+            .await
+            .mm_err(|error| InitUtxoStandardError::CoinCreationError {
+                ticker: coin.ticker().to_owned(),
+                error: error.to_string(),
+            })?;
     task_handle.update_in_progress_status(UtxoStandardInProgressStatus::ActivatingCoin)?;
 
     let result = UtxoStandardActivationResult {

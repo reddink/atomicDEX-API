@@ -70,8 +70,7 @@ impl InitStandaloneCoinActivationOps for QtumCoin {
         &self,
         ctx: MmArc,
         task_handle: &QtumRpcTaskHandle,
-        activation_request: &Self::ActivationRequest,
     ) -> MmResult<Self::ActivationResult, InitUtxoStandardError> {
-        get_activation_result(&ctx, self, task_handle, activation_request).await
+        get_activation_result(&ctx, self, task_handle).await
     }
 }
