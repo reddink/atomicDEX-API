@@ -3302,7 +3302,7 @@ fn test_split_qtum() {
       "p2shtype": 110,
       "wiftype": 239,
       "segwit": true,
-      "txfee": 0,
+      "txfee": 400000,
       "mm2": 1,
       "required_confirmations": 1,
       "mature_confirmations": 2000,
@@ -3325,26 +3325,6 @@ fn test_split_qtum() {
     let address = Address::from("qXxsj5RtciAby9T7m98AgAATL4zTi4UwDG");
     let script: Script = output_script(&address, ScriptType::P2PKH);
 
-    let unspents = vec![UnspentInfo {
-        outpoint: Default::default(),
-        value: 402000000,
-        height: None,
-    }];
-    let outputs = vec![
-        TransactionOutput {
-            value: 10000000,
-            script_pubkey: script.to_bytes(),
-        };
-        40
-    ];
-    let builder = UtxoTxBuilder::new(&coin)
-        .add_available_inputs(unspents)
-        .add_outputs(outputs);
-
-    let (_, data) = block_on(builder.build()).unwrap();
-    let expected_fee = 2000;
-    assert_eq!(expected_fee, data.fee_amount);
-
     let p2pkh_address = Address {
         prefix: coin.as_ref().conf.pub_addr_prefix,
         hash: coin.as_ref().derivation_method.unwrap_iguana().hash.clone(),
@@ -3364,7 +3344,31 @@ fn test_split_qtum() {
     let tx_details = block_on(coin.withdraw(withdraw_req).compat()).unwrap();
     println!("tx_details = {:?}", tx_details);
     let tx_str = hex::encode(tx_details.tx_hex.0);
-    println!("tx_str = {:?}", tx_str);
+    let tx_hash = tx_details.tx_hash.as_str();
+    println!("tx_hash = {:?}", tx_hash);
+    let hash = match H256::from_str(tx_hash) {
+        Ok(hash) => hash,
+        _ => panic!("unexpected"),
+    };
+    let unspents = vec![UnspentInfo {
+        outpoint: OutPoint { hash, index: 1 },
+        value: 4000_002_000,
+        height: None,
+    }];
+    let outputs = vec![
+        TransactionOutput {
+            value: 100_000_000,
+            script_pubkey: script.to_bytes(),
+        };
+        40
+    ];
+    let builder = UtxoTxBuilder::new(&coin)
+        .add_available_inputs(unspents)
+        .add_outputs(outputs);
+
+    let (_, data) = block_on(builder.build()).unwrap();
+    let expected_fee = 2000;
+    assert_eq!(expected_fee, data.fee_amount);
     let res = block_on(coin.send_raw_tx(&tx_str).compat()).unwrap();
     println!("res = {:?}", res);
 }
