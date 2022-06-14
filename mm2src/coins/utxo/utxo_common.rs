@@ -1155,11 +1155,16 @@ pub fn send_maker_spends_taker_payment<T: UtxoCommonOps>(
     let fut = async move {
         let fee = try_tx_s!(coin.get_htlc_spend_fee(DEFAULT_SWAP_TX_SPEND_SIZE).await);
         let script_pubkey = output_script(&my_address, ScriptType::P2PKH).to_bytes();
+        let init_value = prev_tx.outputs[0].value;
+        let output_value = if init_value < fee {
+            0
+        } else {
+            prev_tx.outputs[0].value - fee
+        };
         let output = TransactionOutput {
-            value: prev_tx.outputs[0].value - fee,
+            value: output_value,
             script_pubkey,
         };
-
         let transaction = try_tx_s!(
             coin.p2sh_spending_tx(
                 prev_tx,
@@ -1207,8 +1212,14 @@ pub fn send_taker_spends_maker_payment<T: UtxoCommonOps>(
     let fut = async move {
         let fee = try_tx_s!(coin.get_htlc_spend_fee(DEFAULT_SWAP_TX_SPEND_SIZE).await);
         let script_pubkey = output_script(&my_address, ScriptType::P2PKH).to_bytes();
+        let init_value = prev_tx.outputs[0].value;
+        let output_value = if init_value < fee {
+            0
+        } else {
+            prev_tx.outputs[0].value - fee
+        };
         let output = TransactionOutput {
-            value: prev_tx.outputs[0].value - fee,
+            value: output_value,
             script_pubkey,
         };
 
@@ -1257,11 +1268,16 @@ pub fn send_taker_refunds_payment<T: UtxoCommonOps>(
     let fut = async move {
         let fee = try_tx_s!(coin.get_htlc_spend_fee(DEFAULT_SWAP_TX_SPEND_SIZE).await);
         let script_pubkey = output_script(&my_address, ScriptType::P2PKH).to_bytes();
+        let init_value = prev_tx.outputs[0].value;
+        let output_value = if init_value < fee {
+            0
+        } else {
+            prev_tx.outputs[0].value - fee
+        };
         let output = TransactionOutput {
-            value: prev_tx.outputs[0].value - fee,
+            value: output_value,
             script_pubkey,
         };
-
         let transaction = try_tx_s!(
             coin.p2sh_spending_tx(
                 prev_tx,
@@ -1306,8 +1322,14 @@ pub fn send_maker_refunds_payment<T: UtxoCommonOps>(
     let fut = async move {
         let fee = try_tx_s!(coin.get_htlc_spend_fee(DEFAULT_SWAP_TX_SPEND_SIZE).await);
         let script_pubkey = output_script(&my_address, ScriptType::P2PKH).to_bytes();
+        let init_value = prev_tx.outputs[0].value;
+        let output_value = if init_value < fee {
+            0
+        } else {
+            prev_tx.outputs[0].value - fee
+        };
         let output = TransactionOutput {
-            value: prev_tx.outputs[0].value - fee,
+            value: output_value,
             script_pubkey,
         };
 
