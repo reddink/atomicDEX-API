@@ -3333,7 +3333,7 @@ fn test_split_qtum() {
     let unspents = vec![UnspentInfo {
         outpoint: OutPoint {
             hash: H256::from_str("85d48b0373ace52e86634c02c62e74bcff4950e811689f428d6d781f48c53a93").unwrap(),
-            index: 0
+            index: 0,
         },
         value: 4000_002_000,
         height: None,
@@ -3361,8 +3361,9 @@ fn test_split_qtum() {
         key_pair,
         prev_script,
         signature_version,
-        coin.as_ref().conf.fork_id
-    ).unwrap();
+        coin.as_ref().conf.fork_id,
+    )
+    .unwrap();
     println!("signed tx {:?}", signed);
     let res = block_on(coin.broadcast_tx(&signed)).unwrap();
     println!("res = {:?}", res);
