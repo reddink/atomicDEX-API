@@ -3322,36 +3322,19 @@ fn test_split_qtum() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
     let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, &priv_key)).unwrap();
-    let address = Address::from("qXxsj5RtciAby9T7m98AgAATL4zTi4UwDG");
-    let script: Script = output_script(&address, ScriptType::P2PKH);
-
-    let p2pkh_address = Address {
-        prefix: coin.as_ref().conf.pub_addr_prefix,
-        hash: coin.as_ref().derivation_method.unwrap_iguana().hash.clone(),
-        t_addr_prefix: coin.as_ref().conf.pub_t_addr_prefix,
-        checksum_type: coin.as_ref().derivation_method.unwrap_iguana().checksum_type,
-        hrp: coin.as_ref().conf.bech32_hrp.clone(),
-        addr_format: UtxoAddressFormat::Standard,
-    };
-    let withdraw_req = WithdrawRequest {
-        amount: 40.into(),
-        from: None,
-        to: p2pkh_address.to_string(),
-        coin: "QTUM".into(),
-        max: false,
-        fee: None,
-    };
-    let tx_details = block_on(coin.withdraw(withdraw_req).compat()).unwrap();
-    println!("tx_details = {:?}", tx_details);
-    let tx_str = hex::encode(tx_details.tx_hex.0);
-    let tx_hash = tx_details.tx_hash.as_str();
-    println!("tx_hash = {:?}", tx_hash);
-    let hash = match H256::from_str(tx_hash) {
-        Ok(hash) => hash,
-        _ => panic!("unexpected"),
-    };
+    let address_out = Address::from("qXxsj5RtciAby9T7m98AgAATL4zTi4UwDG");
+    let script: Script = output_script(&address_out, ScriptType::P2PKH);
+    let p2pkh_address = coin.as_ref().derivation_method.unwrap_iguana();
+    let key_pair = coin.as_ref().priv_key_policy.key_pair_or_err().unwrap();
+    //let utxo = coin.as_ref();
+    //let rpc_client = &utxo.rpc_client;
+    //let unspents = rpc_client.list_unspent(p2pkh_address, utxo.decimals).wait().unwrap();
+    //println!("uspents vec {:?}", unspents);
     let unspents = vec![UnspentInfo {
-        outpoint: OutPoint { hash, index: 1 },
+        outpoint: OutPoint {
+            hash: H256::from_str("85d48b0373ace52e86634c02c62e74bcff4950e811689f428d6d781f48c53a93").unwrap(),
+            index: 0
+        },
         value: 4000_002_000,
         height: None,
     }];
@@ -3365,12 +3348,26 @@ fn test_split_qtum() {
     let builder = UtxoTxBuilder::new(&coin)
         .add_available_inputs(unspents)
         .add_outputs(outputs);
-
-    let (_, data) = block_on(builder.build()).unwrap();
+    let (unsigned, data) = block_on(builder.build()).unwrap();
     let expected_fee = 2000;
     assert_eq!(expected_fee, data.fee_amount);
-    let res = block_on(coin.send_raw_tx(&tx_str).compat()).unwrap();
+    let signature_version = match &p2pkh_address.addr_format {
+        UtxoAddressFormat::Segwit => SignatureVersion::WitnessV0,
+        _ => coin.as_ref().conf.signature_version,
+    };
+    let prev_script = Builder::build_p2pkh(&p2pkh_address.hash);
+    let signed = sign_tx(
+        unsigned,
+        key_pair,
+        prev_script,
+        signature_version,
+        coin.as_ref().conf.fork_id
+    ).unwrap();
+    println!("signed tx {:?}", signed);
+    let res = block_on(coin.broadcast_tx(&signed)).unwrap();
     println!("res = {:?}", res);
+    //let res = block_on(coin.send_raw_tx(&tx_str).compat()).unwrap();
+    //println!("res = {:?}", res);
 }
 
 /// `QtumCoin` hasn't to check UTXO maturity if `check_utxo_maturity` is `false`.
