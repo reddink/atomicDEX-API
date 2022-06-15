@@ -3326,19 +3326,12 @@ fn test_split_qtum() {
     let script: Script = output_script(&address_out, ScriptType::P2PKH);
     let p2pkh_address = coin.as_ref().derivation_method.unwrap_iguana();
     let key_pair = coin.as_ref().priv_key_policy.key_pair_or_err().unwrap();
-    //let utxo = coin.as_ref();
-    //let rpc_client = &utxo.rpc_client;
-    //let unspents = rpc_client.list_unspent(p2pkh_address, utxo.decimals).wait().unwrap();
-    //println!("uspents vec {:?}", unspents);
-    let unspents = vec![UnspentInfo {
-        outpoint: OutPoint {
-            hash: H256::from_str("85d48b0373ace52e86634c02c62e74bcff4950e811689f428d6d781f48c53a93").unwrap(),
-            index: 0,
-        },
-        value: 4000_002_000,
-        height: None,
-    }];
-    let outputs = vec![
+    let utxo = coin.as_ref();
+    let rpc_client = &utxo.rpc_client;
+    let unspents = rpc_client.list_unspent(p2pkh_address, utxo.decimals).wait().unwrap();
+    let unspend = vec![unspents.get(unspents.len() - 2).unwrap().clone()];
+    println!("unspend {:?}", unspend);
+    let mut outputs = vec![
         TransactionOutput {
             value: 100_000_000,
             script_pubkey: script.to_bytes(),
@@ -3346,7 +3339,7 @@ fn test_split_qtum() {
         40
     ];
     let builder = UtxoTxBuilder::new(&coin)
-        .add_available_inputs(unspents)
+        .add_available_inputs(unspend)
         .add_outputs(outputs);
     let (unsigned, data) = block_on(builder.build()).unwrap();
     let expected_fee = 2000;
