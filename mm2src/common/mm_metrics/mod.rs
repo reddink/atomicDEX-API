@@ -1,10 +1,10 @@
 use crate::log::LogWeak;
-pub use metrics_core::labels;
 use serde_json::{Value as Json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
 #[cfg(not(target_arch = "wasm32"))] mod native;
+#[cfg(not(target_arch = "wasm32"))] pub use metrics_core::labels;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::{prometheus, Clock, Metrics, TrySink};
 
