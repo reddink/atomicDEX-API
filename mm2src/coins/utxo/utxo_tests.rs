@@ -3293,7 +3293,7 @@ fn test_split_qtum() {
         3, 98, 177, 3, 108, 39, 234, 144, 131, 178, 103, 103, 127, 80, 230, 166, 53, 68, 147, 215, 42, 216, 144, 72,
         172, 110, 180, 13, 123, 179, 10, 49,
     ];
-    let conf = json!([{
+    let conf = json!({
       "coin": "tQTUM",
       "name": "qtumtest",
       "fname": "Qtum test",
@@ -3310,7 +3310,7 @@ fn test_split_qtum() {
       "protocol": {
         "type": "QTUM"
       }
-    }]);
+    });
     let req = json!({
         "method": "electrum",
         "servers": [
@@ -3329,9 +3329,16 @@ fn test_split_qtum() {
     let utxo = coin.as_ref();
     let rpc_client = &utxo.rpc_client;
     let unspents = rpc_client.list_unspent(p2pkh_address, utxo.decimals).wait().unwrap();
-    let unspend = vec![unspents.get(unspents.len() - 2).unwrap().clone()];
-    println!("unspend {:?}", unspend);
-    let mut outputs = vec![
+    println!("unspents vec = {:?}", unspents);
+    // let unspents = vec![UnspentInfo {
+    //     outpoint: OutPoint {
+    //         hash: H256::from_str("85d48b0373ace52e86634c02c62e74bcff4950e811689f428d6d781f48c53a93").unwrap(),
+    //         index: 0,
+    //     },
+    //     value: 4000_002_000,
+    //     height: None,
+    // }];
+    let outputs = vec![
         TransactionOutput {
             value: 100_000_000,
             script_pubkey: script.to_bytes(),
@@ -3339,10 +3346,10 @@ fn test_split_qtum() {
         40
     ];
     let builder = UtxoTxBuilder::new(&coin)
-        .add_available_inputs(unspend)
+        .add_available_inputs(unspents)
         .add_outputs(outputs);
     let (unsigned, data) = block_on(builder.build()).unwrap();
-    let expected_fee = 2000;
+    let expected_fee = 800000;
     assert_eq!(expected_fee, data.fee_amount);
     let signature_version = match &p2pkh_address.addr_format {
         UtxoAddressFormat::Segwit => SignatureVersion::WitnessV0,
