@@ -3287,7 +3287,6 @@ fn test_qtum_without_check_utxo_maturity() {
 }
 
 #[test]
-#[ignore]
 fn test_split_qtum() {
     let priv_key = [
         3, 98, 177, 3, 108, 39, 234, 144, 131, 178, 103, 103, 127, 80, 230, 166, 53, 68, 147, 215, 42, 216, 144, 72,
@@ -3330,14 +3329,6 @@ fn test_split_qtum() {
     let rpc_client = &utxo.rpc_client;
     let unspents = rpc_client.list_unspent(p2pkh_address, utxo.decimals).wait().unwrap();
     println!("unspents vec = {:?}", unspents);
-    // let unspents = vec![UnspentInfo {
-    //     outpoint: OutPoint {
-    //         hash: H256::from_str("85d48b0373ace52e86634c02c62e74bcff4950e811689f428d6d781f48c53a93").unwrap(),
-    //         index: 0,
-    //     },
-    //     value: 4000_002_000,
-    //     height: None,
-    // }];
     let outputs = vec![
         TransactionOutput {
             value: 100_000_000,
@@ -3364,11 +3355,9 @@ fn test_split_qtum() {
         coin.as_ref().conf.fork_id,
     )
     .unwrap();
-    println!("signed tx {:?}", signed);
+    println!("signed tx = {:?}", signed);
     let res = block_on(coin.broadcast_tx(&signed)).unwrap();
     println!("res = {:?}", res);
-    //let res = block_on(coin.send_raw_tx(&tx_str).compat()).unwrap();
-    //println!("res = {:?}", res);
 }
 
 /// `QtumCoin` hasn't to check UTXO maturity if `check_utxo_maturity` is `false`.
