@@ -3,6 +3,7 @@ use serde_json::{Value as Json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
+pub mod adapt;
 #[cfg(not(target_arch = "wasm32"))] mod native;
 #[cfg(not(target_arch = "wasm32"))] pub use metrics_core::labels;
 #[cfg(not(target_arch = "wasm32"))]
@@ -76,17 +77,17 @@ pub struct MetricsJson {
 pub enum MetricType {
     Counter {
         key: String,
-        labels: HashMap<String, String>,
+        labels: Vec<String>,
         value: u64,
     },
     Gauge {
         key: String,
-        labels: HashMap<String, String>,
+        labels: Vec<String>,
         value: i64,
     },
     Histogram {
         key: String,
-        labels: HashMap<String, String>,
+        labels: Vec<String>,
         #[serde(flatten)]
         quantiles: HashMap<String, u64>,
     },

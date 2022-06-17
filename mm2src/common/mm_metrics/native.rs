@@ -1,18 +1,19 @@
 use super::*;
 use crate::executor::{spawn, Timer};
+use born_metrics_runtime::observers::PrometheusBuilder;
+use born_metrics_runtime::Receiver;
 use gstuff::Constructible;
 use hdrhistogram::Histogram;
 use itertools::Itertools;
 use metrics_core::{Builder, Drain, Key, Label, Observe, Observer, ScopedString};
-use metrics_runtime::{observers::PrometheusBuilder, Receiver};
-use metrics_util::{parse_quantiles, Quantile};
+use metrics_util::{parse_quantiles, registry::Registry, Quantile};
 use serde_json as json;
 use std::collections::HashMap;
 use std::fmt::Write as WriteFmt;
 use std::slice::Iter;
 
 use crate::log::{LogArc, Tag};
-pub use metrics_runtime::Sink;
+pub use born_metrics_runtime::Sink;
 
 /// Increment counter if an MmArc is not dropped yet and metrics system is initialized already.
 #[macro_export]
@@ -20,12 +21,6 @@ macro_rules! mm_counter {
     ($metrics:expr, $name:expr, $value:expr) => {{
         if let Some(mut sink) = $crate::mm_metrics::TrySink::try_sink(&$metrics) {
             sink.increment_counter($name, $value);
-        }
-    }};
-    ($metrics:expr, $name:expr, $value:expr, $($label_key:expr => $label_val:expr),+) => {{
-        if let Some(mut sink) = $crate::mm_metrics::TrySink::try_sink(&$metrics) {
-            let labels = $crate::mm_metrics::labels!( $($label_key => $label_val),+ );
-            sink.increment_counter_with_labels($name, $value, labels);
         }
     }};
 }
@@ -138,7 +133,7 @@ impl MetricsOps for Metrics {
 
         let mut observer = JsonObserver::new(QUANTILES);
 
-        controller.observe(&mut observer);
+        // controller.observe(&mut observer);
 
         observer.into_json()
     }
@@ -292,66 +287,66 @@ struct JsonObserver {
     metrics: MetricsJson,
 }
 
-impl Observer for JsonObserver {
-    fn observe_counter(&mut self, key: Key, value: u64) {
-        let (key, labels) = key.into_parts();
+// impl Observer for JsonObserver {
+//     fn observe_counter(&mut self, key: Key, value: u64) {
+//         let (key, labels) = key.into_parts();
 
-        let metric = MetricType::Counter {
-            key: key.to_string(),
-            labels: labels_into_parts(labels.iter()),
-            value,
-        };
+//         let metric = MetricType::Counter {
+//             key: key.to_string(),
+//             labels: labels_into_parts(labels.iter()),
+//             value,
+//         };
 
-        self.metrics.metrics.push(metric);
-    }
+//         self.metrics.metrics.push(metric);
+//     }
 
-    fn observe_gauge(&mut self, key: Key, value: i64) {
-        let (key, labels) = key.into_parts();
+//     fn observe_gauge(&mut self, key: Key, value: i64) {
+//         let (key, labels) = key.into_parts();
 
-        let metric = MetricType::Gauge {
-            key: key.to_string(),
-            labels: labels_into_parts(labels.iter()),
-            value,
-        };
+//         let metric = MetricType::Gauge {
+//             key: key.to_string(),
+//             labels: labels_into_parts(labels.iter()),
+//             value,
+//         };
 
-        self.metrics.metrics.push(metric);
-    }
+//         self.metrics.metrics.push(metric);
+//     }
 
-    fn observe_histogram(&mut self, key: Key, values: &[u64]) {
-        let (key, labels) = key.into_parts();
+//     fn observe_histogram(&mut self, key: Key, values: &[u64]) {
+//         let (key, labels) = key.into_parts();
 
-        // Use default significant figures value.
-        // For more info on `sigfig` see the Historgam::new_with_bounds().
-        let sigfig = 3;
-        let mut histogram = match Histogram::new(sigfig) {
-            Ok(x) => x,
-            Err(err) => {
-                log!("failed to create histogram: "(err));
-                // do nothing on error
-                return;
-            },
-        };
+//         // Use default significant figures value.
+//         // For more info on `sigfig` see the Historgam::new_with_bounds().
+//         let sigfig = 3;
+//         let mut histogram = match Histogram::new(sigfig) {
+//             Ok(x) => x,
+//             Err(err) => {
+//                 log!("failed to create histogram: "(err));
+//                 // do nothing on error
+//                 return;
+//             },
+//         };
 
-        for value in values {
-            if let Err(err) = histogram.record(*value) {
-                log!("failed to observe histogram value: "(err));
-            }
-        }
+//         for value in values {
+//             if let Err(err) = histogram.record(*value) {
+//                 log!("failed to observe histogram value: "(err));
+//             }
+//         }
 
-        let count = histogram.len() as u64;
-        let mut quantiles = hist_at_quantiles(histogram, &self.quantiles);
-        // add total quantiles number
-        quantiles.insert("count".into(), count);
+//         let count = histogram.len() as u64;
+//         let mut quantiles = hist_at_quantiles(histogram, &self.quantiles);
+//         // add total quantiles number
+//         quantiles.insert("count".into(), count);
 
-        let metric = MetricType::Histogram {
-            key: key.to_string(),
-            labels: labels_into_parts(labels.iter()),
-            quantiles,
-        };
+//         let metric = MetricType::Histogram {
+//             key: key.to_string(),
+//             labels: labels_into_parts(labels.iter()),
+//             quantiles,
+//         };
 
-        self.metrics.metrics.push(metric);
-    }
-}
+//         self.metrics.metrics.push(metric);
+//     }
+// }
 
 impl JsonObserver {
     fn new(quantiles: &[f64]) -> Self {
@@ -587,175 +582,180 @@ pub mod prometheus {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::block_on;
-    use crate::log::LogState;
+// struct Storage(Registry);
 
-    #[test]
-    fn test_initialization() {
-        let log_state = LogArc::new(LogState::in_memory());
-        let metrics = MetricsArc::new();
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use crate::block_on;
+//     use crate::log::LogState;
 
-        // metrics system is not initialized yet
-        assert!(metrics.try_sink().is_none());
+//     #[test]
+//     fn test_initialization() {
+//         let log_state = LogArc::new(LogState::in_memory());
+//         let metrics = MetricsArc::new();
 
-        metrics.init().unwrap();
-        assert!(metrics.init().is_err());
-        assert!(metrics.init_with_dashboard(log_state.weak(), 1.).is_err());
+//         // metrics system is not initialized yet
+//         assert!(metrics.try_sink().is_none());
 
-        assert!(metrics.try_sink().is_some());
-    }
+//         metrics.init().unwrap();
+//         assert!(metrics.init().is_err());
+//         assert!(metrics.init_with_dashboard(log_state.weak(), 1.).is_err());
 
-    #[test]
-    #[ignore]
-    fn test_dashboard() {
-        let log_state = LogArc::new(LogState::in_memory());
-        let metrics = MetricsArc::new();
+//         assert!(metrics.try_sink().is_some());
+//     }
 
-        metrics.init_with_dashboard(log_state.weak(), 5.).unwrap();
-        let clock = metrics.clock().unwrap();
+//     #[test]
+//     #[ignore]
+//     fn test_dashboard() {
+//         let log_state = LogArc::new(LogState::in_memory());
+//         let metrics = MetricsArc::new();
 
-        let start = clock.now();
+//         metrics.init_with_dashboard(log_state.weak(), 5.).unwrap();
+//         let clock = metrics.clock().unwrap();
 
-        mm_counter!(metrics, "rpc.traffic.tx", 62, "coin" => "BTC");
-        mm_counter!(metrics, "rpc.traffic.rx", 105, "coin"=> "BTC");
+//         let start = clock.now();
 
-        mm_counter!(metrics, "rpc.traffic.tx", 54, "coin" => "KMD");
-        mm_counter!(metrics, "rpc.traffic.rx", 158, "coin" => "KMD");
+//         mm_counter!(metrics, "rpc.traffic.tx", 62, "coin" => "BTC");
+//         mm_counter!(metrics, "rpc.traffic.rx", 105, "coin"=> "BTC");
 
-        mm_gauge!(metrics, "rpc.connection.count", 3, "coin" => "KMD");
+//         mm_counter!(metrics, "rpc.traffic.tx", 54, "coin" => "KMD");
+//         mm_counter!(metrics, "rpc.traffic.rx", 158, "coin" => "KMD");
 
-        let end = clock.now();
-        mm_timing!(metrics,
-                   "rpc.query.spent_time",
-                   start,
-                   end,
-                   "coin" => "KMD",
-                   "method" => "blockchain.transaction.get");
+//         mm_gauge!(metrics, "rpc.connection.count", 3, "coin" => "KMD");
 
-        block_on(async { Timer::sleep(6.).await });
+//         let end = clock.now();
+//         mm_timing!(metrics,
+//                    "rpc.query.spent_time",
+//                    start,
+//                    end,
+//                    "coin" => "KMD",
+//                    "method" => "blockchain.transaction.get");
 
-        mm_counter!(metrics, "rpc.traffic.tx", 30, "coin" => "BTC");
-        mm_counter!(metrics, "rpc.traffic.rx", 44, "coin" => "BTC");
+//         block_on(async { Timer::sleep(6.).await });
 
-        mm_gauge!(metrics, "rpc.connection.count", 5, "coin" => "KMD");
+//         mm_counter!(metrics, "rpc.traffic.tx", 30, "coin" => "BTC");
+//         mm_counter!(metrics, "rpc.traffic.rx", 44, "coin" => "BTC");
 
-        let end = clock.now();
-        mm_timing!(metrics,
-                   "rpc.query.spent_time",
-                   start,
-                   end,
-                   "coin"=> "KMD",
-                   "method"=>"blockchain.transaction.get");
+//         mm_gauge!(metrics, "rpc.connection.count", 5, "coin" => "KMD");
 
-        // measure without labels
-        mm_counter!(metrics, "test.counter", 0);
-        mm_gauge!(metrics, "test.gauge", 1);
-        let end = clock.now();
-        mm_timing!(metrics, "test.uptime", start, end);
+//         let end = clock.now();
+//         mm_timing!(metrics,
+//                    "rpc.query.spent_time",
+//                    start,
+//                    end,
+//                    "coin"=> "KMD",
+//                    "method"=>"blockchain.transaction.get");
 
-        block_on(async { Timer::sleep(6.).await });
-    }
+//         // measure without labels
+//         mm_counter!(metrics, "test.counter", 0);
+//         mm_gauge!(metrics, "test.gauge", 1);
+//         let end = clock.now();
+//         mm_timing!(metrics, "test.uptime", start, end);
 
-    /// There is a problem inside the `metrics` crate:
-    /// histograms are lost or ignored sometimes when `metrics::Controller::observe` is called.
-    /// Because of this, the `mm_timing` macro usage is commented out.
-    #[test]
-    fn test_collect_json() {
-        let metrics = MetricsArc::new();
+//         block_on(async { Timer::sleep(6.).await });
+//     }
 
-        metrics.init().unwrap();
+//     /// There is a problem inside the `metrics` crate:
+//     /// histograms are lost or ignored sometimes when `metrics::Controller::observe` is called.
+//     /// Because of this, the `mm_timing` macro usage is commented out.
+//     #[test]
+//     fn test_collect_json() {
+//         let metrics = MetricsArc::new();
 
-        mm_counter!(metrics, "rpc.traffic.tx", 62, "coin" => "BTC");
-        mm_counter!(metrics, "rpc.traffic.rx", 105, "coin" => "BTC");
+//         metrics.init().unwrap();
 
-        mm_counter!(metrics, "rpc.traffic.tx", 30, "coin" => "BTC");
-        mm_counter!(metrics, "rpc.traffic.rx", 44, "coin" => "BTC");
+//         let counter = metrics::register_counter!("rpc.traffic.tx", "coin" => "BTC");
+//         counter.increment(62);
 
-        mm_counter!(metrics, "rpc.traffic.tx", 54, "coin" => "KMD");
-        mm_counter!(metrics, "rpc.traffic.rx", 158, "coin" => "KMD");
+//         mm_counter!(metrics, "rpc.traffic.tx", 62, "coin" => "BTC");
+//         mm_counter!(metrics, "rpc.traffic.rx", 105, "coin" => "BTC");
 
-        mm_gauge!(metrics, "rpc.connection.count", 3, "coin" => "KMD");
+//         mm_counter!(metrics, "rpc.traffic.tx", 30, "coin" => "BTC");
+//         mm_counter!(metrics, "rpc.traffic.rx", 44, "coin" => "BTC");
 
-        // counter, gauge and timing may be collected also by sink API
-        mm_gauge!(metrics, "rpc.connection.count", 5, "coin" => "KMD");
+//         mm_counter!(metrics, "rpc.traffic.tx", 54, "coin" => "KMD");
+//         mm_counter!(metrics, "rpc.traffic.rx", 158, "coin" => "KMD");
 
-        // mm_timing!(metrics,
-        //            "rpc.query.spent_time",
-        //            // ~ 1 second
-        //            34381019796149, // start
-        //            34382022725155, // end
-        //            "coin" => "KMD",
-        //            "method" => "blockchain.transaction.get");
-        //
-        // mm_timing!(metrics,
-        //            "rpc.query.spent_time",
-        //            // ~ 2 second
-        //            34382022774105, // start
-        //            34384023173373, // end
-        //            "coin" => "KMD",
-        //            "method" => "blockchain.transaction.get");
+//         mm_gauge!(metrics, "rpc.connection.count", 3, "coin" => "KMD");
 
-        let expected = json!({
-            "metrics": [
-                {
-                    "key": "rpc.traffic.tx",
-                    "labels": { "coin": "BTC" },
-                    "type": "counter",
-                    "value": 92
-                },
-                {
-                    "key": "rpc.traffic.rx",
-                    "labels": { "coin": "BTC" },
-                    "type": "counter",
-                    "value": 149
-                },
-                {
-                    "key": "rpc.traffic.tx",
-                    "labels": { "coin": "KMD" },
-                    "type": "counter",
-                    "value": 54
-                },
-                {
-                    "key": "rpc.traffic.rx",
-                    "labels": { "coin": "KMD" },
-                    "type": "counter",
-                    "value": 158
-                },
-                // {
-                //     "count": 2,
-                //     "key": "rpc.query.spent_time",
-                //     "labels": { "coin": "KMD", "method": "blockchain.transaction.get" },
-                //     "max": 2000683007,
-                //     "min": 1002438656,
-                //     "type": "histogram"
-                // },
-                {
-                    "key": "rpc.connection.count",
-                    "labels": { "coin": "KMD" },
-                    "type": "gauge",
-                    "value": 5
-                }
-            ]
-        });
+//         // counter, gauge and timing may be collected also by sink API
+//         mm_gauge!(metrics, "rpc.connection.count", 5, "coin" => "KMD");
 
-        let mut actual = metrics.collect_json().unwrap();
+//         // mm_timing!(metrics,
+//         //            "rpc.query.spent_time",
+//         //            // ~ 1 second
+//         //            34381019796149, // start
+//         //            34382022725155, // end
+//         //            "coin" => "KMD",
+//         //            "method" => "blockchain.transaction.get");
+//         //
+//         // mm_timing!(metrics,
+//         //            "rpc.query.spent_time",
+//         //            // ~ 2 second
+//         //            34382022774105, // start
+//         //            34384023173373, // end
+//         //            "coin" => "KMD",
+//         //            "method" => "blockchain.transaction.get");
 
-        let actual = actual["metrics"].as_array_mut().unwrap();
-        for expected in expected["metrics"].as_array().unwrap() {
-            let index = actual.iter().position(|metric| metric == expected).expect(&format!(
-                "Couldn't find expected metric: {:?} in {:?}",
-                expected, actual
-            ));
-            actual.remove(index);
-        }
+//         let expected = json!({
+//             "metrics": [
+//                 {
+//                     "key": "rpc.traffic.tx",
+//                     "labels": { "coin": "BTC" },
+//                     "type": "counter",
+//                     "value": 92
+//                 },
+//                 {
+//                     "key": "rpc.traffic.rx",
+//                     "labels": { "coin": "BTC" },
+//                     "type": "counter",
+//                     "value": 149
+//                 },
+//                 {
+//                     "key": "rpc.traffic.tx",
+//                     "labels": { "coin": "KMD" },
+//                     "type": "counter",
+//                     "value": 54
+//                 },
+//                 {
+//                     "key": "rpc.traffic.rx",
+//                     "labels": { "coin": "KMD" },
+//                     "type": "counter",
+//                     "value": 158
+//                 },
+//                 // {
+//                 //     "count": 2,
+//                 //     "key": "rpc.query.spent_time",
+//                 //     "labels": { "coin": "KMD", "method": "blockchain.transaction.get" },
+//                 //     "max": 2000683007,
+//                 //     "min": 1002438656,
+//                 //     "type": "histogram"
+//                 // },
+//                 {
+//                     "key": "rpc.connection.count",
+//                     "labels": { "coin": "KMD" },
+//                     "type": "gauge",
+//                     "value": 5
+//                 }
+//             ]
+//         });
 
-        assert!(
-            actual.is_empty(),
-            "More metrics collected than expected. Excess metrics: {:?}",
-            actual
-        );
-    }
-}
+//         let mut actual = metrics.collect_json().unwrap();
+
+//         let actual = actual["metrics"].as_array_mut().unwrap();
+//         for expected in expected["metrics"].as_array().unwrap() {
+//             let index = actual.iter().position(|metric| metric == expected).expect(&format!(
+//                 "Couldn't find expected metric: {:?} in {:?}",
+//                 expected, actual
+//             ));
+//             actual.remove(index);
+//         }
+
+//         assert!(
+//             actual.is_empty(),
+//             "More metrics collected than expected. Excess metrics: {:?}",
+//             actual
+//         );
+//     }
+// }
