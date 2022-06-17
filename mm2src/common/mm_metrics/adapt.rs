@@ -16,8 +16,6 @@ use serde_json as json;
 
 use crate::log::Tag;
 
-use super::{MetricType, MetricsJson};
-
 pub struct Snapshot {
     pub counters: HashMap<String, HashMap<Vec<String>, u64>>,
     pub gauges: HashMap<String, HashMap<Vec<String>, f64>>,
@@ -89,7 +87,7 @@ impl Inner {
         let Snapshot {
             mut counters,
             mut gauges,
-            mut distributions,
+            distributions: _,
         } = self.get_recent_metrics();
 
         let mut output = String::new();
@@ -138,7 +136,7 @@ impl Inner {
         let Snapshot {
             mut counters,
             mut gauges,
-            mut distributions,
+            distributions: _,
         } = self.get_recent_metrics();
 
         let mut output: Vec<PreparedMetric> = vec![];
@@ -168,7 +166,7 @@ impl Inner {
         let Snapshot {
             mut counters,
             mut gauges,
-            mut distributions,
+            distributions: _,
         } = self.get_recent_metrics();
 
         let mut output: Vec<MetricType> = vec![];
@@ -273,6 +271,33 @@ impl MmHandle {
 
         Ok(())
     }
+}
+
+#[derive(Serialize, Debug, Default, Deserialize)]
+pub struct MetricsJson {
+    pub metrics: Vec<MetricType>,
+}
+
+#[derive(Eq, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+#[serde(tag = "type")]
+pub enum MetricType {
+    Counter {
+        key: String,
+        labels: Vec<String>,
+        value: u64,
+    },
+    Gauge {
+        key: String,
+        labels: Vec<String>,
+        value: i64,
+    },
+    Histogram {
+        key: String,
+        labels: Vec<String>,
+        #[serde(flatten)]
+        quantiles: HashMap<String, u64>,
+    },
 }
 
 pub struct PreparedMetric {
