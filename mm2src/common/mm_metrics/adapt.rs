@@ -1,32 +1,57 @@
 use std::{collections::HashMap,
+          convert::TryInto,
           slice::Iter,
           sync::{atomic::Ordering, Arc}};
 
-use crate::{executor::{spawn, Timer},
-            log::{LogArc, LogWeak},
-            Json};
+use hdrhistogram::Histogram;
 use indexmap::IndexMap;
 use metrics::{KeyName, Recorder, Unit};
-use metrics_exporter_prometheus::{formatting::{key_to_parts, sanitize_metric_name, write_help_line,
-                                               write_metric_line, write_type_line},
-                                  Distribution, DistributionBuilder};
-use metrics_util::registry::{GenerationalAtomicStorage, Registry};
-use parking_lot::RwLock;
-use serde_json as json;
+use metrics_exporter_prometheus::{formatting::key_to_parts, Distribution};
+use metrics_util::{registry::{GenerationalAtomicStorage, Registry},
+                   Quantile};
+use serde_json::Value;
 
 use crate::log::Tag;
 
+pub struct MmMetricsBuilder {
+    global_labels: HashMap<String, Value>,
+}
+
+#[allow(dead_code)]
+impl MmMetricsBuilder {
+    fn new() -> Self {
+        Self {
+            global_labels: HashMap::new(),
+        }
+    }
+    /// Add a label which will be attached to all metrics by default.
+    pub fn add_global_label<K, V>(mut self, key: K, value: V) -> Self
+    where
+        K: Into<String>,
+        V: Into<Value>,
+    {
+        self.global_labels.insert(key.into(), value.into());
+        self
+    }
+
+    fn build(&self) -> Result<MmRecorder, String> {
+        Ok(MmRecorder {
+            inner: Arc::new(Inner {
+                registry: Registry::new(GenerationalAtomicStorage::atomic()),
+                global_labels: Default::default(),
+            }),
+        })
+    }
+}
 pub struct Snapshot {
     pub counters: HashMap<String, HashMap<Vec<String>, u64>>,
     pub gauges: HashMap<String, HashMap<Vec<String>, f64>>,
-    pub distributions: HashMap<String, IndexMap<Vec<String>, Distribution>>,
+    pub histogram: HashMap<String, IndexMap<Vec<String>, Distribution>>,
 }
 
+#[allow(dead_code)]
 pub(crate) struct Inner {
-    pub registry: Registry<metrics::Key, metrics_util::registry::GenerationalAtomicStorage>,
-    pub descriptions: RwLock<HashMap<String, &'static str>>,
-    pub distributions: RwLock<HashMap<String, IndexMap<Vec<String>, Distribution>>>,
-    pub distribution_builder: DistributionBuilder,
+    pub registry: Registry<metrics::Key, GenerationalAtomicStorage>,
     pub global_labels: IndexMap<String, String>,
 }
 
@@ -58,85 +83,21 @@ impl Inner {
             *entry = value;
         }
 
-        let histogram_handles = self.registry.get_histogram_handles();
-        for (key, histogram) in histogram_handles {
-            let (name, labels) = key_to_parts(&key, Some(&self.global_labels));
-
-            let mut wg = self.distributions.write();
-            let entry = wg
-                .entry(name.clone())
-                .or_insert_with(IndexMap::new)
-                .entry(labels)
-                .or_insert_with(|| self.distribution_builder.get_distribution(name.as_str()));
-
-            histogram
-                .get_inner()
-                .clear_with(|samples| entry.record_samples(samples));
-        }
-
-        let distributions = self.distributions.read().clone();
+        let histogram = HashMap::new();
+        // unimplemented
 
         Snapshot {
             counters,
             gauges,
-            distributions,
+            histogram,
         }
-    }
-
-    fn render(&self) -> String {
-        let Snapshot {
-            mut counters,
-            mut gauges,
-            distributions: _,
-        } = self.get_recent_metrics();
-
-        let mut output = String::new();
-        let descriptions = self.descriptions.read();
-
-        for (name, mut by_labels) in counters.drain() {
-            if let Some(desc) = descriptions.get(name.as_str()) {
-                write_help_line(&mut output, name.as_str(), desc);
-            }
-
-            write_type_line(&mut output, name.as_str(), "counter");
-            for (labels, value) in by_labels.drain() {
-                write_metric_line::<&str, u64>(&mut output, &name, None, &labels, None, value);
-            }
-            output.push('\n');
-        }
-
-        for (name, mut by_labels) in gauges.drain() {
-            if let Some(desc) = descriptions.get(name.as_str()) {
-                write_help_line(&mut output, name.as_str(), desc);
-            }
-
-            write_type_line(&mut output, name.as_str(), "gauge");
-            for (labels, value) in by_labels.drain() {
-                write_metric_line::<&str, f64>(&mut output, &name, None, &labels, None, value);
-            }
-            output.push('\n');
-        }
-
-        for (name, mut by_labels) in gauges.drain() {
-            if let Some(desc) = descriptions.get(name.as_str()) {
-                write_help_line(&mut output, name.as_str(), desc);
-            }
-
-            write_type_line(&mut output, name.as_str(), "gauge");
-            for (labels, value) in by_labels.drain() {
-                write_metric_line::<&str, f64>(&mut output, &name, None, &labels, None, value);
-            }
-            output.push('\n');
-        }
-
-        output
     }
 
     fn prepare_metrics(&self) -> Vec<PreparedMetric> {
         let Snapshot {
             mut counters,
             mut gauges,
-            distributions: _,
+            histogram: _,
         } = self.get_recent_metrics();
 
         let mut output: Vec<PreparedMetric> = vec![];
@@ -144,7 +105,7 @@ impl Inner {
         for (name, mut by_labels) in counters.drain() {
             for (_labels, value) in by_labels.drain() {
                 output.push(PreparedMetric {
-                    tags: labels_to_tags(metrics::Key::from_name(name.clone()).labels()),
+                    tags: labels_to_tags(metrics_core::Key::from_name(name.clone()).labels()),
                     message: format!("{} {}", name, value),
                 });
             }
@@ -153,7 +114,7 @@ impl Inner {
         for (name, mut by_labels) in gauges.drain() {
             for (_labels, value) in by_labels.drain() {
                 output.push(PreparedMetric {
-                    tags: labels_to_tags(metrics::Key::from_name(name.clone()).labels()),
+                    tags: labels_to_tags(metrics_core::Key::from_name(name.clone()).labels()),
                     message: format!("{} {}", name, value),
                 });
             }
@@ -162,83 +123,92 @@ impl Inner {
         output
     }
 
-    fn collect_json(&self) -> Result<Json, String> {
-        let Snapshot {
-            mut counters,
-            mut gauges,
-            distributions: _,
-        } = self.get_recent_metrics();
-
+    fn collect_json(&self) -> Result<MetricsJson, String> {
         let mut output: Vec<MetricType> = vec![];
 
-        for (name, mut by_labels) in counters.drain() {
-            for (labels, value) in by_labels.drain() {
-                output.push(MetricType::Counter {
-                    key: name.clone(),
-                    labels,
-                    value,
-                });
-            }
+        for (key, gauge) in self.registry.get_counter_handles() {
+            let value = gauge.get_inner().load(Ordering::Acquire);
+            let (_name, labels) = key_to_parts(&key, None);
+            output.push(MetricType::Counter {
+                key: key.to_string(),
+                labels,
+                value,
+            });
         }
 
-        for (name, mut by_labels) in gauges.drain() {
-            for (labels, value) in by_labels.drain() {
-                output.push(MetricType::Counter {
-                    key: name.clone(),
-                    labels,
-                    value: value as u64,
-                });
-            }
+        for (key, gauge) in self.registry.get_gauge_handles() {
+            let value = gauge.get_inner().load(Ordering::Acquire);
+            let (_name, labels) = key_to_parts(&key, None);
+            output.push(MetricType::Gauge {
+                key: key.to_string(),
+                labels,
+                value: value.try_into().unwrap(),
+            });
         }
 
-        json::to_value(MetricsJson { metrics: output }).map_err(|err| ERRL!("{}", err))
+        for (key, histogram) in self.registry.get_histogram_handles() {
+            let (_name, labels) = key_to_parts(&key, None);
+            let mut q_values = vec![];
+            let mut count = 0;
+            histogram.get_inner().clear_with(|values| {
+                count += values.len();
+                for value in values {
+                    q_values.push(Quantile::new(*value));
+                }
+            });
+
+            // Use default significant figures value.
+            // For more info on `sigfig` see the Historgam::new_with_bounds().
+            let sigfig = 3;
+            let histogram = Histogram::new(sigfig).unwrap();
+            let mut quantiles = hist_at_quantiles(histogram, &q_values);
+            // add total quantiles number
+            quantiles.insert("count".into(), count as u64);
+            output.push(MetricType::Histogram {
+                key: key.to_string(),
+                labels,
+                quantiles,
+            });
+        }
+
+        Ok(MetricsJson { metrics: output })
     }
 }
+
 #[derive(Clone)]
 pub struct MmRecorder {
     inner: Arc<Inner>,
 }
 
 impl MmRecorder {
-    fn new() -> Self {
-        let quantiles = metrics_util::parse_quantiles(&[0.0, 0.5, 0.9, 0.95, 0.99, 0.999, 1.0]);
-        Self {
-            inner: Arc::new(Inner {
-                registry: Registry::new(GenerationalAtomicStorage::atomic()),
-                descriptions: RwLock::new(HashMap::new()),
-                distributions: Default::default(),
-                distribution_builder: DistributionBuilder::new(quantiles, None, None),
-                global_labels: Default::default(),
-            }),
-        }
-    }
-
     pub fn handle(&self) -> MmHandle {
         MmHandle {
-            inner: self.inner.clone(),
+            metrics: self.inner.clone(),
         }
     }
-    fn add_description_if_missing(&self, key_name: &KeyName, description: &'static str) {
-        let sanitized = sanitize_metric_name(key_name.as_str());
-        let mut descriptions = self.inner.descriptions.write();
-        descriptions.entry(sanitized).or_insert(description);
+    /// Install this recorder as the global default recorder.
+    pub fn install(self) -> Result<MmHandle, String> {
+        let handle = self.handle();
+        metrics::set_boxed_recorder(Box::new(self)).map_err(|e| e.to_string())?;
+        Ok(handle)
     }
 }
+
 impl From<Inner> for MmRecorder {
     fn from(inner: Inner) -> Self { MmRecorder { inner: Arc::new(inner) } }
 }
 
 impl Recorder for MmRecorder {
-    fn describe_counter(&self, key_name: KeyName, _unit: Option<Unit>, description: &'static str) {
-        self.add_description_if_missing(&key_name, description)
+    fn describe_counter(&self, _key_name: KeyName, _unit: Option<Unit>, _description: &'static str) {
+        // self.add_description_if_missing(&key_name, description)
     }
 
-    fn describe_gauge(&self, key_name: KeyName, _unit: Option<Unit>, description: &'static str) {
-        self.add_description_if_missing(&key_name, description)
+    fn describe_gauge(&self, _key_name: KeyName, _unit: Option<Unit>, _description: &'static str) {
+        // self.add_description_if_missing(&key_name, description)
     }
 
-    fn describe_histogram(&self, key_name: KeyName, _unit: Option<Unit>, description: &'static str) {
-        self.add_description_if_missing(&key_name, description)
+    fn describe_histogram(&self, _key_name: KeyName, _unit: Option<Unit>, _description: &'static str) {
+        // self.add_description_if_missing(&key_name, description)
     }
 
     fn register_counter(&self, key: &metrics::Key) -> metrics::Counter {
@@ -255,22 +225,15 @@ impl Recorder for MmRecorder {
 }
 
 pub struct MmHandle {
-    inner: Arc<Inner>,
+    metrics: Arc<Inner>,
 }
+
 impl MmHandle {
-    pub fn render(&self) -> String { self.inner.render() }
-    pub fn collect_json(&self) -> Result<Json, String> { self.inner.collect_json() }
-    pub fn prepare_metrics(&self) -> Vec<PreparedMetric> { self.inner.prepare_metrics() }
-    pub fn export_tags(&self, log_state: LogWeak, interval: f64) -> Result<(), String> {
-        let exporter = TagExporter {
-            log_state,
-            inner: Arc::clone(&self.inner),
-        };
-
-        spawn(exporter.run(interval));
-
-        Ok(())
+    // pub fn render(&self) -> String { self.metrics.render() }
+    pub fn collect_json(&self) -> Result<Value, String> {
+        serde_json::to_value(self.metrics.collect_json().unwrap()).map_err(|err| ERRL!("{}", err))
     }
+    pub fn prepare_metrics(&self) -> Vec<PreparedMetric> { self.metrics.prepare_metrics() }
 }
 
 #[derive(Serialize, Debug, Default, Deserialize)]
@@ -300,44 +263,46 @@ pub enum MetricType {
     },
 }
 
+#[allow(dead_code)]
 pub struct PreparedMetric {
     tags: Vec<Tag>,
     message: String,
 }
 
-struct TagExporter {
-    log_state: LogWeak,
-    inner: Arc<Inner>,
-}
+// struct TagExporter {
+//     /// Using a weak reference by default in order to avoid circular references and leaks.
+//     log_state: LogWeak,
+//     /// Handle for converting snapshots into log.
+//     metrics: Vec<PreparedMetric>,
+// }
 
-impl TagExporter {
-    async fn run(mut self, interval: f64) {
-        loop {
-            Timer::sleep(interval).await;
-            self.turn();
-        }
-    }
+// impl TagExporter {
+//     /// Run endless async loop
+//     async fn run(mut self, interval: f64) {
+//         loop {
+//             Timer::sleep(interval).await;
+//             self.turn();
+//         }
+//     }
+//     fn turn(&mut self) {
+//         println!("runnig");
+//         let log_state = match LogArc::from_weak(&self.log_state) {
+//             Some(x) => x,
+//             // MmCtx is dropped already
+//             _ => {
+//                 return;
+//             },
+//         };
 
-    fn turn(&mut self) {
-        println!("run");
+//         log!(">>>>>>>>>> DEX metrics <<<<<<<<<");
 
-        let log_state = match LogArc::from_weak(&self.log_state) {
-            Some(x) => x,
-            // MmCtx is dropped already
-            _ => {
-                return;
-            },
-        };
+//         for PreparedMetric { tags, message } in &self.metrics {
+//             log_state.log_deref_tags("", tags.to_vec(), &message);
+//         }
+//     }
+// }
 
-        log!(">>>>>>>>>> DEX metrics <<<<<<<<<");
-
-        for PreparedMetric { tags, message } in self.inner.prepare_metrics() {
-            log_state.log_deref_tags("", tags, &message);
-        }
-    }
-}
-
-fn labels_to_tags(labels: Iter<metrics::Label>) -> Vec<Tag> {
+fn labels_to_tags(labels: Iter<metrics_core::Label>) -> Vec<Tag> {
     labels
         .map(|label| Tag {
             key: label.key().to_string(),
@@ -346,35 +311,41 @@ fn labels_to_tags(labels: Iter<metrics::Label>) -> Vec<Tag> {
         .collect()
 }
 
+fn hist_at_quantiles(hist: Histogram<u64>, quantiles: &[Quantile]) -> HashMap<String, u64> {
+    quantiles
+        .iter()
+        .map(|quantile| {
+            let key = quantile.label().to_string();
+            let val = hist.value_at_quantile(quantile.value());
+            (key, val)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod test {
-    use metrics::Label;
-
     use super::*;
+    use metrics::{register_counter, register_gauge, register_histogram};
     #[test]
 
     fn collect_json() {
-        let metrics = MmRecorder::new();
+        let mm_metrics = MmMetricsBuilder::new()
+            .add_global_label("MarketMaker", "Metrics")
+            .build()
+            .unwrap();
 
-        let labels = vec![Label::new("hey", "come")];
-        let key = metrics::Key::from_parts("basic_ecounter", labels);
-        metrics.register_counter(&key);
-        let labels = vec![Label::new("wutang", "forever")];
-        let key = metrics::Key::from_parts("basic_gauge", labels);
-        metrics.register_gauge(&key);
-        let json = metrics.handle().collect_json();
-        println!("{:?}", json)
-    }
+        let handle = mm_metrics.install().unwrap();
+        let counter1 = register_counter!("test_counter");
+        counter1.increment(1);
+        let counter2 = register_counter!("test_counter", "type" => "absolute");
+        counter2.absolute(42);
+        let gauge1 = register_gauge!("test_gauge", "g" => "test");
+        gauge1.increment(1.4);
+        let histogram1 = register_histogram!("test_histogram");
+        histogram1.record(5.0);
+        histogram1.record(1.);
 
-    fn _export_tags() {
-        let log_state = LogArc::new(crate::log::LogState::in_memory());
-        let metrics = MmRecorder::new();
-        let labels = vec![Label::new("hey", "come")];
-        let key = metrics::Key::from_parts("basic_ecounter", labels);
-        metrics.register_counter(&key);
-        let labels = vec![Label::new("wutang", "forever")];
-        let key = metrics::Key::from_parts("basic_gauge", labels);
-        metrics.register_counter(&key);
-        metrics.handle().export_tags(log_state.weak(), 5.).unwrap();
+        let expected: MetricsJson = serde_json::from_value(handle.collect_json().unwrap()).unwrap();
+        println!("{:#?}", &expected);
     }
 }

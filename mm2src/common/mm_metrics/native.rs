@@ -166,7 +166,7 @@ impl Metrics {
 
 type MetricName = ScopedString;
 
-type MetricLabels = Vec<Label>;
+pub type MetricLabels = Vec<Label>;
 
 type MetricNameValueMap = HashMap<MetricName, Integer>;
 
