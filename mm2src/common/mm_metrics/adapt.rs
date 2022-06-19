@@ -4,9 +4,8 @@ use std::{collections::HashMap,
           sync::{atomic::Ordering, Arc}};
 
 use hdrhistogram::Histogram;
-use indexmap::IndexMap;
 use metrics::{KeyName, Recorder, Unit};
-use metrics_exporter_prometheus::{formatting::key_to_parts, Distribution};
+use metrics_exporter_prometheus::formatting::key_to_parts;
 use metrics_util::{registry::{GenerationalAtomicStorage, Registry},
                    Quantile};
 use serde_json::Value;
@@ -38,7 +37,7 @@ impl MmMetricsBuilder {
         Ok(MmRecorder {
             inner: Arc::new(Inner {
                 registry: Registry::new(GenerationalAtomicStorage::atomic()),
-                global_labels: Default::default(),
+                global_labels: self.global_labels.clone(),
             }),
         })
     }
@@ -46,13 +45,12 @@ impl MmMetricsBuilder {
 pub struct Snapshot {
     pub counters: HashMap<String, HashMap<Vec<String>, u64>>,
     pub gauges: HashMap<String, HashMap<Vec<String>, f64>>,
-    pub histogram: HashMap<String, IndexMap<Vec<String>, Distribution>>,
 }
 
 #[allow(dead_code)]
 pub(crate) struct Inner {
     pub registry: Registry<metrics::Key, GenerationalAtomicStorage>,
-    pub global_labels: IndexMap<String, String>,
+    pub global_labels: HashMap<String, Value>,
 }
 
 impl Inner {
@@ -83,21 +81,13 @@ impl Inner {
             *entry = value;
         }
 
-        let histogram = HashMap::new();
-        // unimplemented
-
-        Snapshot {
-            counters,
-            gauges,
-            histogram,
-        }
+        Snapshot { counters, gauges }
     }
 
     fn prepare_metrics(&self) -> Vec<PreparedMetric> {
         let Snapshot {
             mut counters,
             mut gauges,
-            histogram: _,
         } = self.get_recent_metrics();
 
         let mut output: Vec<PreparedMetric> = vec![];

@@ -108,7 +108,7 @@ tokio = { version = "1.7" }
 tokio-rustls = { version = "0.23" }
 tonic = { version = "0.7", features = ["tls", "tls-webpki-roots", "compression"] }
 webpki-roots = { version = "0.22" }
-solana-client = { version = "1.9", default-features = false }
+solana-client = { version = "1", default-features = false }
 solana-sdk = { version = "1", default-features = false }
 solana-transaction-status = "1"
 spl-token = { version = "3" }
