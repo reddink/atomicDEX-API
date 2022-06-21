@@ -89,8 +89,6 @@ macro_rules! try_h {
 pub mod jsonrpc_client;
 #[macro_use]
 pub mod log;
-#[macro_use]
-pub mod mm_metrics;
 
 pub mod big_int_str;
 pub mod crash_reports;

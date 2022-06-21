@@ -1,5 +1,6 @@
 use super::*;
-use crate::now_ms;
+use common::log::LogWeak;
+use common::now_ms;
 
 /// The dummy macro that imitates [`crate::mm_metrics::native::mm_counter`].
 /// These macros borrow the `$metrics`, `$name`, `$value` and takes ownership of the `$label_key`, `$label_val` to prevent the `unused_variable` warning.

@@ -17,11 +17,11 @@ use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, GetWithdrawSen
             NegotiateSwapContractAddrErr, PrivKeyBuildPolicy, SearchForSwapTxSpendInput, SignatureResult, SwapOps,
             TradePreimageValue, TransactionFut, ValidateAddressResult, ValidatePaymentInput, VerificationResult,
             WithdrawFut, WithdrawSenderAddress};
-use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
 use crypto::trezor::utxo::TrezorUtxoCoin;
 use crypto::Bip44Chain;
 use futures::{FutureExt, TryFutureExt};
+use mm2_metrics::MetricsArc;
 use serialization::CoinVariant;
 use utxo_signer::UtxoSignerOps;
 

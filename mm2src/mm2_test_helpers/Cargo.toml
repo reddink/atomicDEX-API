@@ -15,6 +15,7 @@ uuid = { version = "0.7", features = ["serde", "v4"] }
 lazy_static = "1.4"
 common = { path = "../common" }
 mm2_io = { path = "../mm2_io" }
+mm2_metrics = { path = "../mm2_metrics" }
 mm2_net = { path = "../mm2_net" }
 mm2_core = { path = "../mm2_core" }
 cfg-if = "1.0"

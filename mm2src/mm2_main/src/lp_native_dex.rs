@@ -27,6 +27,7 @@ use derive_more::Display;
 use mm2_core::mm_ctx::{MmArc, MmCtx};
 use mm2_err_handle::prelude::*;
 use mm2_libp2p::{spawn_gossipsub, AdexBehaviourError, NodeType, RelayAddress, RelayAddressError, WssCerts};
+use mm2_metrics::mm_gauge;
 use rpc_task::RpcTaskError;
 use serde_json::{self as json};
 use std::fs;

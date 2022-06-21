@@ -1,30 +1,31 @@
 use super::*;
-use crate::executor::{spawn, Timer};
+use common::executor::{spawn, Timer};
+use common::log::LogWeak;
+use fomat_macros::wite;
 use gstuff::Constructible;
 use hdrhistogram::Histogram;
 use itertools::Itertools;
 use metrics_core::{Builder, Drain, Key, Label, Observe, Observer, ScopedString};
 use metrics_runtime::{observers::PrometheusBuilder, Receiver};
 use metrics_util::{parse_quantiles, Quantile};
-use serde_json as json;
 use std::collections::HashMap;
-use std::fmt::Write as WriteFmt;
+use std::fmt::Write;
 use std::slice::Iter;
 
-use crate::log::{LogArc, Tag};
+use common::log::{LogArc, Tag};
 pub use metrics_runtime::Sink;
 
 /// Increment counter if an MmArc is not dropped yet and metrics system is initialized already.
 #[macro_export]
 macro_rules! mm_counter {
     ($metrics:expr, $name:expr, $value:expr) => {{
-        if let Some(mut sink) = $crate::mm_metrics::TrySink::try_sink(&$metrics) {
+        if let Some(mut sink) = $crate::TrySink::try_sink(&$metrics) {
             sink.increment_counter($name, $value);
         }
     }};
     ($metrics:expr, $name:expr, $value:expr, $($label_key:expr => $label_val:expr),+) => {{
-        if let Some(mut sink) = $crate::mm_metrics::TrySink::try_sink(&$metrics) {
-            let labels = $crate::mm_metrics::labels!( $($label_key => $label_val),+ );
+        if let Some(mut sink) = $crate::TrySink::try_sink(&$metrics) {
+            let labels = $crate::labels!( $($label_key => $label_val),+ );
             sink.increment_counter_with_labels($name, $value, labels);
         }
     }};
@@ -34,14 +35,14 @@ macro_rules! mm_counter {
 #[macro_export]
 macro_rules! mm_gauge {
     ($metrics:expr, $name:expr, $value:expr) => {{
-        if let Some(mut sink) = $crate::mm_metrics::TrySink::try_sink(&$metrics) {
+        if let Some(mut sink) = $crate::TrySink::try_sink(&$metrics) {
             sink.update_gauge($name, $value);
         }
     }};
 
     ($metrics:expr, $name:expr, $value:expr, $($label_key:expr => $label_val:expr),+) => {{
-        if let Some(mut sink) = $crate::mm_metrics::TrySink::try_sink(&$metrics) {
-            let labels = $crate::mm_metrics::labels!( $($label_key => $label_val),+ );
+        if let Some(mut sink) = $crate::TrySink::try_sink(&$metrics) {
+            let labels = $crate::labels!( $($label_key => $label_val),+ );
             sink.update_gauge_with_labels($name, $value, labels);
         }
     }};
@@ -51,14 +52,14 @@ macro_rules! mm_gauge {
 #[macro_export]
 macro_rules! mm_timing {
     ($metrics:expr, $name:expr, $start:expr, $end:expr) => {{
-        if let Some(mut sink) = $crate::mm_metrics::TrySink::try_sink(&$metrics) {
+        if let Some(mut sink) = $crate::TrySink::try_sink(&$metrics) {
             sink.record_timing($name, $start, $end);
         }
     }};
 
     ($metrics:expr, $name:expr, $start:expr, $end:expr, $($label_key:expr => $label_val:expr),+) => {{
-        if let Some(mut sink) = $crate::mm_metrics::TrySink::try_sink(&$metrics) {
-            let labels = $crate::mm_metrics::labels!( $($label_key => $label_val),+ );
+        if let Some(mut sink) = $crate::TrySink::try_sink(&$metrics) {
+            let labels = $crate::labels!( $($label_key => $label_val),+ );
             sink.record_timing_with_labels($name, $start, $end, labels);
         }
     }};
@@ -361,7 +362,7 @@ impl JsonObserver {
         }
     }
 
-    fn into_json(self) -> Result<Json, String> { json::to_value(self.metrics).map_err(|err| ERRL!("{}", err)) }
+    fn into_json(self) -> Result<Json, String> { serde_json::to_value(self.metrics).map_err(|err| ERRL!("{}", err)) }
 }
 
 /// Exports metrics by converting them to a Tag format and log them using log::Status.
@@ -590,8 +591,8 @@ pub mod prometheus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block_on;
-    use crate::log::LogState;
+    use crate::common::block_on;
+    use crate::common::log::LogState;
 
     #[test]
     fn test_initialization() {
@@ -698,7 +699,7 @@ mod tests {
         //            "coin" => "KMD",
         //            "method" => "blockchain.transaction.get");
 
-        let expected = json!({
+        let expected = serde_json::json!({
             "metrics": [
                 {
                     "key": "rpc.traffic.tx",

@@ -11,7 +11,6 @@ use crate::{BlockHeightAndTime, CanRefundHtlc, CoinBalance, CoinProtocol, Negoti
             SwapOps, TradePreimageValue, TransactionFut, TransactionType, TxFeeDetails, UnexpectedDerivationMethod,
             ValidateAddressResult, ValidatePaymentInput, VerificationResult, WithdrawFut};
 use common::log::warn;
-use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
 use derive_more::Display;
 use futures::{FutureExt, TryFutureExt};
@@ -19,6 +18,7 @@ use itertools::Either as EitherIter;
 use keys::hash::H256;
 use keys::CashAddress;
 pub use keys::NetworkPrefix as CashAddrPrefix;
+use mm2_metrics::MetricsArc;
 use serde_json::{self as json, Value as Json};
 use serialization::{deserialize, CoinVariant};
 use std::sync::MutexGuard;

@@ -3,8 +3,8 @@ use crate::utxo::{RequestTxHistoryResult, UtxoFeeDetails};
 use crate::{CoinsContext, TxFeeDetails, TxHistoryResult};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use common::jsonrpc_client::JsonRpcErrorType;
-use common::mm_metrics::MetricsArc;
 use itertools::Itertools;
+use mm2_metrics::MetricsArc;
 use script_pubkey::{extract_contract_call_from_script, extract_gas_from_script, ExtractGasEnum};
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -828,7 +828,7 @@ fn is_transfer_event_log(log: &LogEntry) -> bool {
 mod tests {
     use super::*;
     use common::block_on;
-    use common::mm_metrics::{MetricType, MetricsJson, MetricsOps};
+    use mm2_metrics::{MetricType, MetricsJson, MetricsOps};
     use mm2_test_helpers::for_tests::find_metrics_in_json;
     use qrc20_tests::qrc20_coin_for_test;
 

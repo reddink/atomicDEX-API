@@ -1,10 +1,20 @@
-use crate::log::LogWeak;
+#[cfg(not(target_arch = "wasm32"))]
+#[macro_use]
+extern crate gstuff;
+#[macro_use]
+extern crate serde_derive;
+#[cfg(not(target_arch = "wasm32"))]
+#[macro_use]
+extern crate common;
+
 use serde_json::{Value as Json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
-pub mod adapt;
+#[cfg(not(target_arch = "wasm32"))] pub mod adapt;
 #[cfg(not(target_arch = "wasm32"))] mod native;
+#[cfg(not(target_arch = "wasm32"))] pub mod new_lib;
+#[cfg(not(target_arch = "wasm32"))] pub use metrics;
 #[cfg(not(target_arch = "wasm32"))] pub use metrics_core::labels;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::{prometheus, Clock, Metrics, TrySink};
@@ -17,7 +27,7 @@ pub trait MetricsOps {
     fn init(&self) -> Result<(), String>;
 
     /// Create new Metrics instance and spawn the metrics recording into the log, else return an error.
-    fn init_with_dashboard(&self, log_state: LogWeak, record_interval: f64) -> Result<(), String>;
+    fn init_with_dashboard(&self, log_state: common::log::LogWeak, record_interval: f64) -> Result<(), String>;
 
     /// Handle for sending metric samples.
     fn clock(&self) -> Result<Clock, String>;
@@ -36,7 +46,7 @@ pub struct MetricsArc(pub Arc<Metrics>);
 impl MetricsOps for MetricsArc {
     fn init(&self) -> Result<(), String> { self.0.init() }
 
-    fn init_with_dashboard(&self, log_state: LogWeak, record_interval: f64) -> Result<(), String> {
+    fn init_with_dashboard(&self, log_state: common::log::LogWeak, record_interval: f64) -> Result<(), String> {
         self.0.init_with_dashboard(log_state, record_interval)
     }
 

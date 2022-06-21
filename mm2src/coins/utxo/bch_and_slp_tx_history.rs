@@ -9,10 +9,10 @@ use crate::{BlockHeightAndTime, HistorySyncState, MarketCoinOps};
 use async_trait::async_trait;
 use common::executor::Timer;
 use common::log::{error, info};
-use common::mm_metrics::MetricsArc;
 use common::mm_number::BigDecimal;
 use common::state_machine::prelude::*;
 use futures::compat::Future01CompatExt;
+use mm2_metrics::MetricsArc;
 use rpc::v1::types::H256 as H256Json;
 
 struct BchAndSlpHistoryCtx<Storage: TxHistoryStorage> {

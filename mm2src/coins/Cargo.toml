@@ -57,6 +57,7 @@ lightning-invoice = { git = "https://github.com/shamardy/rust-lightning", branch
 metrics = "0.19"
 mm2_core = { path = "../mm2_core" }
 mm2_err_handle = { path = "../mm2_err_handle" }
+mm2_metrics = { path = "../mm2_metrics" }
 mm2_io = { path = "../mm2_io" }
 mm2_net = { path = "../mm2_net" }
 mocktopus = "0.7.0"

@@ -2,13 +2,13 @@ use arrayref::array_ref;
 #[cfg(any(not(target_arch = "wasm32"), feature = "track-ctx-pointer"))]
 use common::executor::Timer;
 use common::log::{self, LogLevel, LogState};
-use common::mm_metrics::{MetricsArc, MetricsOps};
 use common::{bits256, cfg_native, cfg_wasm32, small_rng};
 use fomat_macros::wite;
 use futures::future::AbortHandle;
 use gstuff::{try_s, Constructible, ERR, ERRL};
 use keys::KeyPair;
 use lazy_static::lazy_static;
+use mm2_metrics::{MetricsArc, MetricsOps};
 use primitives::hash::H160;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -29,7 +29,7 @@ cfg_wasm32! {
 }
 
 cfg_native! {
-    use common::mm_metrics::prometheus;
+    use mm2_metrics::prometheus;
     use db_common::sqlite::rusqlite::Connection;
     use std::net::{IpAddr, SocketAddr};
     use std::sync::MutexGuard;

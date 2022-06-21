@@ -79,6 +79,7 @@ mm2_core = { path = "../mm2_core" }
 mm2_err_handle = { path = "../mm2_err_handle" }
 mm2_io = { path = "../mm2_io" }
 mm2-libp2p = { path = "../mm2_libp2p" }
+mm2_metrics = { path = "../mm2_metrics" }
 mm2_net = { path = "../mm2_net" }
 mm2_rpc = { path = "../mm2_rpc" }
 num-traits = "0.2"
