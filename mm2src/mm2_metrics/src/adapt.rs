@@ -222,26 +222,19 @@ impl MmRecorder {
             metrics: self.inner.clone(),
         }
     }
-
-    /// Install this recorder as the global default recorder.
-    pub fn install(self) -> Result<MmHandle, String> {
-        let handle = self.handle();
-        metrics::set_boxed_recorder(Box::new(self)).map_err(|e| e.to_string())?;
-        Ok(handle)
-    }
 }
 
 impl Recorder for MmRecorder {
     fn describe_counter(&self, _key_name: KeyName, _unit: Option<Unit>, _description: &'static str) {
-        // self.add_description_if_missing(&key_name, description)
+        // mm2_metrics don't use this method
     }
 
     fn describe_gauge(&self, _key_name: KeyName, _unit: Option<Unit>, _description: &'static str) {
-        // self.add_description_if_missing(&key_name, description)
+        // mm2_metrics don't use this method
     }
 
     fn describe_histogram(&self, _key_name: KeyName, _unit: Option<Unit>, _description: &'static str) {
-        // self.add_description_if_missing(&key_name, description)
+        // mm2_metrics don't use this method
     }
 
     fn register_counter(&self, key: &metrics::Key) -> metrics::Counter {
@@ -377,8 +370,9 @@ mod test {
         // let mm_metrics = *mm_metrics;
         mm_counter_new!(mm_metrics, "mm_counter_new_test", 123);
         mm_counter_new!(mm_metrics, "counter", 3, "james" => "maker");
+        mm_counter_new!(mm_metrics, "counter", 3, "james" => "maker");
         mm_gauge_new!(mm_metrics, "mm_gauge_new_test", 5.0);
-        mm_counter_new!(mm_metrics, "gauge", 3, "james" => "taker");
+        mm_gauge_new!(mm_metrics, "gauge", 3.0, "james" => "taker");
         mm_timing_new!(mm_metrics, "test.uptime", 1.0);
 
         // let expected: MetricsJson = serde_json::from_value(handle.collect_json().unwrap()).unwrap();

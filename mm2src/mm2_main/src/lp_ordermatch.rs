@@ -19,7 +19,6 @@
 //  lp_ordermatch.rs
 //  marketmaker
 //
-
 use async_trait::async_trait;
 use best_orders::BestOrdersAction;
 use blake2::digest::{Update, VariableOutput};
@@ -42,6 +41,7 @@ use keys::{AddressFormat, KeyPair};
 use mm2_core::mm_ctx::{from_ctx, MmArc, MmWeak};
 use mm2_err_handle::prelude::*;
 use mm2_libp2p::{decode_signed, encode_and_sign, encode_message, pub_sub_topic, TopicPrefix, TOPIC_SEPARATOR};
+use mm2_metrics::mm_gauge;
 #[cfg(test)] use mocktopus::macros::*;
 use num_traits::identities::Zero;
 use parking_lot::Mutex as PaMutex;

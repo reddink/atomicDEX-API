@@ -1,13 +1,13 @@
 use crate::adapt::Inner;
 use crate::adapt::MmRecorder;
 use crate::Weak;
+use metrics_util::registry::{GenerationalAtomicStorage, Registry};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 #[cfg(target_arch = "wasm32")]
 pub use crate::wasm::{Clock, MmRecorder};
-use metrics_util::registry::{GenerationalAtomicStorage, Registry};
 
 pub trait ClockOpsNew {
     fn now(&self) -> u64;

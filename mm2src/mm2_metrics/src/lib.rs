@@ -1,8 +1,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 #[macro_use]
 extern crate gstuff;
-#[macro_use]
-extern crate serde_derive;
+#[macro_use] extern crate serde_derive;
 #[cfg(not(target_arch = "wasm32"))]
 #[macro_use]
 extern crate common;

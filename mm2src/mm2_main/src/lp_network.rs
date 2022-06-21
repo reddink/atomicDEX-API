@@ -31,7 +31,7 @@ use mm2_libp2p::atomicdex_behaviour::{AdexBehaviourCmd, AdexBehaviourEvent, Adex
 use mm2_libp2p::peers_exchange::PeerAddresses;
 use mm2_libp2p::{decode_message, encode_message, DecodingError, GossipsubMessage, Libp2pPublic, Libp2pSecpPublic,
                  MessageId, NetworkPorts, PeerId, TOPIC_SEPARATOR};
-use mm2_metrics::{ClockOps, MetricsOps};
+use mm2_metrics::{mm_timing, ClockOps, MetricsOps};
 #[cfg(test)] use mocktopus::macros::*;
 use parking_lot::Mutex as PaMutex;
 use serde::de;
