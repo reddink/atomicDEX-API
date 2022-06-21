@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-#[cfg(target_arch = "wasm32")] mod wasm;
+#[cfg(target_arch = "wasm32")]
+pub use crate::wasm::{Clock, MmRecorder};
 use metrics_util::registry::{GenerationalAtomicStorage, Registry};
-#[cfg(target_arch = "wasm32")] pub use wasm::{Clock, MmRecorder};
 
 pub trait ClockOpsNew {
     fn now(&self) -> u64;
