@@ -1,10 +1,9 @@
-use crate::adapt::Inner;
+use crate::adapt::Metrics;
 use crate::adapt::MmRecorder;
+use crate::adapt::PreparedMetric;
 use crate::Weak;
-use metrics_util::registry::{GenerationalAtomicStorage, Registry};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::Mutex;
 
 #[cfg(target_arch = "wasm32")]
 pub use crate::wasm::{Clock, MmRecorder};
@@ -13,34 +12,51 @@ pub trait ClockOpsNew {
     fn now(&self) -> u64;
 }
 
-#[derive(Clone, Default)]
-pub struct MetricsArcNew(pub Arc<Mutex<MmRecorder>>);
+#[derive(Clone)]
+pub struct MetricsArc(pub(crate) Arc<Metrics>);
 
-impl MetricsArcNew {
-    /// Create new `Metrics` instance
-    pub fn new() -> MetricsArcNew {
-        MetricsArcNew(Arc::new(Mutex::new(MmRecorder {
-            inner: Arc::new(Mutex::new(Inner {
-                registry: Registry::new(GenerationalAtomicStorage::atomic()),
-            })),
-        })))
-    }
+impl Default for MetricsArc {
+    fn default() -> Self { Self::new() }
+}
 
+impl MetricsArc {
+    pub fn new() -> Self { Self::default() }
     /// Try to obtain the `Metrics` from the weak pointer.
-    pub fn from_weak(weak: &MetricsWeakNew) -> Option<MetricsArcNew> { weak.0.upgrade().map(MetricsArcNew) }
+    pub fn from_weak(weak: &MetricsWeak) -> Option<MetricsArc> { weak.0.upgrade().map(MetricsArc) }
 
-    /// Create a weak pointer from `MetricsWeakNew`.
-    pub fn weak(&self) -> MetricsWeakNew { MetricsWeakNew(Arc::downgrade(&self.0)) }
+    /// Create a weak pointer from `MetricsWeak`.
+    pub fn weak(&self) -> MetricsWeak { MetricsWeak(Arc::downgrade(&self.0)) }
+}
+
+pub trait TryRecorder {
+    fn try_recorder(&self) -> Option<Arc<MmRecorder>>;
+}
+
+impl TryRecorder for MetricsArc {
+    fn try_recorder(&self) -> Option<Arc<MmRecorder>> { Some(self.0.recorder.to_owned()) }
 }
 
 #[derive(Clone, Default)]
-pub struct MetricsWeakNew(pub Weak<Mutex<MmRecorder>>);
+pub struct MetricsWeak(pub Weak<Metrics>);
 
-impl MetricsWeakNew {
+impl MetricsWeak {
     /// Create a default MmWeak without allocating any memory.
-    pub fn new() -> MetricsWeakNew { MetricsWeakNew::default() }
+    pub fn new() -> MetricsWeak { MetricsWeak::default() }
 
     pub fn dropped(&self) -> bool { self.0.strong_count() == 0 }
+}
+
+pub trait MetricsOps {
+    /// If the instance was not initialized yet, create the `receiver` else return an error.
+    fn try_recorder(&self) -> Option<Self>
+    where
+        Self: Sized;
+
+    /// Collect the metrics as Json.
+    fn collect_json(&self) -> Result<crate::Json, String>;
+
+    // Prepare metrics json for export
+    fn prepare_tag_metrics(&self) -> Vec<PreparedMetric>;
 }
 
 #[derive(Serialize, Debug, Default, Deserialize)]
@@ -68,24 +84,4 @@ pub enum MetricType {
         #[serde(flatten)]
         quantiles: HashMap<String, u64>,
     },
-}
-
-pub trait TryRecorder {
-    fn try_recorder(&self) -> Option<MmRecorder>;
-}
-
-impl TryRecorder for MetricsArcNew {
-    fn try_recorder(&self) -> Option<MmRecorder> { Some(self.0.lock().unwrap().to_owned()) }
-}
-
-impl TryRecorder for MetricsWeakNew {
-    fn try_recorder(&self) -> Option<MmRecorder> {
-        let metrics = MetricsArcNew::from_weak(self)?;
-        let mut metrics = metrics.0.lock().unwrap();
-        let metrics = metrics.try_recorder();
-        if let Some(recorder) = metrics {
-            return Some(recorder.clone());
-        };
-        None
-    }
 }
