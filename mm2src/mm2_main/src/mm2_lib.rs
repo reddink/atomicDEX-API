@@ -3,6 +3,7 @@
 #![feature(drain_filter)]
 #![feature(hash_raw_entry)]
 #![feature(integer_atomics)]
+#![feature(map_first_last)]
 #![recursion_limit = "512"]
 #![cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 
