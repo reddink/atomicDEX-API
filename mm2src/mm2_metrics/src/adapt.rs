@@ -5,7 +5,7 @@ use std::{collections::HashMap,
 use fomat_macros::wite;
 use gstuff::ERRL;
 use itertools::Itertools;
-use metrics::{try_recorder, IntoLabels, Key, KeyName, Label, Recorder, Unit};
+use metrics::{Counter, Gauge, Histogram, IntoLabels, Key, KeyName, Label, Recorder, Unit};
 use metrics_core::ScopedString;
 use metrics_exporter_prometheus::formatting::key_to_parts;
 use metrics_util::registry::{GenerationalAtomicStorage, Registry};
@@ -13,7 +13,7 @@ use serde_json::Value;
 use std::fmt::Write;
 
 use crate::{common::log::Tag,
-            new_lib::{MetricType, MetricsArc, MetricsJson, MetricsOps, MetricsWeak, TryRecorder}};
+            new_lib::{MetricType, MetricsJson, MetricsOps}};
 
 /// Increment counter if an MmArc is not dropped yet and metrics system is initialized already.
 #[macro_export]
@@ -94,7 +94,7 @@ pub struct Snapshot {
 
 #[allow(dead_code)]
 pub struct MmRecorder {
-    pub(crate) registry: Registry<metrics::Key, GenerationalAtomicStorage>,
+    pub(crate) registry: Registry<Key, GenerationalAtomicStorage>,
 }
 
 impl Default for MmRecorder {
@@ -182,15 +182,11 @@ impl Recorder for MmRecorder {
         // mm2_metrics don't use this method
     }
 
-    fn register_counter(&self, key: &metrics::Key) -> metrics::Counter {
-        self.registry.get_or_create_counter(key, |e| e.clone().into())
-    }
+    fn register_counter(&self, key: &Key) -> Counter { self.registry.get_or_create_counter(key, |e| e.clone().into()) }
 
-    fn register_gauge(&self, key: &metrics::Key) -> metrics::Gauge {
-        self.registry.get_or_create_gauge(key, |e| e.clone().into())
-    }
+    fn register_gauge(&self, key: &Key) -> Gauge { self.registry.get_or_create_gauge(key, |e| e.clone().into()) }
 
-    fn register_histogram(&self, key: &metrics::Key) -> metrics::Histogram {
+    fn register_histogram(&self, key: &Key) -> Histogram {
         self.registry.get_or_create_histogram(key, |e| e.clone().into())
     }
 }
@@ -216,7 +212,7 @@ where
     }
 }
 
-fn labels_to_tags(labels: Iter<metrics::Label>) -> Vec<Tag> {
+fn labels_to_tags(labels: Iter<Label>) -> Vec<Tag> {
     labels
         .map(|label| Tag {
             key: label.key().to_string(),
@@ -244,15 +240,6 @@ pub struct Metrics {
 }
 
 impl MetricsOps for Metrics {
-    fn try_recorder(&self) -> Option<Self> {
-        if try_recorder().is_some() {
-            return Some(Self {
-                recorder: Arc::clone(&self.recorder),
-            });
-        };
-        None
-    }
-
     fn collect_json(&self) -> Result<Value, String> {
         let mut output = vec![];
 
@@ -293,16 +280,6 @@ impl MetricsOps for Metrics {
     }
 
     fn prepare_tag_metrics(&self) -> Vec<PreparedMetric> { self.recorder.prepare_tag_metrics() }
-}
-
-impl TryRecorder for MetricsWeak {
-    fn try_recorder(&self) -> Option<Arc<MmRecorder>> {
-        let metrics = MetricsArc::from_weak(self)?;
-        if let Some(recorder) = metrics.0.try_recorder() {
-            return Some(recorder.recorder);
-        };
-        None
-    }
 }
 
 #[derive(Debug)]
