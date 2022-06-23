@@ -49,7 +49,7 @@ pub struct BestOrdersRequestV2 {
     action: BestOrdersAction,
     request_by: RequestBestOrdersBy,
 }
-// goes deep into lp_native_dex.rs
+
 pub fn process_best_orders_p2p_request(
     ctx: MmArc,
     coin: String,
@@ -168,7 +168,10 @@ pub fn process_best_orders_p2p_request_by_number(
         };
         let mut best_orders = vec![];
         for _i in 1..=number {
-            let ordered = orders.pop_first().unwrap();
+            let ordered = match orders.pop_first() {
+                Some(ordered) => ordered,
+                None => break,
+            };
             match orderbook.order_set.get(&ordered.uuid) {
                 Some(o) => {
                     let order_w_proof = orderbook.orderbook_item_with_proof(o.clone());
