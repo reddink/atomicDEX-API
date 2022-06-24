@@ -13,6 +13,7 @@ use std::sync::{Arc, Weak};
 #[cfg(not(target_arch = "wasm32"))] pub mod adapt;
 #[cfg(not(target_arch = "wasm32"))] mod native;
 #[cfg(not(target_arch = "wasm32"))] pub mod new_lib;
+#[cfg(not(target_arch = "wasm32"))] pub mod recorder;
 #[cfg(not(target_arch = "wasm32"))] pub use metrics;
 #[cfg(not(target_arch = "wasm32"))] pub use metrics_core::labels;
 #[cfg(not(target_arch = "wasm32"))]

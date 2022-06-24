@@ -1,9 +1,10 @@
-use metrics::try_recorder;
+use common::log::LogWeak;
 
 use crate::adapt::Metrics;
-use crate::adapt::MmRecorder;
 use crate::adapt::PreparedMetric;
+use crate::recorder::MmRecorder;
 use crate::Weak;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -22,11 +23,18 @@ pub trait TryRecorder {
 pub struct MetricsArc(pub(crate) Arc<Metrics>);
 
 impl Default for MetricsArc {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self { Self(Arc::new(Metrics::default())) }
 }
 
 impl MetricsArc {
-    pub fn new() -> Self { Self(Arc::new(Metrics::default())) }
+    pub fn new() -> Self { Self::default() }
+
+    pub fn init_with_dashboard(&self, log_state: LogWeak) -> Result<(), String> {
+        let recorder = Self::new();
+        recorder.0.init_with_dashboard(log_state).unwrap();
+        Ok(())
+    }
+
     /// Try to obtain the `Metrics` from the weak pointer.
     pub fn from_weak(weak: &MetricsWeak) -> Option<MetricsArc> { weak.0.upgrade().map(MetricsArc) }
 
@@ -35,13 +43,13 @@ impl MetricsArc {
 }
 
 impl TryRecorder for MetricsArc {
-    fn try_recorder(&self) -> Option<Arc<MmRecorder>> {
-        let recorder = Some(self.0.recorder.to_owned());
-        if try_recorder().is_some() {
-            return recorder;
-        };
-        None
-    }
+    fn try_recorder(&self) -> Option<Arc<MmRecorder>> { Some(self.0.recorder.to_owned()) }
+}
+
+impl MetricsOps for MetricsArc {
+    fn collect_json(&self) -> Result<crate::Json, String> { self.0.collect_json() }
+
+    fn collect_tag_metrics(&self) -> Vec<PreparedMetric> { self.0.collect_tag_metrics() }
 }
 
 #[derive(Clone, Default)]
@@ -68,8 +76,8 @@ pub trait MetricsOps {
     /// Collect the metrics as Json.
     fn collect_json(&self) -> Result<crate::Json, String>;
 
-    // Prepare metrics json for export
-    fn prepare_tag_metrics(&self) -> Vec<PreparedMetric>;
+    /// Prepare metrics json for export
+    fn collect_tag_metrics(&self) -> Vec<PreparedMetric>;
 }
 
 #[derive(Serialize, Debug, Default, Deserialize)]
@@ -83,17 +91,17 @@ pub struct MetricsJson {
 pub enum MetricType {
     Counter {
         key: String,
-        labels: Vec<String>,
+        labels: HashMap<String, String>,
         value: u64,
     },
     Gauge {
         key: String,
-        labels: Vec<String>,
+        labels: HashMap<String, String>,
         value: i64,
     },
     Histogram {
         key: String,
-        labels: Vec<String>,
+        labels: HashMap<String, String>,
         #[serde(flatten)]
         quantiles: HashMap<String, u64>,
     },
