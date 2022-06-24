@@ -159,7 +159,7 @@ pub fn process_best_orders_p2p_request_by_number(
     let mut conf_infos = HashMap::new();
 
     for pair in pairs {
-        let mut orders = match orderbook.ordered.get(&pair) {
+        let orders = match orderbook.ordered.get(&pair) {
             Some(orders) => orders.clone(),
             None => {
                 log::debug!("No orders for pair {:?}", pair);
@@ -167,11 +167,8 @@ pub fn process_best_orders_p2p_request_by_number(
             },
         };
         let mut best_orders = vec![];
-        for _i in 1..=number {
-            let ordered = match orders.pop_first() {
-                Some(ordered) => ordered,
-                None => break,
-            };
+        let orders = orders.iter().take(number);
+        for ordered in orders {
             match orderbook.order_set.get(&ordered.uuid) {
                 Some(o) => {
                     let order_w_proof = orderbook.orderbook_item_with_proof(o.clone());
