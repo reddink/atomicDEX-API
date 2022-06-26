@@ -52,14 +52,27 @@ impl ClockOps for Clock {
 }
 
 #[derive(Default)]
-pub struct Metrics {}
+pub struct MmRecorder {}
+
+pub trait TryRecorder {
+    fn try_recorder(&self) -> Option<Arc<MmRecorder>>;
+}
+
+#[derive(Default)]
+pub struct Metrics {
+    pub recorder: Arc<MmRecorder>,
+}
 
 impl MetricsOps for Metrics {
     fn init(&self) -> Result<(), String> { Ok(()) }
 
     fn init_with_dashboard(&self, _log_state: LogWeak, _record_interval: f64) -> Result<(), String> { Ok(()) }
 
-    fn clock(&self) -> Result<Clock, String> { Ok(Clock::default()) }
+    // fn clock(&self) -> Result<Clock, String> { Ok(Clock::default()) }
 
     fn collect_json(&self) -> Result<Json, String> { Ok(Json::Array(Vec::new())) }
+}
+
+impl TryRecorder for Metrics {
+    fn try_recorder(&self) -> Option<Arc<MmRecorder>> { None }
 }

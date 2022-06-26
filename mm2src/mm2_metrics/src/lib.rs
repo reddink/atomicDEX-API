@@ -6,64 +6,74 @@ extern crate gstuff;
 #[macro_use]
 extern crate common;
 
-use serde_json::{Value as Json, Value};
+use serde_json::Value as Json;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
-#[cfg(not(target_arch = "wasm32"))] pub mod adapt;
-#[cfg(not(target_arch = "wasm32"))] mod native;
-#[cfg(not(target_arch = "wasm32"))] pub mod new_lib;
 #[cfg(not(target_arch = "wasm32"))] pub mod recorder;
 #[cfg(not(target_arch = "wasm32"))] pub use metrics;
 #[cfg(not(target_arch = "wasm32"))] pub use metrics_core::labels;
+#[cfg(not(target_arch = "wasm32"))] pub use recorder::MmRecorder;
+#[cfg(not(target_arch = "wasm32"))] pub mod native;
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{prometheus, Clock, Metrics, TrySink};
+pub use native::{prometheus, Clock, Metrics, TagMetric};
 
 #[cfg(target_arch = "wasm32")] mod wasm;
-#[cfg(target_arch = "wasm32")] pub use wasm::{Clock, Metrics};
+#[cfg(target_arch = "wasm32")]
+pub use wasm::{Clock, Metrics, MmRecorder};
 
 pub trait MetricsOps {
-    /// If the instance was not initialized yet, create the `receiver` else return an error.
-    fn init(&self) -> Result<(), String>;
+    fn init(&self) -> Result<(), String>
+    where
+        Self: Sized;
 
-    /// Create new Metrics instance and spawn the metrics recording into the log, else return an error.
-    fn init_with_dashboard(&self, log_state: common::log::LogWeak, record_interval: f64) -> Result<(), String>;
-
-    /// Handle for sending metric samples.
-    fn clock(&self) -> Result<Clock, String>;
+    fn init_with_dashboard(&self, log_state: common::log::LogWeak, interval: f64) -> Result<(), String>;
 
     /// Collect the metrics as Json.
-    fn collect_json(&self) -> Result<Json, String>;
+    fn collect_json(&self) -> Result<crate::Json, String>;
 }
 
 pub trait ClockOps {
     fn now(&self) -> u64;
 }
 
-#[derive(Clone, Default)]
-pub struct MetricsArc(pub Arc<Metrics>);
+pub trait TryRecorder {
+    fn try_recorder(&self) -> Option<Arc<MmRecorder>>;
+}
 
-impl MetricsOps for MetricsArc {
-    fn init(&self) -> Result<(), String> { self.0.init() }
+#[derive(Clone)]
+pub struct MetricsArc(pub(crate) Arc<Metrics>);
 
-    fn init_with_dashboard(&self, log_state: common::log::LogWeak, record_interval: f64) -> Result<(), String> {
-        self.0.init_with_dashboard(log_state, record_interval)
-    }
-
-    fn clock(&self) -> Result<Clock, String> { self.0.clock() }
-
-    fn collect_json(&self) -> Result<Value, String> { self.0.collect_json() }
+impl Default for MetricsArc {
+    fn default() -> Self { Self(Arc::new(Metrics::default())) }
 }
 
 impl MetricsArc {
-    /// Create new `Metrics` instance
-    pub fn new() -> MetricsArc { MetricsArc(Arc::new(Default::default())) }
+    pub fn new() -> Self { Self(Default::default()) }
 
     /// Try to obtain the `Metrics` from the weak pointer.
     pub fn from_weak(weak: &MetricsWeak) -> Option<MetricsArc> { weak.0.upgrade().map(MetricsArc) }
 
     /// Create a weak pointer from `MetricsWeak`.
     pub fn weak(&self) -> MetricsWeak { MetricsWeak(Arc::downgrade(&self.0)) }
+}
+
+impl TryRecorder for MetricsArc {
+    fn try_recorder(&self) -> Option<Arc<MmRecorder>> { Some(self.0.recorder.to_owned()) }
+}
+
+impl MetricsOps for MetricsArc {
+    fn init(&self) -> Result<(), String> {
+        self.0.init().unwrap();
+        Ok(())
+    }
+
+    fn init_with_dashboard(&self, log_state: common::log::LogWeak, interval: f64) -> Result<(), String> {
+        self.0.init_with_dashboard(log_state, interval).unwrap();
+        Ok(())
+    }
+
+    fn collect_json(&self) -> Result<crate::Json, String> { self.0.collect_json() }
 }
 
 #[derive(Clone, Default)]
@@ -74,6 +84,16 @@ impl MetricsWeak {
     pub fn new() -> MetricsWeak { MetricsWeak::default() }
 
     pub fn dropped(&self) -> bool { self.0.strong_count() == 0 }
+}
+
+impl TryRecorder for MetricsWeak {
+    fn try_recorder(&self) -> Option<Arc<MmRecorder>> {
+        let metrics = MetricsArc::from_weak(self)?;
+        if let Some(recorder) = metrics.try_recorder() {
+            return Some(recorder);
+        };
+        None
+    }
 }
 
 #[derive(Serialize, Debug, Default, Deserialize)]

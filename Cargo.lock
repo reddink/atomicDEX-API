@@ -268,15 +268,6 @@ dependencies = [
 
 [[package]]
 name = "atomic-shim"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d20fdac7156779a1a30d970e838195558b4810dd06aa69e7c7461bdc518edf9b"
-dependencies = [
- "crossbeam",
-]
-
-[[package]]
-name = "atomic-shim"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67cd4b51d303cf3501c301e8125df442128d3c6d7c69f71b27833d253de47e77"
@@ -553,15 +544,6 @@ name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
-
-[[package]]
-name = "bitmaps"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "031043d04099746d8db04daf1fa424b2bc8bd69d92b25962dcde24da39ab64a2"
-dependencies = [
- "typenum",
-]
 
 [[package]]
 name = "bitvec"
@@ -1079,7 +1061,7 @@ dependencies = [
  "lightning-invoice",
  "lightning-net-tokio",
  "lightning-persister",
- "metrics 0.19.0",
+ "metrics",
  "mm2_core",
  "mm2_db",
  "mm2_err_handle",
@@ -2733,16 +2715,6 @@ dependencies = [
 
 [[package]]
 name = "hdrhistogram"
-version = "6.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08d331ebcdbca4acbefe5da8c3299b2e246f198a8294cc5163354e743398b89d"
-dependencies = [
- "byteorder 1.4.3",
- "num-traits",
-]
-
-[[package]]
-name = "hdrhistogram"
 version = "7.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3c22708574c44e924720c5b3a116326c688e6d532f438c77c007ec8768644f9"
@@ -3052,20 +3024,6 @@ checksum = "cbc0fa01ffc752e9dbc72818cdb072cd028b86be5e09dd04c5a643704fe101a9"
 dependencies = [
  "libc",
  "winapi",
-]
-
-[[package]]
-name = "im"
-version = "15.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0acd33ff0285af998aaf9b57342af478078f53492322fafc47450e09397e0e9"
-dependencies = [
- "bitmaps",
- "rand_core 0.6.3",
- "rand_xoshiro",
- "sized-chunks",
- "typenum",
- "version_check",
 ]
 
 [[package]]
@@ -3999,15 +3957,6 @@ dependencies = [
 
 [[package]]
 name = "metrics"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51b70227ece8711a1aa2f99655efd795d0cff297a5b9fe39645a93aacf6ad39d"
-dependencies = [
- "metrics-core",
-]
-
-[[package]]
-name = "metrics"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "142c53885123b68d94108295a09d4afe1a1388ed95b54d5dacd9a454753030f2"
@@ -4031,10 +3980,10 @@ dependencies = [
  "hyper",
  "indexmap",
  "ipnet",
- "metrics 0.19.0",
- "metrics-util 0.13.0",
+ "metrics",
+ "metrics-util",
  "parking_lot 0.11.1",
- "quanta 0.9.3",
+ "quanta",
  "thiserror",
  "tokio",
  "tracing",
@@ -4052,61 +4001,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "metrics-observer-prometheus"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bfe24ad8285ef8b239232135a65f89cc5fa4690bbfaf8907f4bef38f8b08eba"
-dependencies = [
- "hdrhistogram 6.3.4",
- "metrics-core",
- "metrics-util 0.3.2",
-]
-
-[[package]]
-name = "metrics-runtime"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce0e4f69639ccc0c6b2f0612164f9817349eb25545ed1ffb5ef3e1e1c1d220b4"
-dependencies = [
- "arc-swap",
- "atomic-shim 0.1.0",
- "crossbeam-utils 0.7.2",
- "im",
- "metrics 0.12.1",
- "metrics-core",
- "metrics-observer-prometheus",
- "metrics-util 0.3.2",
- "parking_lot 0.10.2",
- "quanta 0.3.2",
-]
-
-[[package]]
-name = "metrics-util"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "277619f040719a5a23d75724586d5601286e8fa53451cfaaca3b8c627c2c2378"
-dependencies = [
- "crossbeam-epoch 0.8.2",
- "serde",
-]
-
-[[package]]
 name = "metrics-util"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd1f4b69bef1e2b392b2d4a12902f2af90bb438ba4a66aa222d1023fa6561b50"
 dependencies = [
  "aho-corasick",
- "atomic-shim 0.2.0",
+ "atomic-shim",
  "crossbeam-epoch 0.9.5",
  "crossbeam-utils 0.8.8",
  "hashbrown 0.11.2",
  "indexmap",
- "metrics 0.19.0",
+ "metrics",
  "num_cpus",
  "ordered-float",
  "parking_lot 0.11.1",
- "quanta 0.9.3",
+ "quanta",
  "radix_trie",
  "sketches-ddsketch",
 ]
@@ -4330,7 +4240,6 @@ dependencies = [
  "keys",
  "lazy_static",
  "libc",
- "metrics 0.19.0",
  "mm2-libp2p",
  "mm2_core",
  "mm2_db",
@@ -4391,16 +4300,15 @@ dependencies = [
  "futures-cpupool",
  "getrandom 0.2.6",
  "gstuff",
- "hdrhistogram 7.1.0",
+ "hdrhistogram",
  "hyper",
  "hyper-rustls",
  "itertools",
  "js-sys",
- "metrics 0.19.0",
+ "metrics",
  "metrics-core",
  "metrics-exporter-prometheus",
- "metrics-runtime",
- "metrics-util 0.13.0",
+ "metrics-util",
  "rand 0.7.3",
  "serde",
  "serde-wasm-bindgen",
@@ -4907,16 +4815,6 @@ dependencies = [
 
 [[package]]
 name = "parking_lot"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3a704eb390aafdc107b0e392f56a82b668e3a71366993b5340f5833fd62505e"
-dependencies = [
- "lock_api 0.3.4",
- "parking_lot_core 0.7.2",
-]
-
-[[package]]
-name = "parking_lot"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d7744ac029df22dca6284efe4e898991d28e3085c706c972bcd7da4a27a15eb"
@@ -4961,20 +4859,6 @@ dependencies = [
  "redox_syscall 0.1.56",
  "rustc_version 0.2.3",
  "smallvec 0.6.14",
- "winapi",
-]
-
-[[package]]
-name = "parking_lot_core"
-version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d58c7c768d4ba344e3e8d72518ac13e259d7c7ade24167003b8488e10b6740a3"
-dependencies = [
- "cfg-if 0.1.10",
- "cloudabi 0.0.3",
- "libc",
- "redox_syscall 0.1.56",
- "smallvec 1.6.1",
  "winapi",
 ]
 
@@ -5359,18 +5243,6 @@ dependencies = [
 
 [[package]]
 name = "quanta"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21484fda3d8ad7affee37755c77a5d0da527543f0af0c7f731c14e2215645d39"
-dependencies = [
- "atomic-shim 0.1.0",
- "ctor",
- "libc",
- "winapi",
-]
-
-[[package]]
-name = "quanta"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20afe714292d5e879d8b12740aa223c6a88f118af41870e8b6196e39a02238a8"
@@ -5684,15 +5556,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbf7e9e623549b0e21f6e97cf8ecf247c1a8fd2e8a992ae265314300b2455d5c"
 dependencies = [
  "rand_core 0.3.1",
-]
-
-[[package]]
-name = "rand_xoshiro"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f97cdb2a36ed4183de61b2f824cc45c9f1037f28afe0a322e9fff4c108b5aaa"
-dependencies = [
- "rand_core 0.6.3",
 ]
 
 [[package]]
@@ -6539,16 +6402,6 @@ name = "siphasher"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "833011ca526bd88f16778d32c699d325a9ad302fa06381cd66f7be63351d3f6d"
-
-[[package]]
-name = "sized-chunks"
-version = "0.6.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16d69225bde7a69b235da73377861095455d298f2b970996eec25ddbb42b3d1e"
-dependencies = [
- "bitmaps",
- "typenum",
-]
 
 [[package]]
 name = "sketches-ddsketch"

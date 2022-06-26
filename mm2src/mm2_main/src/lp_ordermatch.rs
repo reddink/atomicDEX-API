@@ -2361,13 +2361,13 @@ fn collect_orderbook_metrics(ctx: &MmArc, orderbook: &Orderbook) {
     }
 
     let memory_db_size = malloc_size(&orderbook.memory_db);
-    mm_gauge!(ctx.metrics, "orderbook.len", orderbook.order_set.len() as i64);
-    mm_gauge!(ctx.metrics, "orderbook.memory_db", memory_db_size as i64);
+    mm_gauge!(ctx.metrics, "orderbook.len", orderbook.order_set.len() as f64);
+    mm_gauge!(ctx.metrics, "orderbook.memory_db", memory_db_size as f64);
 
     // TODO remove metrics below after testing
     for (pubkey, pubkey_state) in orderbook.pubkeys_state.iter() {
-        mm_gauge!(ctx.metrics, "orders_uuids", pubkey_state.orders_uuids.len() as i64, "pubkey" => pubkey.clone());
-        mm_gauge!(ctx.metrics, "history.commited_changes", history_committed_changes(&pubkey_state.order_pairs_trie_state_history), "pubkey" => pubkey.clone());
+        mm_gauge!(ctx.metrics, "orders_uuids", pubkey_state.orders_uuids.len() as f64, "pubkey" => pubkey.clone());
+        mm_gauge!(ctx.metrics, "history.commited_changes", history_committed_changes(&pubkey_state.order_pairs_trie_state_history) as f64, "pubkey" => pubkey.clone());
     }
 }
 

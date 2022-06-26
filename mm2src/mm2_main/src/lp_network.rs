@@ -31,7 +31,7 @@ use mm2_libp2p::atomicdex_behaviour::{AdexBehaviourCmd, AdexBehaviourEvent, Adex
 use mm2_libp2p::peers_exchange::PeerAddresses;
 use mm2_libp2p::{decode_message, encode_message, DecodingError, GossipsubMessage, Libp2pPublic, Libp2pSecpPublic,
                  MessageId, NetworkPorts, PeerId, TOPIC_SEPARATOR};
-use mm2_metrics::{mm_timing, ClockOps, MetricsOps};
+// use mm2_metrics::{mm_timing, ClockOps, MetricsOps};
 #[cfg(test)] use mocktopus::macros::*;
 use parking_lot::Mutex as PaMutex;
 use serde::de;
@@ -326,11 +326,11 @@ pub async fn request_one_peer<T: de::DeserializeOwned>(
     req: P2PRequest,
     peer: String,
 ) -> P2PRequestResult<Option<T>> {
-    let clock = ctx.metrics.clock().expect("Metrics clock is not available");
-    let start = clock.now();
+    // let clock = ctx.metrics.clock().expect("Metrics clock is not available");
+    // let start = clock.now();
     let mut responses = request_peers::<T>(ctx.clone(), req, vec![peer.clone()]).await?;
-    let end = clock.now();
-    mm_timing!(ctx.metrics, "peer.outgoing_request.timing", start, end, "peer" => peer);
+    // let end = clock.now();
+    // mm_timing!(ctx.metrics, "peer.outgoing_request.timing", start, end, "peer" => peer);
     if responses.len() != 1 {
         return MmError::err(P2PRequestError::ExpectedSingleResponseError(responses.len()));
     }

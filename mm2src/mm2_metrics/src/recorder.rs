@@ -1,7 +1,7 @@
 use std::{collections::HashMap, slice::Iter, sync::atomic::Ordering};
 
-use crate::{adapt::{Integer, MetricNameValueMap, PreparedMetric},
-            new_lib::{MetricType, MetricsJson}};
+use crate::{native::{Integer, MetricNameValueMap, TagMetric},
+            MetricType, MetricsJson};
 use common::log::Tag;
 use fomat_macros::wite;
 use itertools::Itertools;
@@ -36,12 +36,11 @@ impl MmRecorder {
             .get_counter_handles()
             .into_iter()
             .map(|(key, counter)| {
-                counter.get_generation();
-                let value = counter.get_inner().load(Ordering::Acquire); // This is a specific part for counter/gauge and histogram.
+                let value = counter.get_inner().load(Ordering::Acquire);
                 let inner = key_value_to_snapshot_entry(key.clone(), value);
-                (key.to_string(), inner)
+                (key.into_parts().0.as_str().to_string(), inner)
             })
-            .collect::<HashMap<String, HashMap<_, _>>>();
+            .collect::<HashMap<_, _>>();
 
         let gauges = self
             .registry
@@ -49,11 +48,11 @@ impl MmRecorder {
             .into_iter()
             .map(|(key, gauge)| {
                 gauge.get_generation();
-                let value = gauge.get_inner().load(Ordering::Acquire); // This is a specific part for counter/gauge and histogram.
+                let value = gauge.get_inner().load(Ordering::Acquire);
                 let inner = key_value_to_snapshot_entry(key.clone(), value);
-                (key.to_string(), inner)
+                (key.into_parts().0.as_str().to_string(), inner)
             })
-            .collect::<HashMap<String, HashMap<_, _>>>();
+            .collect::<HashMap<_, _>>();
 
         let histograms = self
             .registry
@@ -61,11 +60,11 @@ impl MmRecorder {
             .into_iter()
             .map(|(key, histogram)| {
                 histogram.get_generation();
-                let value: f64 = histogram.get_inner().data().iter().sum(); // This is a specific part for counter/gauge and histogram.
+                let value: f64 = histogram.get_inner().data().iter().sum();
                 let inner = key_value_to_snapshot_entry(key.clone(), value);
-                (key.to_string(), inner)
+                (key.into_parts().0.as_str().to_string(), inner)
             })
-            .collect::<HashMap<String, HashMap<_, _>>>();
+            .collect::<HashMap<_, _>>();
 
         Snapshot {
             counters,
@@ -74,21 +73,26 @@ impl MmRecorder {
         }
     }
 
-    pub fn prepare_tag_metrics(&self) -> Vec<PreparedMetric> {
-        let mut output: Vec<PreparedMetric> = vec![];
+    pub fn collect_tag_metrics(&self) -> Vec<TagMetric> {
+        let Snapshot {
+            counters,
+            gauges,
+            histograms,
+        } = self.get_metrics();
+        let mut output: Vec<TagMetric> = vec![];
 
-        for (key, counter) in self.registry.get_counter_handles() {
-            let value = counter.get_inner().load(Ordering::Acquire);
-            output.push(map_metric_to_prepare_metric(key, value));
+        for (key, counter) in counters {
+            let value = counter.into_values().collect::<Vec<_>>();
+            output.push(map_metric_to_prepare_metric(key, value[0]));
         }
 
-        for (key, gauge) in self.registry.get_gauge_handles() {
-            let value = gauge.get_inner().load(Ordering::Acquire);
-            output.push(map_metric_to_prepare_metric(key, value));
+        for (key, gauge) in gauges {
+            let value = gauge.into_values().collect::<Vec<_>>();
+            output.push(map_metric_to_prepare_metric(key, value[0]));
         }
 
-        for (key, histogram) in self.registry.get_histogram_handles() {
-            let value: f64 = histogram.get_inner().data().iter().sum();
+        for (key, histogram) in histograms {
+            let value: f64 = histogram.into_values().collect::<Vec<_>>().iter().sum();
             output.push(map_metric_to_prepare_metric(key, value as u64));
         }
 
@@ -107,17 +111,17 @@ impl MmRecorder {
         for counters in counters {
             for (labels, value) in counters.1.iter() {
                 output.push(MetricType::Counter {
-                    key: counters.0.clone(),
+                    key: counters.clone().0,
                     labels: labels_into_parts(labels.clone().iter()),
                     value: *value,
                 });
             }
         }
 
-        for gauges in gauges {
-            for (labels, value) in gauges.1.iter() {
+        for gauge in gauges {
+            for (labels, value) in gauge.1.iter() {
                 output.push(MetricType::Gauge {
-                    key: gauges.0.clone(),
+                    key: gauge.clone().0,
                     labels: labels_into_parts(labels.clone().iter()),
                     value: *value as i64,
                 });
@@ -127,9 +131,9 @@ impl MmRecorder {
         for histograms in histograms {
             for (labels, value) in histograms.1.iter() {
                 let mut qauntiles_value = HashMap::new();
-                qauntiles_value.insert(histograms.0.clone(), *value as u64);
+                qauntiles_value.insert(histograms.clone().0, *value as u64);
                 output.push(MetricType::Histogram {
-                    key: histograms.0.clone(),
+                    key: histograms.clone().0,
                     labels: labels_into_parts(labels.clone().iter()),
                     quantiles: qauntiles_value,
                 });
@@ -169,24 +173,26 @@ fn key_value_to_snapshot_entry<T: Clone>(key: Key, value: T) -> HashMap<Vec<Labe
     entry
 }
 
-fn map_metric_to_prepare_metric<T: Clone>(key: Key, value: T) -> PreparedMetric
+fn map_metric_to_prepare_metric<T: Clone>(key: String, value: T) -> TagMetric
 where
     u64: From<T>,
 {
+    let key = Key::from_name(key);
     let (name, _labels) = key_to_parts(&key, None);
     let mut name_value_map = HashMap::new();
 
     name_value_map.insert(ScopedString::Owned(name), Integer::Unsigned(u64::from(value)));
-    PreparedMetric {
+    TagMetric {
         tags: labels_to_tags(key.labels()),
         message: name_value_map_to_message(&name_value_map),
     }
 }
 
 fn labels_to_tags(labels: Iter<Label>) -> Vec<Tag> {
+    // let key_name = label.into_parts().clone().0;
     labels
         .map(|label| Tag {
-            key: label.key().to_string(),
+            key: label.clone().into_parts().0.to_string(),
             val: Some(label.value().to_string()),
         })
         .collect()
