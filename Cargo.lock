@@ -2714,17 +2714,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hdrhistogram"
-version = "7.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3c22708574c44e924720c5b3a116326c688e6d532f438c77c007ec8768644f9"
-dependencies = [
- "byteorder 1.4.3",
- "crossbeam-channel 0.4.4",
- "num-traits",
-]
-
-[[package]]
 name = "heck"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4300,7 +4289,6 @@ dependencies = [
  "futures-cpupool",
  "getrandom 0.2.6",
  "gstuff",
- "hdrhistogram",
  "hyper",
  "hyper-rustls",
  "itertools",
