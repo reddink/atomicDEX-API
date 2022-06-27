@@ -37,13 +37,13 @@ struct BestOrdersP2PRes {
     conf_infos: HashMap<Uuid, OrderConfirmationsSettings>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum RequestBestOrdersBy {
     Volume(MmNumber),
     Number(usize),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BestOrdersRequestV2 {
     coin: String,
     action: BestOrdersAction,

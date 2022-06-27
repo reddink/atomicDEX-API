@@ -33,11 +33,13 @@ fn test_best_orders() {
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
-    log!({"Bob log path: {}", mm_bob.log_path.display()});
+    let log = format!("Bob log path: {}", mm_bob.log_path.display());
+    log!([log]);
 
     // Enable coins on Bob side. Print the replies in case we need the "address".
     let bob_coins = block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]));
-    log!({ "enable_coins (bob): {:?}", bob_coins });
+    let log = format!("enable_coins (bob): {:?}", bob_coins);
+    log!([log]);
     // issue sell request on Bob side by setting base/rel price
     log!("Issue bob sell requests");
 
@@ -85,7 +87,7 @@ fn test_best_orders() {
     .unwrap();
 
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
-    log!({ "Alice log path: {}", mm_alice.log_path.display() });
+    log!(["Alice log path: {}", mm_alice.log_path.display()]);
 
     block_on(mm_bob.wait_for_log(22., |log| {
         log.contains("DEBUG Handling IncludedTorelaysMesh message for peer")
@@ -176,7 +178,7 @@ fn test_best_orders() {
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn test_best_orders_v2_by_number() {
-    let bob_passphrase = get_passphrase(&".env.seed", "BOB_PASSPHRASE").unwrap();
+    let bob_passphrase = "also shoot benefit prefer juice shell elder veteran woman mimic image kidney".to_owned();
 
     let coins = json!([
         {"coin":"RICK","asset":"RICK","rpcport":8923,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"}},
@@ -203,11 +205,11 @@ fn test_best_orders_v2_by_number() {
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
-    log!({"Bob log path: {}", mm_bob.log_path.display()});
+    log!(["Bob log path: ", mm_bob.log_path.display()]);
 
     // Enable coins on Bob side. Print the replies in case we need the "address".
     let bob_coins = block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]));
-    log!({ "enable_coins (bob): {:?}", bob_coins });
+    log!(["enable_coins (bob): {}", bob_coins]);
     // issue sell request on Bob side by setting base/rel price
     log!("Issue bob sell requests");
 
@@ -254,7 +256,7 @@ fn test_best_orders_v2_by_number() {
     .unwrap();
 
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
-    log!({ "Alice log path: {}", mm_alice.log_path.display() });
+    log!(["Alice log path: {}", mm_alice.log_path.display()]);
 
     block_on(mm_bob.wait_for_log(22., |log| {
         log.contains("DEBUG Handling IncludedTorelaysMesh message for peer")
@@ -275,10 +277,10 @@ fn test_best_orders_v2_by_number() {
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!best_orders: {}", rc.1);
-    log!("rc "[rc]);
+    log!(["rc: {}", rc]);
     let response: RpcV2Response<BestOrdersV2Response> = json::from_str(&rc.1).unwrap();
     let best_morty_orders = response.result.orders.get("MORTY").unwrap();
-    log!("Best MORTY orders when buy RICK "[best_morty_orders]);
+    log!(["Best MORTY orders when buy RICK: {}", best_morty_orders]);
     assert_eq!(1, best_morty_orders.len());
     let expected_price: BigDecimal = "0.7".parse().unwrap();
     assert_eq!(expected_price, best_morty_orders[0].price.decimal);
@@ -297,10 +299,10 @@ fn test_best_orders_v2_by_number() {
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!best_orders: {}", rc.1);
-    log!("rc "[rc]);
+    log!(["rc: {}", rc]);
     let response: RpcV2Response<BestOrdersV2Response> = json::from_str(&rc.1).unwrap();
     let best_morty_orders = response.result.orders.get("MORTY").unwrap();
-    log!("Best MORTY orders when buy RICK "[best_morty_orders]);
+    log!(["Best MORTY orders when buy RICK: {}", best_morty_orders]);
     assert_eq!(2, best_morty_orders.len());
     let expected_price: BigDecimal = "0.7".parse().unwrap();
     assert_eq!(expected_price, best_morty_orders[0].price.decimal);
@@ -321,15 +323,15 @@ fn test_best_orders_v2_by_number() {
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!best_orders: {}", rc.1);
-    log!("rc "[rc]);
+    log!(["rc: {}", rc]);
     let response: RpcV2Response<BestOrdersV2Response> = json::from_str(&rc.1).unwrap();
     let expected_price: BigDecimal = "1.25".parse().unwrap();
     let best_morty_orders = response.result.orders.get("MORTY").unwrap();
-    log!("Best MORTY orders when sell RICK "[best_morty_orders]);
+    log!(["Best MORTY orders when sell RICK: {}", best_morty_orders]);
     assert_eq!(1, best_morty_orders.len());
     assert_eq!(expected_price, best_morty_orders[0].price.decimal);
     let best_eth_orders = response.result.orders.get("ETH").unwrap();
-    log!("Best ETH orders when sell RICK "[best_eth_orders]);
+    log!(["Best ETH orders when sell RICK: {}", best_eth_orders]);
     assert_eq!(1, best_eth_orders.len());
     assert_eq!(expected_price, best_eth_orders[0].price.decimal);
 
@@ -347,10 +349,10 @@ fn test_best_orders_v2_by_number() {
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!best_orders: {}", rc.1);
-    log!("rc "[rc]);
+    log!(["rc: {}", rc]);
     let response: RpcV2Response<BestOrdersV2Response> = json::from_str(&rc.1).unwrap();
     let best_rick_orders = response.result.orders.get("RICK").unwrap();
-    log!("Best RICK orders when sell ETH"[best_rick_orders]);
+    log!(["Best RICK orders when sell ETH: {}", best_rick_orders]);
     assert_eq!(1, best_rick_orders.len());
     let expected_price: BigDecimal = "1.25".parse().unwrap();
     assert_eq!(expected_price, best_rick_orders[0].price.decimal);
@@ -389,11 +391,11 @@ fn test_best_orders_v2_by_volume() {
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
-    log!({"Bob log path: {}", mm_bob.log_path.display()});
+    log!(["Bob log path: {}", mm_bob.log_path.display()]);
 
     // Enable coins on Bob side. Print the replies in case we need the "address".
     let bob_coins = block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]));
-    log!({ "enable_coins (bob): {:?}", bob_coins });
+    log!(["enable_coins (bob): {}", bob_coins]);
     // issue sell request on Bob side by setting base/rel price
     log!("Issue bob sell requests");
 
@@ -440,7 +442,7 @@ fn test_best_orders_v2_by_volume() {
     .unwrap();
 
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
-    log!({ "Alice log path: {}", mm_alice.log_path.display() });
+    log!(["Alice log path: {}", mm_alice.log_path.display()]);
 
     block_on(mm_bob.wait_for_log(22., |log| {
         log.contains("DEBUG Handling IncludedTorelaysMesh message for peer")
@@ -461,11 +463,11 @@ fn test_best_orders_v2_by_volume() {
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!best_orders: {}", rc.1);
-    log!("rc "[rc]);
+    log!(["rc: {}", rc]);
     let response: RpcV2Response<BestOrdersV2Response> = json::from_str(&rc.1).unwrap();
     // MORTY
     let best_morty_orders = response.result.orders.get("MORTY").unwrap();
-    log!("Best MORTY orders when buy RICK "[best_morty_orders]);
+    log!(["Best MORTY orders when buy RICK: {}", best_morty_orders]);
     let expected_price: BigDecimal = "0.7".parse().unwrap();
     assert_eq!(expected_price, best_morty_orders[0].price.decimal);
     let expected_price: BigDecimal = "0.8".parse().unwrap();
@@ -473,7 +475,7 @@ fn test_best_orders_v2_by_volume() {
     // ETH
     let expected_price: BigDecimal = "0.8".parse().unwrap();
     let best_eth_orders = response.result.orders.get("ETH").unwrap();
-    log!("Best ETH orders when buy RICK "[best_eth_orders]);
+    log!(["Best ETH orders when buy RICK: {}", best_eth_orders]);
     assert_eq!(expected_price, best_eth_orders[0].price.decimal);
 
     let rc = block_on(mm_alice.rpc(&json! ({
@@ -490,15 +492,15 @@ fn test_best_orders_v2_by_volume() {
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!best_orders: {}", rc.1);
-    log!("rc "[rc]);
+    log!(["rc: {}", rc]);
     let response: RpcV2Response<BestOrdersV2Response> = json::from_str(&rc.1).unwrap();
     let expected_price: BigDecimal = "1.25".parse().unwrap();
     let best_morty_orders = response.result.orders.get("MORTY").unwrap();
-    log!("Best MORTY orders when sell RICK "[best_morty_orders]);
+    log!(["Best MORTY orders when sell RICK: {}", best_morty_orders]);
     assert_eq!(expected_price, best_morty_orders[0].price.decimal);
     assert_eq!(1, best_morty_orders.len());
     let best_eth_orders = response.result.orders.get("ETH").unwrap();
-    log!("Best ETH orders when sell RICK "[best_morty_orders]);
+    log!(["Best ETH orders when sell RICK; {}", best_morty_orders]);
     assert_eq!(expected_price, best_eth_orders[0].price.decimal);
 
     let rc = block_on(mm_alice.rpc(&json! ({
@@ -515,11 +517,11 @@ fn test_best_orders_v2_by_volume() {
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!best_orders: {}", rc.1);
-    log!("rc "[rc]);
+    log!(["rc: {}", rc]);
     let response: RpcV2Response<BestOrdersV2Response> = json::from_str(&rc.1).unwrap();
     let expected_price: BigDecimal = "1.25".parse().unwrap();
     let best_morty_orders = response.result.orders.get("MORTY").unwrap();
-    log!("Best MORTY orders when sell ETH "[best_morty_orders]);
+    log!(["Best MORTY orders when sell ETH: {}", best_morty_orders]);
     assert_eq!(expected_price, best_morty_orders[0].price.decimal);
     assert_eq!("MORTY", best_morty_orders[0].coin);
     assert_eq!(1, best_morty_orders.len());
@@ -574,11 +576,11 @@ fn test_best_orders_duplicates_after_update() {
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
-    log!({"Bob log path: {}", mm_bob.log_path.display()});
+    log!(["Bob log path: {}", mm_bob.log_path.display()]);
 
     // Enable coins on Eve side. Print the replies in case we need the "address".
     let eve_coins = block_on(enable_coins_rick_morty_electrum(&mm_eve));
-    log!({ "enable_coins (eve): {:?}", eve_coins });
+    log!(["enable_coins (eve): {}", eve_coins]);
     // issue sell request on Eve side by setting base/rel price
     log!("Issue eve sell request");
 
@@ -611,7 +613,7 @@ fn test_best_orders_duplicates_after_update() {
     .unwrap();
 
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
-    log!({ "Alice log path: {}", mm_alice.log_path.display() });
+    log!(["Alice log path: {}", mm_alice.log_path.display()]);
 
     block_on(mm_bob.wait_for_log(22., |log| {
         log.contains("DEBUG Handling IncludedTorelaysMesh message for peer")
@@ -716,11 +718,11 @@ fn test_best_orders_filter_response() {
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
-    log!({"Bob log path: {}", mm_bob.log_path.display()});
+    log!(["Bob log path: {}", mm_bob.log_path.display()]);
 
     // Enable coins on Bob side. Print the replies in case we need the "address".
     let bob_coins = block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]));
-    log!({ "enable_coins (bob): {:?}", bob_coins });
+    log!(["enable_coins (bob): {}", bob_coins]);
     // issue sell request on Bob side by setting base/rel price
     log!("Issue bob sell requests");
 
@@ -768,7 +770,7 @@ fn test_best_orders_filter_response() {
     .unwrap();
 
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
-    log!({ "Alice log path: {}", mm_alice.log_path.display() });
+    log!(["Alice log path: {}", mm_alice.log_path.display()]);
 
     block_on(mm_bob.wait_for_log(22., |log| {
         log.contains("DEBUG Handling IncludedTorelaysMesh message for peer")
@@ -827,7 +829,7 @@ fn test_best_orders_address_and_confirmations() {
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
-    log!({"Bob log path: {}", mm_bob.log_path.display()});
+    log!(["Bob log path: {}", mm_bob.log_path.display()]);
 
     // Enable coins on Bob side. Print the replies in case we need the "address".
     let electrum = block_on(mm_bob.rpc(&json!({
@@ -845,7 +847,7 @@ fn test_best_orders_address_and_confirmations() {
         electrum.0,
         electrum.1
     );
-    log!({ "enable tBTC: {:?}", electrum });
+    log!(["enable tBTC: {}", electrum]);
     let enable_tbtc_res: EnableElectrumResponse = json::from_str(&electrum.1).unwrap();
     let tbtc_segwit_address = enable_tbtc_res.address;
 
@@ -863,7 +865,7 @@ fn test_best_orders_address_and_confirmations() {
         electrum.0,
         electrum.1
     );
-    log!({ "enable RICK: {:?}", electrum });
+    log!(["enable RICK: {}", electrum]);
     let enable_rick_res: EnableElectrumResponse = json::from_str(&electrum.1).unwrap();
     let rick_address = enable_rick_res.address;
 
@@ -907,7 +909,7 @@ fn test_best_orders_address_and_confirmations() {
     .unwrap();
 
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
-    log!({ "Alice log path: {}", mm_alice.log_path.display() });
+    log!(["Alice log path: {}", mm_alice.log_path.display()]);
 
     block_on(mm_bob.wait_for_log(22., |log| {
         log.contains("DEBUG Handling IncludedTorelaysMesh message for peer")
@@ -1028,11 +1030,11 @@ fn zhtlc_best_orders() {
     .unwrap();
 
     let (_dump_log, _dump_dashboard) = mm_bob.mm_dump();
-    log!({"Bob log path: {}", mm_bob.log_path.display()});
+    log!(["Bob log path: {}", mm_bob.log_path.display()]);
 
     let rmd = rmd160_from_passphrase(&bob_passphrase);
     let bob_zombie_cache_path = mm_bob.folder.join("DB").join(hex::encode(rmd)).join("ZOMBIE_CACHE.db");
-    log!("bob_zombie_cache_path "(bob_zombie_cache_path.display()));
+    log!(["bob_zombie_cache_path: {}", bob_zombie_cache_path.display()]);
     std::fs::copy("./mm2src/coins/for_tests/ZOMBIE_CACHE.db", bob_zombie_cache_path).unwrap();
 
     block_on(enable_electrum_json(&mm_bob, "RICK", false, rick_electrums()));
@@ -1073,7 +1075,7 @@ fn zhtlc_best_orders() {
     .unwrap();
 
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
-    log!({"Alice log path: {}", mm_alice.log_path.display()});
+    log!(["Alice log path: {}", mm_alice.log_path.display()]);
 
     let best_orders = block_on(best_orders_v2(&mm_alice, "RICK", "sell", "1"));
     let best_orders: RpcV2Response<BestOrdersV2Response> = json::from_value(best_orders).unwrap();
