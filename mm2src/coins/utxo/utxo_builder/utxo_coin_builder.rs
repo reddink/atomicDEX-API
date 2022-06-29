@@ -13,6 +13,7 @@ use crate::{BlockchainNetwork, CoinTransportMetrics, DerivationMethod, HistorySy
 use async_trait::async_trait;
 use chain::TxHashAlgo;
 use common::executor::{spawn, Timer};
+use common::log::{error, info};
 use common::small_rng;
 use crypto::{Bip32DerPathError, Bip44DerPathError, Bip44PathToCoin, CryptoCtx, CryptoInitError, HwWalletType};
 use derive_more::Display;
@@ -255,7 +256,6 @@ pub trait UtxoFieldsWithHardwareWalletBuilder: UtxoCoinBuilderCommonOps {
             .mm_err(UtxoCoinBuildError::from)
     }
 
-    #[inline]
     fn derivation_path(&self) -> UtxoConfResult<Bip44PathToCoin> {
         if self.conf()["derivation_path"].is_null() {
             return MmError::err(UtxoConfError::DerivationPathIsNotSet);
@@ -264,13 +264,10 @@ pub trait UtxoFieldsWithHardwareWalletBuilder: UtxoCoinBuilderCommonOps {
             .map_to_mm(|e| UtxoConfError::ErrorDeserializingDerivationPath(e.to_string()))
     }
 
-    #[inline]
     fn gap_limit(&self) -> u32 { self.activation_params().gap_limit.unwrap_or(DEFAULT_GAP_LIMIT) }
 
-    #[inline]
     fn supports_trezor(&self, conf: &UtxoCoinConf) -> bool { conf.trezor_coin.is_some() }
 
-    #[inline]
     fn check_if_trezor_is_initialized(&self) -> UtxoCoinBuildResult<()> {
         let crypto_ctx = CryptoCtx::from_ctx(self.ctx())?;
         let hw_ctx = crypto_ctx
@@ -292,7 +289,6 @@ pub trait UtxoCoinBuilderCommonOps {
 
     fn ticker(&self) -> &str;
 
-    #[inline]
     fn block_headers_storage(&self) -> UtxoCoinBuildResult<Option<BlockHeaderStorage>> {
         let params: Option<_> = json::from_value(self.conf()["block_header_params"].clone())
             .map_to_mm(|e| UtxoConfError::InvalidBlockHeaderParams(e.to_string()))?;
@@ -342,7 +338,6 @@ pub trait UtxoCoinBuilderCommonOps {
         Ok(address_format)
     }
 
-    #[inline]
     fn pub_addr_prefix(&self) -> u8 {
         let pubtype = self.conf()["pubtype"]
             .as_u64()
@@ -350,17 +345,14 @@ pub trait UtxoCoinBuilderCommonOps {
         pubtype as u8
     }
 
-    #[inline]
     fn p2sh_address_prefix(&self) -> u8 {
         self.conf()["p2shtype"]
             .as_u64()
             .unwrap_or(if self.ticker() == "BTC" { 5 } else { 85 }) as u8
     }
 
-    #[inline]
     fn dust_amount(&self) -> u64 { json::from_value(self.conf()["dust"].clone()).unwrap_or(UTXO_DUST_AMOUNT) }
 
-    #[inline]
     fn network(&self) -> UtxoCoinBuildResult<BlockchainNetwork> {
         let conf = self.conf();
         if !conf["network"].is_null() {
@@ -370,7 +362,6 @@ pub trait UtxoCoinBuilderCommonOps {
         Ok(BlockchainNetwork::Mainnet)
     }
 
-    #[inline]
     async fn decimals(&self, _rpc_client: &UtxoRpcClientEnum) -> UtxoCoinBuildResult<u8> {
         Ok(self.conf()["decimals"].as_u64().unwrap_or(8) as u8)
     }
@@ -394,7 +385,6 @@ pub trait UtxoCoinBuilderCommonOps {
         Ok(tx_fee)
     }
 
-    #[inline]
     fn initial_history_state(&self) -> HistorySyncState {
         if self.activation_params().tx_history {
             HistorySyncState::NotStarted
@@ -448,7 +438,7 @@ pub trait UtxoCoinBuilderCommonOps {
         for server in servers.iter() {
             match client.add_server(server).await {
                 Ok(_) => (),
-                Err(e) => log!("Error " (e) " connecting to " [server] ". Address won't be used"),
+                Err(e) => error!("Error {:?} connecting to {:?}. Address won't be used", e, server),
             };
         }
 
@@ -493,7 +483,7 @@ pub trait UtxoCoinBuilderCommonOps {
         let network = self.network()?;
         let (rpc_port, rpc_user, rpc_password) = read_native_mode_conf(&native_conf_path, &network)
             .map_to_mm(UtxoCoinBuildError::ErrorReadingNativeModeConf)?;
-        let auth_str = fomat!((rpc_user)":"(rpc_password));
+        let auth_str = format!("{}:{}", rpc_user, rpc_password);
         let rpc_port = match rpc_port {
             Some(p) => p,
             None => self.conf()["rpcport"]
@@ -509,7 +499,7 @@ pub trait UtxoCoinBuilderCommonOps {
             ];
         let client = Arc::new(NativeClientImpl {
             coin_ticker,
-            uri: fomat!("http://127.0.0.1:"(rpc_port)),
+            uri: format!("http://127.0.0.1:{}", rpc_port),
             auth: format!("Basic {}", base64_encode(&auth_str, URL_SAFE)),
             event_handlers,
             request_id: 0u64.into(),
@@ -561,7 +551,6 @@ pub trait UtxoCoinBuilderCommonOps {
         }
     }
 
-    #[inline]
     fn tx_hash_algo(&self) -> TxHashAlgo {
         if self.ticker() == "GRS" {
             TxHashAlgo::SHA256
@@ -570,26 +559,27 @@ pub trait UtxoCoinBuilderCommonOps {
         }
     }
 
-    #[inline]
-    fn check_utxo_maturity(&self) -> bool { self.activation_params().check_utxo_maturity.unwrap_or_default() }
+    fn check_utxo_maturity(&self) -> bool {
+        // First, check if the flag is set in the activation params.
+        if let Some(check_utxo_maturity) = self.activation_params().check_utxo_maturity {
+            return check_utxo_maturity;
+        }
+        self.conf()["check_utxo_maturity"].as_bool().unwrap_or_default()
+    }
 
-    #[inline]
     fn is_hw_coin(&self, conf: &UtxoCoinConf) -> bool { conf.trezor_coin.is_some() }
 
-    #[inline]
     #[cfg(target_arch = "wasm32")]
     fn tx_cache(&self) -> UtxoVerboseCacheShared {
         crate::utxo::tx_cache::wasm_tx_cache::WasmVerboseCache::default().into_shared()
     }
 
-    #[inline]
     #[cfg(not(target_arch = "wasm32"))]
     fn tx_cache(&self) -> UtxoVerboseCacheShared {
         crate::utxo::tx_cache::fs_tx_cache::FsVerboseCache::new(self.ticker().to_owned(), self.tx_cache_path())
             .into_shared()
     }
 
-    #[inline]
     #[cfg(not(target_arch = "wasm32"))]
     fn tx_cache_path(&self) -> PathBuf { self.ctx().dbdir().join("TX_CACHE") }
 }
@@ -647,10 +637,10 @@ fn spawn_electrum_ping_loop(weak_client: Weak<ElectrumClientImpl>, servers: Vec<
         loop {
             if let Some(client) = weak_client.upgrade() {
                 if let Err(e) = ElectrumClient(client).server_ping().compat().await {
-                    log!("Electrum servers " [servers] " ping error " [e]);
+                    error!("Electrum servers {:?} ping error: {}", servers, e);
                 }
             } else {
-                log!("Electrum servers " [servers] " ping loop stopped");
+                info!("Electrum servers {:?} ping loop stopped", servers);
                 break;
             }
             Timer::sleep(30.).await
@@ -675,7 +665,7 @@ fn spawn_electrum_version_loop(
             ));
         }
 
-        log!("Electrum server.version loop stopped");
+        info!("Electrum server.version loop stopped");
     });
 }
 
@@ -687,7 +677,7 @@ async fn check_electrum_server_version(
     // client.remove_server() is called too often
     async fn remove_server(client: ElectrumClient, electrum_addr: &str) {
         if let Err(e) = client.remove_server(electrum_addr).await {
-            log!("Error on remove server "[e]);
+            error!("Error on remove server: {}", e);
         }
     }
 
@@ -701,7 +691,7 @@ async fn check_electrum_server_version(
         {
             Ok(version) => version,
             Err(e) => {
-                log!("Electrum " (electrum_addr) " server.version error \"" [e] "\".");
+                error!("Electrum {} server.version error: {:?}", electrum_addr, e);
                 if !e.error.is_transport() {
                     remove_server(client, &electrum_addr).await;
                 };
@@ -713,25 +703,27 @@ async fn check_electrum_server_version(
         let actual_version = match version.protocol_version.parse::<f32>() {
             Ok(v) => v,
             Err(e) => {
-                log!("Error on parse protocol_version "[e]);
+                error!("Error on parse protocol_version: {:?}", e);
                 remove_server(client, &electrum_addr).await;
                 return;
             },
         };
 
         if !available_protocols.contains(&actual_version) {
-            log!("Received unsupported protocol version " [actual_version] " from " [electrum_addr] ". Remove the connection");
+            error!(
+                "Received unsupported protocol version {:?} from {:?}. Remove the connection",
+                actual_version, electrum_addr
+            );
             remove_server(client, &electrum_addr).await;
             return;
         }
 
         match client.set_protocol_version(&electrum_addr, actual_version).await {
-            Ok(()) => {
-                log!("Use protocol version " [actual_version] " for Electrum " [electrum_addr]);
-            },
-            Err(e) => {
-                log!("Error on set protocol_version "[e]);
-            },
+            Ok(()) => info!(
+                "Use protocol version {:?} for Electrum {:?}",
+                actual_version, electrum_addr
+            ),
+            Err(e) => error!("Error on set protocol_version: {}", e),
         };
     }
 }
