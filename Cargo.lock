@@ -4293,7 +4293,6 @@ dependencies = [
  "rand 0.7.3",
  "serde",
  "serde-wasm-bindgen",
- "serde_bytes",
  "serde_derive",
  "serde_json",
  "serde_repr",
