@@ -35,11 +35,11 @@ impl MmRecorder {
 
         for counters in self.registry.get_gauge_handles() {
             let (key, labels) = counters.0.into_parts();
-            let value = counters.1.get_inner().load(Ordering::Acquire);
+            let value = f64::from_bits(counters.1.get_inner().load(Ordering::Acquire));
             output.push(MetricType::Gauge {
                 key: key.as_str().to_string(),
                 labels: labels_into_parts(labels.clone().iter()),
-                value,
+                value: value as u64,
             });
         }
 

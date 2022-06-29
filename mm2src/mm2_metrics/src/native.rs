@@ -224,13 +224,13 @@ impl TagObserver {
         }
 
         for (key, gauge) in recorder.registry.get_gauge_handles() {
-            let delta = gauge.get_inner().load(Ordering::Acquire);
+            let delta = f64::from_bits(gauge.get_inner().load(Ordering::Acquire));
 
             let (metric_name, labels) = key.into_parts();
             output
                 .entry(labels)
                 .or_insert_with(MetricNameValueMap::new)
-                .insert(metric_name.as_str().to_string(), PreparedMetric::Metric(delta));
+                .insert(metric_name.as_str().to_string(), PreparedMetric::Metric(delta as u64));
         }
 
         for (key, histogram) in recorder.registry.get_histogram_handles() {
@@ -457,12 +457,13 @@ mod test {
                     "key": "rpc.connection.count",
                     "labels": { "coin": "KMD" },
                     "type": "gauge",
-                    "value": 4620693217682128896 as i64
+                    "value": 8
                 }
             ]
         });
 
         let mut actual = metrics.collect_json().unwrap();
+        println!("{:?}", actual);
         let actual = actual["metrics"].as_array_mut().unwrap();
         for expected in expected["metrics"].as_array().unwrap() {
             let index = actual.iter().position(|metric| metric == expected).expect(&format!(
