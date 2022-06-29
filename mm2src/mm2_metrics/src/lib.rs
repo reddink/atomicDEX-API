@@ -107,7 +107,7 @@ pub struct MetricsJson {
     pub metrics: Vec<MetricType>,
 }
 
-#[derive(Eq, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 #[serde(tag = "type")]
 pub enum MetricType {
@@ -119,7 +119,7 @@ pub enum MetricType {
     Gauge {
         key: String,
         labels: HashMap<String, String>,
-        value: u64,
+        value: f64,
     },
     Histogram {
         key: String,

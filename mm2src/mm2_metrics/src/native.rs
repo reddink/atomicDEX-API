@@ -457,13 +457,12 @@ mod test {
                     "key": "rpc.connection.count",
                     "labels": { "coin": "KMD" },
                     "type": "gauge",
-                    "value": 8
+                    "value": 8.0
                 }
             ]
         });
 
         let mut actual = metrics.collect_json().unwrap();
-        println!("{:?}", actual);
         let actual = actual["metrics"].as_array_mut().unwrap();
         for expected in expected["metrics"].as_array().unwrap() {
             let index = actual.iter().position(|metric| metric == expected).expect(&format!(

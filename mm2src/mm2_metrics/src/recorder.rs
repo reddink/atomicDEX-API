@@ -39,7 +39,7 @@ impl MmRecorder {
             output.push(MetricType::Gauge {
                 key: key.as_str().to_string(),
                 labels: labels_into_parts(labels.clone().iter()),
-                value: value as u64,
+                value,
             });
         }
 
