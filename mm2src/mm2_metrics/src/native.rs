@@ -1,15 +1,27 @@
-use common::{executor::spawn, log::LogWeak};
-use fomat_macros::wite;
+use common::log::error;
+use common::{executor::{spawn, Timer},
+             log::{LogArc, LogWeak}};
 use gstuff::ERRL;
 use metrics::{IntoLabels, Key, KeyName, Label};
 use metrics_core::ScopedString;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use serde_json::Value;
-use std::{collections::HashMap, io::Sink, sync::Arc};
+use std::{collections::HashMap,
+          fmt::Display,
+          io::Sink,
+          sync::{atomic::Ordering, Arc}};
 
-use crate::{common::log::Tag, recorder::MmRecorder, ClockOps, MetricsOps};
+use crate::{common::log::Tag,
+            recorder::{labels_to_tags, name_value_map_to_message},
+            ClockOps, MetricsOps, MmRecorder};
 
 const QUANTILES: &[f64] = &[0.0, 1.0];
+
+pub type MetricName = ScopedString;
+
+type MetricLabels = Vec<Label>;
+
+pub type MetricNameValueMap = HashMap<String, PreparedMetric>;
 
 /// Increment counter if an MmArc is not dropped yet and metrics system is initialized already.
 #[macro_export]
@@ -90,7 +102,7 @@ pub fn key_from_str(name: &'static str) -> Key {
     Key::from_name(key_name)
 }
 
-/// Convert a slice of string to metric labels
+/// Convert a vector of strings to metric labels
 pub fn from_slice_to_labels(labels: Vec<String>) -> Vec<Label> {
     let labels = labels.to_vec();
     let mut new_lab: Vec<_> = vec![];
@@ -131,8 +143,11 @@ impl MetricsOps for Metrics {
         Ok(())
     }
 
-    fn init_with_dashboard(&self, _log_state: LogWeak, _interval: f64) -> Result<(), String> {
-        // work to do
+    fn init_with_dashboard(&self, log_state: LogWeak, interval: f64) -> Result<(), String> {
+        let recorder = self.recorder.clone();
+        let runner = TagObserver::log_tag_metrics(log_state, recorder, interval);
+        spawn(runner);
+
         Ok(())
     }
 
@@ -157,25 +172,90 @@ pub struct TagMetric {
     pub message: String,
 }
 
-pub type MetricName = ScopedString;
-
-pub type MetricNameValueMap = HashMap<MetricName, Integer>;
-
-#[allow(dead_code)]
-#[derive(Eq, PartialEq, PartialOrd, Ord)]
-pub enum Integer {
-    Signed(i64),
-    Unsigned(u64),
+pub enum PreparedMetric {
+    Metric(u64),
+    Histogram(f64),
 }
 
-impl ToString for Integer {
-    fn to_string(&self) -> String {
+impl Display for PreparedMetric {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Integer::Signed(x) => format!("{}", x),
-            Integer::Unsigned(x) => format!("{}", x),
+            PreparedMetric::Metric(e) => write!(f, "{}", e),
+            PreparedMetric::Histogram(e) => write!(f, "{}", e),
         }
     }
 }
+
+pub struct TagObserver;
+
+impl TagObserver {
+    pub async fn log_tag_metrics(log_state: LogWeak, recorder: Arc<MmRecorder>, interval: f64) {
+        loop {
+            Timer::sleep(interval).await;
+            let log_state = match LogArc::from_weak(&log_state) {
+                Some(la) => la,
+                _ => {
+                    return;
+                },
+            };
+
+            log!(">>>>>>>>>> DEX metrics <<<<<<<<<");
+
+            Self::prepare_tag_metrics(&recorder)
+                .into_iter()
+                .for_each(|(labels, name_value_map)| {
+                    let tags = labels_to_tags(labels.iter());
+                    let message = name_value_map_to_message(&name_value_map);
+                    log_state.log_deref_tags("", tags, &message);
+                });
+        }
+    }
+
+    fn prepare_tag_metrics(recorder: &MmRecorder) -> HashMap<MetricLabels, MetricNameValueMap> {
+        let mut output = HashMap::new();
+        for (key, counter) in recorder.registry.get_counter_handles() {
+            let delta = counter.get_inner().load(Ordering::Acquire);
+
+            let (metric_name, labels) = key.into_parts();
+            output
+                .entry(labels)
+                .or_insert_with(MetricNameValueMap::new)
+                .insert(metric_name.as_str().to_string(), PreparedMetric::Metric(delta));
+        }
+
+        for (key, gauge) in recorder.registry.get_gauge_handles() {
+            let delta = gauge.get_inner().load(Ordering::Acquire);
+
+            let (metric_name, labels) = key.into_parts();
+            output
+                .entry(labels)
+                .or_insert_with(MetricNameValueMap::new)
+                .insert(metric_name.as_str().to_string(), PreparedMetric::Metric(delta));
+        }
+
+        for (key, histogram) in recorder.registry.get_histogram_handles() {
+            let delta = histogram.get_inner().data().into_iter().sum::<f64>();
+
+            let (metric_name, labels) = key.into_parts();
+            output
+                .entry(labels)
+                .or_insert_with(MetricNameValueMap::new)
+                .insert(metric_name.as_str().to_string(), PreparedMetric::Histogram(delta));
+        }
+
+        output
+    }
+}
+
+// fn map_to_metric_and_name_value(key: Key, handle: Generational<Arc<AtomicU64>>) -> (MetricLabels, MetricNameValueMap) {
+//     let value = handle.get_inner().load(Ordering::Acquire);
+
+//     let (metric_name, labels) = key.into_parts();
+//     let mut name_value = HashMap::new();
+//     name_value.insert(metric_name.as_str().to_owned(), PreparedMetric::Metric(value));
+
+//     (labels, name_value)
+// }
 
 pub mod prometheus {
     use crate::{MetricsArc, MetricsWeak};
@@ -214,7 +294,7 @@ pub mod prometheus {
 
         let server = server.then(|r| {
             if let Err(err) = r {
-                log!((err));
+                error!("{}", err);
             };
             futures::future::ready(())
         });
@@ -229,9 +309,9 @@ pub mod prometheus {
         credentials: Option<PrometheusCredentials>,
     ) -> Result<Response<Body>, http::Error> {
         fn on_error(status: StatusCode, error: String) -> Result<Response<Body>, http::Error> {
-            log!((error));
+            error!("{}", error);
             Response::builder().status(status).body(Body::empty()).map_err(|err| {
-                log!((err));
+                error!("{}", err);
                 err
             })
         }
@@ -274,7 +354,7 @@ pub mod prometheus {
             .header(header::CONTENT_TYPE, "text/plain")
             .body(body)
             .map_err(|err| {
-                log!((err));
+                error!("{}", err);
                 err
             })
     }
@@ -299,12 +379,13 @@ pub mod prometheus {
 #[cfg(test)]
 mod test {
 
-    use common::log::{LogArc, LogState};
-
     use crate::{MetricsArc, MetricsOps};
 
-    #[test]
+    use common::{block_on,
+                 executor::Timer,
+                 log::{LogArc, LogState}};
 
+    #[test]
     fn test_collect_json() {
         let metrics = MetricsArc::new();
 
@@ -319,8 +400,8 @@ mod test {
         mm_counter!(metrics, "rpc.traffic.tx", 54, "coin" => "KMD");
         mm_counter!(metrics, "rpc.traffic.rx", 158, "coin" => "KMD");
 
-        mm_gauge!(metrics, "rpc.connection.count", 3 as f64, "coin" => "KMD");
-        mm_gauge!(metrics, "rpc.connection.count", 5 as f64, "coin" => "KMD");
+        mm_gauge!(metrics, "rpc.connection.count", 3.0, "coin" => "KMD");
+        mm_gauge!(metrics, "rpc.connection.count", 5.0, "coin" => "KMD");
 
         // mm_timing!(metrics,
         //            "rpc.query.spent_time",
@@ -376,21 +457,18 @@ mod test {
                     "key": "rpc.connection.count",
                     "labels": { "coin": "KMD" },
                     "type": "gauge",
-                    "value": 4620693217682128896 as u64
+                    "value": 4620693217682128896 as i64
                 }
             ]
         });
 
         let mut actual = metrics.collect_json().unwrap();
-        // println!("{:#?}", actual);
-
         let actual = actual["metrics"].as_array_mut().unwrap();
         for expected in expected["metrics"].as_array().unwrap() {
             let index = actual.iter().position(|metric| metric == expected).expect(&format!(
                 "Couldn't find expected metric: {:#?} \n in {:#?}",
                 expected, actual
             ));
-            println!("{}", index);
             actual.remove(index);
         }
 
@@ -405,15 +483,19 @@ mod test {
     fn collect_tag_metrics() {
         let log_state = LogArc::new(LogState::in_memory());
         let mm_metrics = MetricsArc::new();
-        mm_metrics.init_with_dashboard(log_state.weak(), 5.).unwrap();
-        mm_counter!(mm_metrics, "rpc_client.request.count", 7649, "coin" => "tBCH", "client" => "eletrum");
-        mm_counter!(mm_metrics, "rpc_client.request.count", 7615, "coin" => "tBCH", "client" => "eletrum");
-        mm_counter!(mm_metrics, "rpc_client.request.in", 335206, "coin" => "tBCH", "client" => "eletrum");
-        mm_counter!(mm_metrics, "rpc_client.request.out", 700604, "coin" => "tBCH", "client" => "eletrum");
-        mm_counter!(mm_metrics, "rpc_client.request.count", 6345, "coin" => "tBCH", "client" => "eletrum");
-        mm_counter!(mm_metrics, "rpc_client.request.count", 6345, "coin" => "tBCH", "client" => "eletrum");
+
+        mm_metrics.init_with_dashboard(log_state.weak(), 6.).unwrap();
+
+        mm_counter!(mm_metrics, "rpc_client.request.count", 1, "coin" => "tBCH", "client" => "eletrum");
+        mm_counter!(mm_metrics, "rpc_client.request.count", 1, "coin" => "tBCH", "client" => "eletrum");
+        block_on(async { Timer::sleep(6.).await });
+        mm_gauge!(mm_metrics, "rpc_client.request.in", 2.0, "coin" => "tBCH", "client" => "eletrum");
+        mm_counter!(mm_metrics, "rpc_client.request.out", 3, "coin" => "tBCH", "client" => "eletrum");
+        mm_counter!(mm_metrics, "rpc_client.request.count", 1, "coin" => "tBCH", "client" => "eletrum");
+        mm_counter!(mm_metrics, "rpc_client.request.count", 1, "coin" => "tBCH", "client" => "eletrum");
         mm_gauge!(mm_metrics, "rpc_client.request.in", 6345.0, "coin" => "tBCH", "client" => "eletrum");
-        mm_gauge!(mm_metrics, "rpc_client.request.out", 633840.0, "coin" => "tBCH", "client" => "eletrum");
-        // println!("{:#?}", mm_metrics.collect_tag_metrics())
+        mm_gauge!(mm_metrics, "rpc_client.request.out", 2.0, "coin" => "tBCH", "client" => "eletrum");
+        mm_timing!(mm_metrics, "rpc_client.request.out", 3.0, "coin" => "tBCH", "client" => "eletrum");
+        block_on(async { Timer::sleep(6.).await });
     }
 }

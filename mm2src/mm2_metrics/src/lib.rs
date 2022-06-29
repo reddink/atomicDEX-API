@@ -12,15 +12,15 @@ use std::sync::{Arc, Weak};
 
 #[cfg(not(target_arch = "wasm32"))] pub mod recorder;
 #[cfg(not(target_arch = "wasm32"))] pub use metrics;
-#[cfg(not(target_arch = "wasm32"))] pub use metrics_core::labels;
+#[cfg(not(target_arch = "wasm32"))] use metrics::try_recorder;
 #[cfg(not(target_arch = "wasm32"))] pub use recorder::MmRecorder;
 #[cfg(not(target_arch = "wasm32"))] pub mod native;
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{prometheus, Clock, Metrics, TagMetric};
+pub use native::{prometheus, Clock, Metrics, PreparedMetric};
 
 #[cfg(target_arch = "wasm32")] mod wasm;
 #[cfg(target_arch = "wasm32")]
-pub use wasm::{Clock, Metrics, MmRecorder};
+pub use wasm::{try_recorder, Clock, Metrics, MmRecorder};
 
 pub trait MetricsOps {
     fn init(&self) -> Result<(), String>
@@ -49,6 +49,7 @@ impl Default for MetricsArc {
 }
 
 impl MetricsArc {
+    // Create new instance of our metrics recorder set to default
     pub fn new() -> Self { Self(Default::default()) }
 
     /// Try to obtain the `Metrics` from the weak pointer.
@@ -59,7 +60,12 @@ impl MetricsArc {
 }
 
 impl TryRecorder for MetricsArc {
-    fn try_recorder(&self) -> Option<Arc<MmRecorder>> { Some(self.0.recorder.to_owned()) }
+    fn try_recorder(&self) -> Option<Arc<MmRecorder>> {
+        if try_recorder().is_some() {
+            return None;
+        }
+        Some(self.0.recorder.to_owned())
+    }
 }
 
 impl MetricsOps for MetricsArc {
@@ -113,7 +119,7 @@ pub enum MetricType {
     Gauge {
         key: String,
         labels: HashMap<String, String>,
-        value: i64,
+        value: u64,
     },
     Histogram {
         key: String,

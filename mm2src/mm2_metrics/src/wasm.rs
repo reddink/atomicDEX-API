@@ -54,10 +54,6 @@ impl ClockOps for Clock {
 #[derive(Default)]
 pub struct MmRecorder {}
 
-pub trait TryRecorder {
-    fn try_recorder(&self) -> Option<Arc<MmRecorder>>;
-}
-
 #[derive(Default)]
 pub struct Metrics {
     pub recorder: Arc<MmRecorder>,
@@ -73,6 +69,12 @@ impl MetricsOps for Metrics {
     fn collect_json(&self) -> Result<Json, String> { Ok(Json::Array(Vec::new())) }
 }
 
+pub trait TryRecorder {
+    fn try_recorder(&self) -> Option<Arc<MmRecorder>>;
+}
+
 impl TryRecorder for Metrics {
     fn try_recorder(&self) -> Option<Arc<MmRecorder>> { None }
 }
+
+pub fn try_recorder() -> Option<()> { None }
