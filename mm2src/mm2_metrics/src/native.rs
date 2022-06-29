@@ -173,15 +173,15 @@ pub struct TagMetric {
 }
 
 pub enum PreparedMetric {
-    Metric(u64),
-    Histogram(f64),
+    Unsigned(u64),
+    Float(f64),
 }
 
 impl Display for PreparedMetric {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PreparedMetric::Metric(e) => write!(f, "{}", e),
-            PreparedMetric::Histogram(e) => write!(f, "{}", e),
+            PreparedMetric::Unsigned(e) => write!(f, "{}", e),
+            PreparedMetric::Float(e) => write!(f, "{}", e),
         }
     }
 }
@@ -214,48 +214,38 @@ impl TagObserver {
     fn prepare_tag_metrics(recorder: &MmRecorder) -> HashMap<MetricLabels, MetricNameValueMap> {
         let mut output = HashMap::new();
         for (key, counter) in recorder.registry.get_counter_handles() {
-            let delta = counter.get_inner().load(Ordering::Acquire);
+            let value = counter.get_inner().load(Ordering::Acquire);
 
             let (metric_name, labels) = key.into_parts();
             output
                 .entry(labels)
                 .or_insert_with(MetricNameValueMap::new)
-                .insert(metric_name.as_str().to_string(), PreparedMetric::Metric(delta));
+                .insert(metric_name.as_str().to_string(), PreparedMetric::Unsigned(value));
         }
 
         for (key, gauge) in recorder.registry.get_gauge_handles() {
-            let delta = f64::from_bits(gauge.get_inner().load(Ordering::Acquire));
+            let value = f64::from_bits(gauge.get_inner().load(Ordering::Acquire));
 
             let (metric_name, labels) = key.into_parts();
             output
                 .entry(labels)
                 .or_insert_with(MetricNameValueMap::new)
-                .insert(metric_name.as_str().to_string(), PreparedMetric::Metric(delta as u64));
+                .insert(metric_name.as_str().to_string(), PreparedMetric::Float(value));
         }
 
         for (key, histogram) in recorder.registry.get_histogram_handles() {
-            let delta = histogram.get_inner().data().into_iter().sum::<f64>();
+            let value = histogram.get_inner().data().into_iter().sum::<f64>();
 
             let (metric_name, labels) = key.into_parts();
             output
                 .entry(labels)
                 .or_insert_with(MetricNameValueMap::new)
-                .insert(metric_name.as_str().to_string(), PreparedMetric::Histogram(delta));
+                .insert(metric_name.as_str().to_string(), PreparedMetric::Float(value));
         }
 
         output
     }
 }
-
-// fn map_to_metric_and_name_value(key: Key, handle: Generational<Arc<AtomicU64>>) -> (MetricLabels, MetricNameValueMap) {
-//     let value = handle.get_inner().load(Ordering::Acquire);
-
-//     let (metric_name, labels) = key.into_parts();
-//     let mut name_value = HashMap::new();
-//     name_value.insert(metric_name.as_str().to_owned(), PreparedMetric::Metric(value));
-
-//     (labels, name_value)
-// }
 
 pub mod prometheus {
     use crate::{MetricsArc, MetricsWeak};
