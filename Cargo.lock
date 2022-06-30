@@ -2307,12 +2307,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b541b35d643a4dfbba66fc2a4d401314d6eb16e36155c92b439baeb232c5d0c7"
 
 [[package]]
-name = "fomat-macros"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe56556a8c9f9f556150eb6b390bc1a8b3715fd2ddbb4585f36b6a5672c6a833"
-
-[[package]]
 name = "form_urlencoded"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3951,12 +3945,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "metrics-core"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c064b3a1ff41f4bf6c91185c8a0caeccf8a8a27e9d0f92cc54cf3dbec812f48"
-
-[[package]]
 name = "metrics-exporter-prometheus"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4272,34 +4260,19 @@ name = "mm2_metrics"
 version = "0.1.0"
 dependencies = [
  "base64 0.10.1",
- "cc",
- "chrono",
  "common",
- "fomat-macros 0.2.1",
- "fomat-macros 0.3.1",
- "futures 0.1.29",
+ "fomat-macros",
  "futures 0.3.15",
- "futures-cpupool",
- "getrandom 0.2.6",
  "gstuff",
  "hyper",
  "hyper-rustls",
  "itertools",
- "js-sys",
  "metrics",
- "metrics-core",
  "metrics-exporter-prometheus",
  "metrics-util",
- "rand 0.7.3",
  "serde",
- "serde-wasm-bindgen",
  "serde_derive",
  "serde_json",
- "serde_repr",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test",
- "web-sys",
 ]
 
 [[package]]

@@ -12,15 +12,14 @@ use std::sync::{Arc, Weak};
 
 #[cfg(not(target_arch = "wasm32"))] pub mod recorder;
 #[cfg(not(target_arch = "wasm32"))] pub use metrics;
-#[cfg(not(target_arch = "wasm32"))] use metrics::try_recorder;
 #[cfg(not(target_arch = "wasm32"))] pub use recorder::MmRecorder;
 #[cfg(not(target_arch = "wasm32"))] pub mod native;
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{prometheus, Clock, Metrics, PreparedMetric};
+pub use native::{prometheus, Metrics, PreparedMetric};
 
 #[cfg(target_arch = "wasm32")] mod wasm;
 #[cfg(target_arch = "wasm32")]
-pub use wasm::{try_recorder, Clock, Metrics, MmRecorder};
+pub use wasm::{try_recorder, Metrics, MmRecorder};
 
 pub trait MetricsOps {
     fn init(&self) -> Result<(), String>
@@ -31,10 +30,6 @@ pub trait MetricsOps {
 
     /// Collect the metrics as Json.
     fn collect_json(&self) -> Result<crate::Json, String>;
-}
-
-pub trait ClockOps {
-    fn now(&self) -> u64;
 }
 
 pub trait TryRecorder {
@@ -60,12 +55,7 @@ impl MetricsArc {
 }
 
 impl TryRecorder for MetricsArc {
-    fn try_recorder(&self) -> Option<Arc<MmRecorder>> {
-        if try_recorder().is_some() {
-            return None;
-        }
-        Some(self.0.recorder.to_owned())
-    }
+    fn try_recorder(&self) -> Option<Arc<MmRecorder>> { Some(self.0.recorder.to_owned()) }
 }
 
 impl MetricsOps for MetricsArc {

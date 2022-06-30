@@ -3,21 +3,18 @@ use common::{executor::{spawn, Timer},
              log::{LogArc, LogWeak}};
 use gstuff::ERRL;
 use metrics::{IntoLabels, Key, KeyName, Label};
-use metrics_core::ScopedString;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use serde_json::Value;
 use std::{collections::HashMap,
           fmt::Display,
-          io::Sink,
           sync::{atomic::Ordering, Arc}};
 
 use crate::{common::log::Tag,
             recorder::{labels_to_tags, name_value_map_to_message},
-            ClockOps, MetricsOps, MmRecorder};
+            MetricsOps, MmRecorder};
+use itertools::Itertools;
 
 const QUANTILES: &[f64] = &[0.0, 1.0];
-
-pub type MetricName = ScopedString;
 
 type MetricLabels = Vec<Label>;
 
@@ -28,6 +25,7 @@ pub type MetricNameValueMap = HashMap<String, PreparedMetric>;
 macro_rules! mm_counter {
     ($metrics:expr, $name:expr, $value:expr) => {{
         use $crate::metrics::Recorder;
+        use $crate::native::key_from_str;
         if let Some(recorder) = $crate::TryRecorder::try_recorder(&$metrics){
             let key = key_from_str($name);
             let counter = recorder.register_counter(&key);
@@ -52,6 +50,7 @@ macro_rules! mm_counter {
 macro_rules! mm_gauge {
     ($metrics:expr, $name:expr, $value:expr) => {{
         use $crate::metrics::Recorder;
+        use $crate::native::key_from_str;
         if let Some(recorder) = $crate::TryRecorder::try_recorder(&$metrics){
             let key = $crate::native::key_from_str($name);
             let gauge = recorder.register_gauge(&key);
@@ -76,7 +75,7 @@ macro_rules! mm_gauge {
 macro_rules! mm_timing {
     ($metrics:expr, $name:expr, $value:expr) => {{
         use $crate::metrics::Recorder;
-        use key_from_str;
+        use $crate::native::key_from_str;
         if let Some(recorder) = $crate::TryRecorder::try_recorder(&$metrics){
             let key = key_from_str($name);
             let histo = recorder.register_histogram(&key);
@@ -104,18 +103,11 @@ pub fn key_from_str(name: &'static str) -> Key {
 
 /// Convert a vector of strings to metric labels
 pub fn from_slice_to_labels(labels: Vec<String>) -> Vec<Label> {
-    let labels = labels.to_vec();
-    let mut new_lab: Vec<_> = vec![];
-    let mut i = 0;
-    for _ in 0..labels.len() - 1 {
-        if i < labels.len() {
-            let label = (labels[i].to_owned(), labels[i + 1].to_owned());
-            new_lab.push(label);
-            i += 2;
-        }
+    let mut label = vec![];
+    for (x, y) in labels.into_iter().tuples() {
+        label.push((x.to_owned(), y.to_owned()));
     }
-
-    new_lab.as_slice().into_labels()
+    label.as_slice().into_labels()
 }
 
 /// Market Maker Metrics, used as inner to get metrics data and exporting
@@ -155,14 +147,6 @@ impl MetricsOps for Metrics {
     fn collect_json(&self) -> Result<Value, String> {
         serde_json::to_value(self.recorder.prepare_json()).map_err(|err| ERRL!("{}", err))
     }
-}
-
-pub struct Clock {
-    _sink: Sink,
-}
-
-impl ClockOps for Clock {
-    fn now(&self) -> u64 { 0 }
 }
 
 #[derive(Debug)]
@@ -486,6 +470,7 @@ mod test {
         mm_gauge!(mm_metrics, "rpc_client.request.in", 6345.0, "coin" => "tBCH", "client" => "eletrum");
         mm_gauge!(mm_metrics, "rpc_client.request.out", 2.0, "coin" => "tBCH", "client" => "eletrum");
         mm_timing!(mm_metrics, "rpc_client.request.out", 3.0, "coin" => "tBCH", "client" => "eletrum");
+        mm_timing!(mm_metrics, "peer.outgoing_request.timing", 0.4, "peer" => "peer");
         block_on(async { Timer::sleep(6.).await });
     }
 }
