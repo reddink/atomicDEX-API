@@ -8,7 +8,6 @@ edition = "2021"
 [dependencies]
 base64 = "0.10.0"
 common = { path = "../common" }
-fomat-macros = "0.2"
 futures = { version = "0.3", package = "futures", features = ["compat", "async-await", "thread-pool"] }
 itertools = "0.10"
 serde = "1"
