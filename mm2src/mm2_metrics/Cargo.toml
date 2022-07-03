@@ -17,6 +17,7 @@ serde_json = { version = "1.0", features = ["preserve_order", "raw_value"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gstuff = { version = "0.7", features = ["crossterm", "nightly"] }
+hdrhistogram = "7.5.0"
 hyper = { version = "0.14.11", features = ["client", "http2", "server", "tcp"] }
 # using webpki-tokio to avoid rejecting valid certificates
 # got "invalid certificate: UnknownIssuer" for https://ropsten.infura.io on iOS using default-features

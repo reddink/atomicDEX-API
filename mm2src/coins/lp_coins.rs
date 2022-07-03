@@ -2211,16 +2211,16 @@ impl RpcTransportEventHandler for CoinTransportMetrics {
 
     fn on_outgoing_request(&self, data: &[u8]) {
         mm_counter!(self.metrics, "rpc_client.traffic.out", data.len() as u64,
-            "coin" => self.ticker, "client" => self.client);
+            "coin" => self.ticker.to_owned(), "client" => self.client.to_owned());
         mm_counter!(self.metrics, "rpc_client.request.count", 1,
-            "coin" => self.ticker, "client" => self.client);
+            "coin" => self.ticker.to_owned(), "client" => self.client.to_owned());
     }
 
     fn on_incoming_response(&self, data: &[u8]) {
         mm_counter!(self.metrics, "rpc_client.traffic.in", data.len() as u64,
-            "coin" => self.ticker, "client" => self.client);
+            "coin" => self.ticker.to_owned(), "client" => self.client.to_owned());
         mm_counter!(self.metrics, "rpc_client.response.count", 1,
-            "coin" => self.ticker, "client" => self.client);
+            "coin" => self.ticker.to_owned(), "client" => self.client.to_owned());
     }
 
     fn on_connected(&self, _address: String) -> Result<(), String> {

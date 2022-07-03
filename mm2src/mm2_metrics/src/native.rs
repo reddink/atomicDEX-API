@@ -2,8 +2,11 @@ use common::log::error;
 use common::{executor::{spawn, Timer},
              log::{LogArc, LogWeak}};
 use gstuff::ERRL;
-use metrics::{IntoLabels, Key, KeyName, Label};
+use hdrhistogram::Histogram;
+use itertools::Itertools;
+use metrics::{Key, KeyName, Label};
 use metrics_exporter_prometheus::PrometheusBuilder;
+use metrics_util::{parse_quantiles, Quantile};
 use serde_json::Value;
 use std::{collections::HashMap,
           fmt::Display,
@@ -12,7 +15,6 @@ use std::{collections::HashMap,
 use crate::{common::log::Tag,
             recorder::{labels_to_tags, name_value_map_to_message},
             MetricsOps, MmRecorder};
-use itertools::Itertools;
 
 const QUANTILES: &[f64] = &[0.0, 1.0];
 
@@ -25,9 +27,8 @@ pub type MetricNameValueMap = HashMap<String, PreparedMetric>;
 macro_rules! mm_counter {
     ($metrics:expr, $name:expr, $value:expr) => {{
         use $crate::metrics::Recorder;
-        use $crate::native::key_from_str;
         if let Some(recorder) = $crate::TryRecorder::try_recorder(&$metrics){
-            let key = key_from_str($name);
+            let key =$crate::metrics::Key::from_static_name($name);
             let counter = recorder.register_counter(&key);
             counter.increment($value);
         };
@@ -36,9 +37,9 @@ macro_rules! mm_counter {
     // Register and increment counter with label
     ($metrics:expr, $name:expr, $value:expr, $($label_key:expr => $label_val:expr),+) => {{
         use $crate::metrics::Recorder;
-        use $crate::native::from_slice_to_labels;
+        // use $crate::native::from_slice_to_labels;
         if let Some(recorder) = $crate::TryRecorder::try_recorder(&$metrics){
-            let key = $crate::metrics::Key::from_parts($name, from_slice_to_labels(vec![$($label_key.to_owned(), $label_val.to_owned()),+]));
+            let key = $crate::metrics::Key::from_parts($name, vec![$(($label_key.to_owned(), $label_val.to_owned())),+].as_slice());
             let counter = recorder.register_counter(&key);
             counter.increment($value);
         };
@@ -50,22 +51,21 @@ macro_rules! mm_counter {
 macro_rules! mm_gauge {
     ($metrics:expr, $name:expr, $value:expr) => {{
         use $crate::metrics::Recorder;
-        use $crate::native::key_from_str;
         if let Some(recorder) = $crate::TryRecorder::try_recorder(&$metrics){
-            let key = $crate::native::key_from_str($name);
+            let key =$crate::metrics::Key::from_static_name($name);
             let gauge = recorder.register_gauge(&key);
-            gauge.increment($value);
+            gauge.set($value);
         }
     }};
 
-    // Register and increment gauge with label
+    // Register and set gauge with label
     ($metrics:expr, $name:expr, $value:expr, $($label_key:expr => $label_val:expr),+) => {{
         use $crate::metrics::Recorder;
-        use $crate::native::from_slice_to_labels;
+        // use $crate::native::from_slice_to_labels;
         if let Some(recorder) = $crate::TryRecorder::try_recorder(&$metrics){
-            let key = $crate::metrics::Key::from_parts($name, from_slice_to_labels(vec![$($label_key.to_owned(), $label_val.to_owned()),+]));
+            let key = $crate::metrics::Key::from_parts($name, vec![$(($label_key.to_owned(), $label_val.to_owned())),+].as_slice());
             let gauge = recorder.register_gauge(&key);
-            gauge.increment($value);
+            gauge.set($value);
         }
     }};
 }
@@ -77,7 +77,7 @@ macro_rules! mm_timing {
         use $crate::metrics::Recorder;
         use $crate::native::key_from_str;
         if let Some(recorder) = $crate::TryRecorder::try_recorder(&$metrics){
-            let key = key_from_str($name);
+            let key =$crate::metrics::Key::from_static_name($name);
             let histo = recorder.register_histogram(&key);
             histo.record($value);
         }
@@ -86,28 +86,13 @@ macro_rules! mm_timing {
     // Register and record histogram with label
     ($metrics:expr, $name:expr, $value:expr, $($label_key:expr => $label_val:expr),+) => {{
         use $crate::metrics::Recorder;
-        use $crate::native::from_slice_to_labels;
+        // use $crate::native::from_slice_to_labels;
         if let Some(recorder) = $crate::TryRecorder::try_recorder(&$metrics){
-            let key = $crate::metrics::Key::from_parts($name, from_slice_to_labels(vec![$($label_key.to_owned(), $label_val.to_owned()),+]));
+            let key = $crate::metrics::Key::from_parts($name, vec![$(($label_key.to_owned(), $label_val.to_owned())),+].as_slice());
             let histo = recorder.register_histogram(&key);
             histo.record($value);
         }
     }};
-}
-
-/// Convert a string to metrics Key
-pub fn key_from_str(name: &'static str) -> Key {
-    let key_name = KeyName::from_const_str(name);
-    Key::from_name(key_name)
-}
-
-/// Convert a vector of strings to metric labels
-pub fn from_slice_to_labels(labels: Vec<String>) -> Vec<Label> {
-    let mut label = vec![];
-    for (x, y) in labels.into_iter().tuples() {
-        label.push((x.to_owned(), y.to_owned()));
-    }
-    label.as_slice().into_labels()
 }
 
 /// Market Maker Metrics, used as inner to get metrics data and exporting
@@ -156,6 +141,7 @@ pub struct TagMetric {
     pub message: String,
 }
 
+#[derive(PartialEq, PartialOrd)]
 pub enum PreparedMetric {
     Unsigned(u64),
     Float(f64),
@@ -192,43 +178,93 @@ impl TagObserver {
                     let message = name_value_map_to_message(&name_value_map);
                     log_state.log_deref_tags("", tags, &message);
                 });
+
+            let quantiles = parse_quantiles(QUANTILES);
+            Self::prepare_tag_histograms(&recorder).into_iter().for_each(|histo| {
+                histo.into_iter().for_each(|(key, hist)| {
+                    let tags = labels_to_tags(Key::from_name(KeyName::from(key.clone())).labels());
+                    let message = format!("{}: {}", key, hist_to_message(quantiles.as_slice(), hist));
+                    log_state.log_deref_tags("", tags, &message);
+                });
+            });
         }
     }
 
     fn prepare_tag_metrics(recorder: &MmRecorder) -> HashMap<MetricLabels, MetricNameValueMap> {
         let mut output = HashMap::new();
+
         for (key, counter) in recorder.registry.get_counter_handles() {
             let value = counter.get_inner().load(Ordering::Acquire);
-
-            let (metric_name, labels) = key.into_parts();
-            output
-                .entry(labels)
-                .or_insert_with(MetricNameValueMap::new)
-                .insert(metric_name.as_str().to_string(), PreparedMetric::Unsigned(value));
+            map_metrics_to_prepare_tag_metric_output(key, PreparedMetric::Unsigned(value), &mut output);
         }
 
         for (key, gauge) in recorder.registry.get_gauge_handles() {
             let value = f64::from_bits(gauge.get_inner().load(Ordering::Acquire));
-
-            let (metric_name, labels) = key.into_parts();
-            output
-                .entry(labels)
-                .or_insert_with(MetricNameValueMap::new)
-                .insert(metric_name.as_str().to_string(), PreparedMetric::Float(value));
+            map_metrics_to_prepare_tag_metric_output(key, PreparedMetric::Float(value), &mut output);
         }
-
-        for (key, histogram) in recorder.registry.get_histogram_handles() {
-            let value = histogram.get_inner().data().into_iter().sum::<f64>();
-
-            let (metric_name, labels) = key.into_parts();
-            output
-                .entry(labels)
-                .or_insert_with(MetricNameValueMap::new)
-                .insert(metric_name.as_str().to_string(), PreparedMetric::Float(value));
-        }
-
         output
     }
+
+    fn prepare_tag_histograms(recorder: &MmRecorder) -> Option<HashMap<String, Histogram<u64>>> {
+        let mut output = None;
+        for (key, histogram) in recorder.registry.get_histogram_handles() {
+            let value = histogram.get_inner().data();
+            output = prepared_historam(key, value);
+        }
+        output
+    }
+}
+
+fn prepared_historam(key: Key, values: Vec<f64>) -> Option<HashMap<String, Histogram<u64>>> {
+    let mut histograms = HashMap::new();
+    let entry = histograms.entry(key.name().to_string()).or_insert({
+        // Use default significant figures value.
+        // For more info on `sigfig` see the Historgam::new_with_bounds().
+        let sigfig = 3;
+        match Histogram::<u64>::new(sigfig) {
+            Ok(x) => x,
+            Err(err) => {
+                error!("failed to create histogram: {}", err);
+                // do nothing on error
+                return None;
+            },
+        }
+    });
+
+    for value in values {
+        if let Err(err) = entry.record(value as u64) {
+            error!("failed to observe histogram value: {}", err);
+        }
+    }
+    Some(histograms)
+}
+
+fn map_metrics_to_prepare_tag_metric_output(
+    key: Key,
+    value: PreparedMetric,
+    output: &mut HashMap<MetricLabels, MetricNameValueMap>,
+) {
+    let (metric_name, labels) = key.into_parts();
+    output
+        .entry(labels)
+        .or_insert_with(MetricNameValueMap::new)
+        .insert(metric_name.as_str().to_string(), value);
+}
+
+fn hist_to_message(quantiles: &[Quantile], histogram: Histogram<u64>) -> String {
+    if quantiles.is_empty() {
+        return format!("count={}", histogram.len());
+    }
+
+    let fmt_quantiles = quantiles
+        .iter()
+        .map(|quantile| {
+            let key = quantile.label().to_string();
+            let val = histogram.value_at_quantile(quantile.value());
+            format!("{}={}", key, val)
+        })
+        .join(" ");
+    format!("count={} {}", histogram.len(), fmt_quantiles)
 }
 
 pub mod prometheus {
@@ -431,7 +467,7 @@ mod test {
                     "key": "rpc.connection.count",
                     "labels": { "coin": "KMD" },
                     "type": "gauge",
-                    "value": 8.0
+                    "value": 5.0
                 }
             ]
         });
@@ -462,6 +498,7 @@ mod test {
 
         mm_counter!(mm_metrics, "rpc_client.request.count", 1, "coin" => "tBCH", "client" => "eletrum");
         mm_counter!(mm_metrics, "rpc_client.request.count", 1, "coin" => "tBCH", "client" => "eletrum");
+        mm_timing!(mm_metrics, "rpc_client.request.out", 3.0, "coin" => "tBCH", "client" => "eletrum");
         block_on(async { Timer::sleep(6.).await });
         mm_gauge!(mm_metrics, "rpc_client.request.in", 2.0, "coin" => "tBCH", "client" => "eletrum");
         mm_counter!(mm_metrics, "rpc_client.request.out", 3, "coin" => "tBCH", "client" => "eletrum");
@@ -469,7 +506,6 @@ mod test {
         mm_counter!(mm_metrics, "rpc_client.request.count", 1, "coin" => "tBCH", "client" => "eletrum");
         mm_gauge!(mm_metrics, "rpc_client.request.in", 6345.0, "coin" => "tBCH", "client" => "eletrum");
         mm_gauge!(mm_metrics, "rpc_client.request.out", 2.0, "coin" => "tBCH", "client" => "eletrum");
-        mm_timing!(mm_metrics, "rpc_client.request.out", 3.0, "coin" => "tBCH", "client" => "eletrum");
         mm_timing!(mm_metrics, "peer.outgoing_request.timing", 0.4, "peer" => "peer");
         block_on(async { Timer::sleep(6.).await });
     }
