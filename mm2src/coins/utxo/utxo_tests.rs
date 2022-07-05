@@ -13,7 +13,7 @@ use crate::utxo::rpc_clients::{BlockHashOrHeight, ElectrumBalance, ElectrumClien
 use crate::utxo::tx_cache::dummy_tx_cache::DummyVerboseCache;
 use crate::utxo::tx_cache::UtxoVerboseCacheOps;
 use crate::utxo::utxo_builder::{UtxoArcBuilder, UtxoCoinBuilderCommonOps};
-use crate::utxo::utxo_common::UtxoTxBuilder;
+use crate::utxo::utxo_common::{send_to_simple_redeem, spend_simple_redeem, UtxoTxBuilder};
 use crate::utxo::utxo_common_tests;
 use crate::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
 #[cfg(not(target_arch = "wasm32"))] use crate::WithdrawFee;
@@ -4002,4 +4002,61 @@ fn test_sign_verify_message_segwit() {
         .verify_message(&signature, message, "R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW")
         .unwrap();
     assert!(is_valid);
+}
+
+#[test]
+fn test_send_to_redeem_script() {
+    let priv_key = [
+        3, 98, 177, 3, 108, 39, 234, 144, 131, 178, 103, 103, 127, 80, 230, 166, 53, 68, 147, 215, 42, 216, 144, 72,
+        172, 110, 180, 13, 123, 179, 10, 49,
+    ];
+    let conf = json!({"coin":"tQTUM","rpcport":13889,"pubtype":120,"p2shtype":110,"mature_confirmations":2000,"txfee": 400000});
+    let req = json!({
+        "method": "electrum",
+        "servers": [{"url":"electrum1.cipig.net:10071"}, {"url":"electrum2.cipig.net:10071"}, {"url":"electrum3.cipig.net:10071"}],
+    });
+
+    let ctx = MmCtxBuilder::new().into_mm_arc();
+
+    let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
+    let coin = block_on(qtum_coin_with_priv_key(&ctx, "tQTUM", &conf, &params, &priv_key)).unwrap();
+    let tx = send_to_simple_redeem(coin, BigDecimal::from(1)).wait().unwrap();
+    println!("tx_hash = {:02x}", tx.tx_hash());
+    println!("tx_hex = {}", hex::encode(tx.tx_hex()));
+
+    // P2SH address = maVhgmUNcuJbVM7bd8pGzXZFuQZNiaqReF
+    // tx_hash = f70c68ab3049e0eca9bf22baf7fb71c0deee2b63323582ed84921be1ae2470ef
+    // tx_hex = 0100000002a6acbdd2720310859e4e18279e631ea1ae1082c52345f0665072c82a5e50198e010000006b483045022100ab7856eafb45c82c3a353df932e91280e5cdeeab1baf877a4ddd5179a6aedc13022040e23e1f3a869150c9294a31c6794be71f3c1bd2c23c50cc5a1733a78034fb94012103693bff1b39e8b5a306810023c29b95397eb395530b106b1820ea235fd81d9ce9ffffffff358f06d8b94fa6154531ba9c4cd880f37b7b4b646821933b78b0742c1ba55f4b020000006a47304402201b00ca49f306e2004b3b401eb88c5e204c4579980501969637774de16c7eeddc022067ec24db8ff1fe265e377138d5ba749522833bc1573569e88850ea866b16dcef012103693bff1b39e8b5a306810023c29b95397eb395530b106b1820ea235fd81d9ce9ffffffff0200e1f5050000000017a914c8eac2ba16212a9678d80e51a13b746d71280a2c8756556900000000001976a9149e032d4b0090a11dc40fe6c47601499a35d55fbb88acc062c462
+}
+
+#[test]
+fn test_spend_redeem_script() {
+    let priv_key = [
+        3, 98, 177, 3, 108, 39, 234, 144, 131, 178, 103, 103, 127, 80, 230, 166, 53, 68, 147, 215, 42, 216, 144, 72,
+        172, 110, 180, 13, 123, 179, 10, 49,
+    ];
+    let conf = json!({"coin":"tQTUM","rpcport":13889,"pubtype":120,"p2shtype":110,"mature_confirmations":2000,"txfee": 400000});
+    let req = json!({
+        "method": "electrum",
+        "servers": [{"url":"electrum1.cipig.net:10071"}, {"url":"electrum2.cipig.net:10071"}, {"url":"electrum3.cipig.net:10071"}],
+    });
+
+    let ctx = MmCtxBuilder::new().into_mm_arc();
+
+    let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
+    let coin = block_on(qtum_coin_with_priv_key(&ctx, "tQTUM", &conf, &params, &priv_key)).unwrap();
+
+    let prev_transaction: UtxoTx = "01000000023ccdb52c1a6288d2407f3d1f336badf43bb7780301288117123e0624a8937023010000006a473044022049b59db35eae5aa933f8cf9001e10aa652a380beef29b9f71c4b9ca465b3d97202204b11e53b6b2ce297b527adc34da9d87eb5fb2ac324963b131b5e9ac88e6934d3012103693bff1b39e8b5a306810023c29b95397eb395530b106b1820ea235fd81d9ce9ffffffffd09ae81d26c8268e13974985d008058461074a8a79bcfde850f522dbdca3a9d4020000006b483045022100804fe2821cc81e8d665fcbfd6f097dd29c2e3def0e97d489e84024a35c4bb24f02203f5f23713f697654e6b6442c87ccae928c89d00a3c68a0a5dbf3b7e1aae3bb28012103693bff1b39e8b5a306810023c29b95397eb395530b106b1820ea235fd81d9ce9ffffffff0200e1f5050000000017a914c8eac2ba16212a9678d80e51a13b746d71280a2c870e7d8400000000001976a9149e032d4b0090a11dc40fe6c47601499a35d55fbb88ac474fc462".into();
+    let tx = spend_simple_redeem(coin, prev_transaction).wait().unwrap();
+    println!("tx_hash = {:02x}", tx.tx_hash());
+    println!("tx_hex = {}", hex::encode(tx.tx_hex()));
+}
+
+#[test]
+fn print_tx() {
+    let bytes_json = BytesJson(vec![
+        142, 25, 80, 94, 42, 200, 114, 80, 102, 240, 69, 35, 197, 130, 16, 174, 161, 30, 99, 158, 39, 24, 78, 158, 133,
+        16, 3, 114, 210, 189, 172, 166,
+    ]);
+    println!("{:02x}", bytes_json);
 }

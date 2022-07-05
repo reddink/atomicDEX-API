@@ -8,7 +8,8 @@ use crate::utxo::rpc_clients::{ElectrumClient, NativeClient, UnspentInfo, UtxoRp
 use crate::utxo::tx_cache::{UtxoVerboseCacheOps, UtxoVerboseCacheShared};
 use crate::utxo::utxo_builder::{UtxoCoinBuildError, UtxoCoinBuildResult, UtxoCoinBuilderCommonOps,
                                 UtxoCoinWithIguanaPrivKeyBuilder, UtxoFieldsWithIguanaPrivKeyBuilder};
-use crate::utxo::utxo_common::{self, big_decimal_from_sat, check_all_inputs_signed_by_pub, UtxoTxBuilder};
+use crate::utxo::utxo_common::{self, big_decimal_from_sat, check_all_inputs_signed_by_pub, P2SHSpendingTxInput,
+                               UtxoTxBuilder};
 use crate::utxo::{qtum, ActualTxFee, AdditionalTxData, BroadcastTxErr, FeePolicy, GenerateTxError, GetUtxoListOps,
                   HistoryUtxoTx, HistoryUtxoTxMap, MatureUnspentList, RecentlySpentOutPointsGuard,
                   UtxoActivationParams, UtxoAddressFormat, UtxoCoinFields, UtxoCommonOps, UtxoFromLegacyReqErr,
@@ -22,6 +23,7 @@ use crate::{BalanceError, BalanceFut, CoinBalance, FeeApproxStage, FoundSwapTxSp
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use bitcrypto::{dhash160, sha256};
+use chain::constants::SEQUENCE_FINAL;
 use chain::TransactionOutput;
 use common::executor::Timer;
 use common::jsonrpc_client::{JsonRpcClient, JsonRpcRequest, RpcRes};
@@ -40,7 +42,7 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 #[cfg(test)] use mocktopus::macros::*;
 use rpc::v1::types::{Bytes as BytesJson, ToTxHash, Transaction as RpcTransaction, H160 as H160Json, H256 as H256Json};
-use script::{Builder as ScriptBuilder, Opcode, Script, TransactionInputSigner};
+use script::{Builder as ScriptBuilder, Builder, Opcode, Script, TransactionInputSigner};
 use script_pubkey::generate_contract_call_script_pubkey;
 use serde_json::{self as json, Value as Json};
 use serialization::{deserialize, serialize, CoinVariant};
@@ -512,6 +514,46 @@ impl Qrc20Coin {
             miner_fee,
             gas_fee,
         })
+    }
+
+    /// Generate Qtum UTXO transaction with contract calls.
+    /// Note: lock the UTXO_LOCK mutex before this function will be called.
+    async fn generate_qrc20_transaction_with_simple_redeem(
+        &self,
+        contract_outputs: Vec<ContractCallOutput>,
+        prev_transaction: UtxoTx,
+    ) -> Result<UtxoTx, String> {
+        let key_pair = try_s!(self.utxo.priv_key_policy.key_pair_or_err());
+        let redeem_script = utxo_common::simple_redeem_script(key_pair.public()).into();
+        let input = P2SHSpendingTxInput {
+            prev_transaction,
+            redeem_script,
+            // Dummy script data as it's not used in simple redeem signature
+            script_data: Builder::default().into_script(),
+            outputs: contract_outputs.into_iter().map(TransactionOutput::from).collect(),
+            sequence: SEQUENCE_FINAL,
+            lock_time: (now_ms() / 1000) as u32,
+            keypair: key_pair,
+        };
+        utxo_common::p2sh_simple_spending_tx(self, input, true).await
+    }
+
+    /// Generate Qtum UTXO transaction with contract calls.
+    /// Note: lock the UTXO_LOCK mutex before this function will be called.
+    async fn send_qrc20_transaction_with_simple_redeem(
+        &self,
+        prev_transaction: UtxoTx,
+        to: H160,
+        amount: U256,
+    ) -> Result<TransactionEnum, String> {
+        let contract_output =
+            try_s!(self.transfer_output(to, amount, QRC20_GAS_LIMIT_DEFAULT, QRC20_GAS_PRICE_DEFAULT));
+        let signed = try_s!(
+            self.generate_qrc20_transaction_with_simple_redeem(vec![contract_output], prev_transaction)
+                .await
+        );
+        try_s!(self.utxo.rpc_client.send_transaction(&signed).compat().await);
+        Ok(signed.into())
     }
 
     fn transfer_output(
@@ -1321,17 +1363,25 @@ pub struct Qrc20FeeDetails {
 }
 
 async fn qrc20_withdraw(coin: Qrc20Coin, req: WithdrawRequest) -> WithdrawResult {
-    let to_addr = UtxoAddress::from_str(&req.to)
+    let mut to_addr = coin
+        .address_from_str(&req.to)
         .map_err(|e| e.to_string())
         .map_to_mm(WithdrawError::InvalidAddress)?;
     let conf = &coin.utxo.conf;
-    let is_p2pkh = to_addr.prefix == conf.pub_addr_prefix && to_addr.t_addr_prefix == conf.pub_t_addr_prefix;
-    let is_p2sh =
-        to_addr.prefix == conf.p2sh_addr_prefix && to_addr.t_addr_prefix == conf.p2sh_t_addr_prefix && conf.segwit;
-    if !is_p2pkh && !is_p2sh {
-        let error = "Expected either P2PKH or P2SH".to_owned();
-        return MmError::err(WithdrawError::InvalidAddress(error));
-    }
+    // let is_p2pkh = to_addr.prefix == conf.pub_addr_prefix && to_addr.t_addr_prefix == conf.pub_t_addr_prefix;
+    // let is_p2sh =
+    //     to_addr.prefix == conf.p2sh_addr_prefix && to_addr.t_addr_prefix == conf.p2sh_t_addr_prefix && conf.segwit;
+    // if !is_p2pkh && !is_p2sh {
+    //     let error = "Expected either P2PKH or P2SH".to_owned();
+    //     return MmError::err(WithdrawError::InvalidAddress(error));
+    // }
+    to_addr.prefix = coin.utxo.conf.pub_addr_prefix;
+    to_addr.t_addr_prefix = coin.utxo.conf.pub_t_addr_prefix;
+    log!("to_address P2PKH: {}", to_addr);
+
+    to_addr.prefix = coin.utxo.conf.p2sh_addr_prefix;
+    to_addr.t_addr_prefix = coin.utxo.conf.p2sh_t_addr_prefix;
+    log!("to_address P2SH: {}", to_addr);
 
     let _utxo_lock = UTXO_LOCK.lock().await;
 

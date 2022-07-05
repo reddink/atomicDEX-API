@@ -3,7 +3,7 @@ use chain::{Transaction as UtxoTx, TransactionInput};
 use keys::bytes::Bytes;
 use keys::Public as PublicKey;
 use primitives::hash::{H256, H512};
-use script::{Builder, Script, TransactionInputSigner, UnsignedTransactionInput};
+use script::{Builder, Opcode, Script, TransactionInputSigner, UnsignedTransactionInput};
 
 pub(crate) fn complete_tx(unsigned: TransactionInputSigner, signed_inputs: Vec<TransactionInput>) -> UtxoTx {
     UtxoTx {
@@ -79,6 +79,31 @@ pub(crate) fn p2sh_spend_with_signature(
     TransactionInput {
         previous_output: unsigned_input.previous_output,
         script_sig: resulting_script,
+        sequence: unsigned_input.sequence,
+        script_witness: vec![],
+    }
+}
+
+pub(crate) fn p2sh_spend_simple_with_signature(
+    unsigned_input: &UnsignedTransactionInput,
+    redeem_script: Script,
+    fork_id: u32,
+    signature: Signature,
+) -> TransactionInput {
+    let script_sig = script_sig(signature, fork_id);
+
+    // https://medium.com/coinmonks/build-p2sh-address-and-spend-its-fund-in-golang-1a03a4131512
+    // "Spend Multi-Sig P2SH" section
+    let script_sig = Builder::default()
+        .push_opcode(Opcode::OP_0)
+        .push_bytes(&script_sig)
+        .push_bytes(&redeem_script)
+        .into_script()
+        .into();
+
+    TransactionInput {
+        previous_output: unsigned_input.previous_output,
+        script_sig,
         sequence: unsigned_input.sequence,
         script_witness: vec![],
     }

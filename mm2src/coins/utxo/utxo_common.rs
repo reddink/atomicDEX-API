@@ -51,7 +51,7 @@ use std::collections::hash_map::{Entry, HashMap};
 use std::str::FromStr;
 use std::sync::atomic::Ordering as AtomicOrdering;
 use utxo_block_header_storage::BlockHeaderStorageOps;
-use utxo_signer::with_key_pair::p2sh_spend;
+use utxo_signer::with_key_pair::{p2sh_spend, p2sh_spend_simple};
 use utxo_signer::UtxoSignerOps;
 
 pub use chain::Transaction as UtxoTx;
@@ -576,7 +576,7 @@ pub fn my_public_key(coin: &UtxoCoinFields) -> Result<&Public, MmError<Unexpecte
 
 pub fn checked_address_from_str<T: UtxoCommonOps>(coin: &T, address: &str) -> Result<Address, String> {
     let addr = try_s!(address_from_str_unchecked(coin.as_ref(), address));
-    try_s!(check_withdraw_address_supported(coin, &addr));
+    // try_s!(check_withdraw_address_supported(coin, &addr));
     Ok(addr)
 }
 
@@ -956,13 +956,13 @@ pub async fn calc_interest_if_required<T: UtxoCommonOps>(
 }
 
 pub struct P2SHSpendingTxInput<'a> {
-    prev_transaction: UtxoTx,
-    redeem_script: Bytes,
-    outputs: Vec<TransactionOutput>,
-    script_data: Script,
-    sequence: u32,
-    lock_time: u32,
-    keypair: &'a KeyPair,
+    pub prev_transaction: UtxoTx,
+    pub redeem_script: Bytes,
+    pub outputs: Vec<TransactionOutput>,
+    pub script_data: Script,
+    pub sequence: u32,
+    pub lock_time: u32,
+    pub keypair: &'a KeyPair,
 }
 
 pub async fn p2sh_spending_tx<T: UtxoCommonOps>(coin: &T, input: P2SHSpendingTxInput<'_>) -> Result<UtxoTx, String> {
@@ -1009,6 +1009,85 @@ pub async fn p2sh_spending_tx<T: UtxoCommonOps>(coin: &T, input: P2SHSpendingTxI
         DEFAULT_SWAP_VOUT,
         input.keypair,
         input.script_data,
+        input.redeem_script.into(),
+        coin.as_ref().conf.signature_version,
+        coin.as_ref().conf.fork_id
+    ));
+    Ok(UtxoTx {
+        version: unsigned.version,
+        n_time: unsigned.n_time,
+        overwintered: unsigned.overwintered,
+        lock_time: unsigned.lock_time,
+        inputs: vec![signed_input],
+        outputs: unsigned.outputs,
+        expiry_height: unsigned.expiry_height,
+        join_splits: vec![],
+        shielded_spends: vec![],
+        shielded_outputs: vec![],
+        value_balance: 0,
+        version_group_id: coin.as_ref().conf.version_group_id,
+        binding_sig: H512::default(),
+        join_split_sig: H512::default(),
+        join_split_pubkey: H256::default(),
+        zcash: coin.as_ref().conf.zcash,
+        str_d_zeel: unsigned.str_d_zeel,
+        tx_hash_algo: unsigned.hash_algo.into(),
+    })
+}
+
+pub async fn p2sh_simple_spending_tx<T: UtxoCommonOps>(
+    coin: &T,
+    input: P2SHSpendingTxInput<'_>,
+    qrc20: bool,
+) -> Result<UtxoTx, String> {
+    let lock_time = try_s!(coin.p2sh_tx_locktime(input.lock_time).await);
+    let n_time = if coin.as_ref().conf.is_pos {
+        Some((now_ms() / 1000) as u32)
+    } else {
+        None
+    };
+    let str_d_zeel = if coin.as_ref().conf.ticker == "NAV" {
+        Some("".into())
+    } else {
+        None
+    };
+    let hash_algo = coin.as_ref().tx_hash_algo.into();
+    // let amount = if qrc20 {
+    //     0
+    // } else {
+    //     input.prev_transaction.outputs[0].value
+    // };
+    let amount = input.prev_transaction.outputs[0].value;
+    let unsigned = TransactionInputSigner {
+        lock_time,
+        version: coin.as_ref().conf.tx_version,
+        n_time,
+        overwintered: coin.as_ref().conf.overwintered,
+        inputs: vec![UnsignedTransactionInput {
+            sequence: input.sequence,
+            previous_output: OutPoint {
+                hash: input.prev_transaction.hash(),
+                index: DEFAULT_SWAP_VOUT as u32,
+            },
+            amount,
+            witness: Vec::new(),
+        }],
+        outputs: input.outputs,
+        expiry_height: 0,
+        join_splits: vec![],
+        shielded_spends: vec![],
+        shielded_outputs: vec![],
+        value_balance: 0,
+        version_group_id: coin.as_ref().conf.version_group_id,
+        consensus_branch_id: coin.as_ref().conf.consensus_branch_id,
+        zcash: coin.as_ref().conf.zcash,
+        str_d_zeel,
+        hash_algo,
+    };
+    let signed_input = try_s!(p2sh_spend_simple(
+        &unsigned,
+        DEFAULT_SWAP_VOUT,
+        input.keypair,
         input.redeem_script.into(),
         coin.as_ref().conf.signature_version,
         coin.as_ref().conf.fork_id
@@ -1089,6 +1168,77 @@ where
                     .and_then(move |_| send_outputs_from_my_address(coin, outputs)),
             )
         },
+    };
+    Box::new(send_fut)
+}
+
+pub fn spend_simple_redeem<T>(coin: T, mut prev_transaction: UtxoTx) -> TransactionFut
+where
+    T: UtxoCommonOps + GetUtxoListOps,
+{
+    let my_address = try_tx_fus!(coin.as_ref().derivation_method.iguana_or_err()).clone();
+    prev_transaction.tx_hash_algo = coin.as_ref().tx_hash_algo;
+
+    let fut = async move {
+        let key_pair = try_tx_s!(coin.as_ref().priv_key_policy.key_pair_or_err());
+
+        let redeem_script = simple_redeem_script(key_pair.public());
+        // Dummy script data
+        let script_data = Builder::default().into_script();
+        let redeem_script = redeem_script.into();
+
+        let fee = try_tx_s!(coin.get_htlc_spend_fee(DEFAULT_SWAP_TX_SPEND_SIZE).await);
+        let script_pubkey = output_script(&my_address, ScriptType::P2PKH).to_bytes();
+        let output = TransactionOutput {
+            value: prev_transaction.outputs[0].value - fee,
+            script_pubkey,
+        };
+
+        let lock_time = if coin.as_ref().conf.ticker == "KMD" {
+            (now_ms() / 1000) as u32 - 3600 + 777 * 2
+        } else {
+            (now_ms() / 1000) as u32
+        };
+
+        let input = P2SHSpendingTxInput {
+            prev_transaction,
+            redeem_script,
+            outputs: vec![output],
+            script_data,
+            sequence: SEQUENCE_FINAL,
+            lock_time,
+            keypair: key_pair,
+        };
+        let transaction = try_tx_s!(p2sh_simple_spending_tx(&coin, input, false).await);
+
+        let tx_fut = coin.as_ref().rpc_client.send_transaction(&transaction).compat();
+        try_tx_s!(tx_fut.await, transaction);
+
+        Ok(transaction.into())
+    };
+    Box::new(fut.boxed().compat())
+}
+
+pub fn send_to_simple_redeem<T>(coin: T, amount: BigDecimal) -> TransactionFut
+where
+    T: UtxoCommonOps + GetUtxoListOps,
+{
+    let key_pair = try_tx_fus!(coin.as_ref().priv_key_policy.key_pair_or_err());
+    let SwapPaymentOutputsResult {
+        payment_address,
+        outputs,
+    } = try_tx_fus!(generate_simple_p2sh_output(&coin, key_pair.public_slice(), amount));
+
+    let addr_string = try_tx_fus!(payment_address.display_address());
+    println!("P2SH address = {}", addr_string);
+    let send_fut = match &coin.as_ref().rpc_client {
+        UtxoRpcClientEnum::Electrum(_) => Either::A(send_outputs_from_my_address(coin, outputs)),
+        UtxoRpcClientEnum::Native(client) => Either::B(
+            client
+                .import_address(&addr_string, &addr_string, false)
+                .map_err(|e| TransactionErr::Plain(ERRL!("{}", e)))
+                .and_then(move |_| send_outputs_from_my_address(coin, outputs)),
+        ),
     };
     Box::new(send_fut)
 }
@@ -3345,6 +3495,38 @@ struct SwapPaymentOutputsResult {
     outputs: Vec<TransactionOutput>,
 }
 
+fn generate_simple_p2sh_output<T>(
+    coin: T,
+    my_pub: &[u8],
+    amount: BigDecimal,
+) -> Result<SwapPaymentOutputsResult, String>
+where
+    T: AsRef<UtxoCoinFields>,
+{
+    let my_public = try_s!(Public::from_slice(my_pub));
+    let redeem_script = simple_redeem_script(&my_public);
+    let redeem_script_hash = dhash160(&redeem_script);
+    let value = try_s!(sat_from_big_decimal(&amount, coin.as_ref().decimals));
+    let htlc_out = TransactionOutput {
+        value,
+        script_pubkey: Builder::build_p2sh(&redeem_script_hash.into()).into(),
+    };
+
+    let payment_address = Address {
+        checksum_type: coin.as_ref().conf.checksum_type,
+        hash: redeem_script_hash.into(),
+        prefix: coin.as_ref().conf.p2sh_addr_prefix,
+        t_addr_prefix: coin.as_ref().conf.p2sh_t_addr_prefix,
+        hrp: coin.as_ref().conf.bech32_hrp.clone(),
+        addr_format: UtxoAddressFormat::Standard,
+    };
+    let result = SwapPaymentOutputsResult {
+        payment_address,
+        outputs: vec![htlc_out],
+    };
+    Ok(result)
+}
+
 fn generate_swap_payment_outputs<T>(
     coin: T,
     time_lock: u32,
@@ -3421,6 +3603,17 @@ pub fn payment_script(time_lock: u32, secret_hash: &[u8], pub_0: &Public, pub_1:
         .push_bytes(pub_1)
         .push_opcode(Opcode::OP_CHECKSIG)
         .push_opcode(Opcode::OP_ENDIF)
+        .into_script()
+}
+
+/// https://medium.com/coinmonks/build-p2sh-address-and-spend-its-fund-in-golang-1a03a4131512
+/// "Multi-Sig Redeem Script" section
+pub fn simple_redeem_script(pub_0: &Public) -> Script {
+    Builder::default()
+        .push_opcode(Opcode::OP_1)
+        .push_bytes(pub_0)
+        .push_opcode(Opcode::OP_1)
+        .push_opcode(Opcode::OP_CHECKMULTISIG)
         .into_script()
 }
 

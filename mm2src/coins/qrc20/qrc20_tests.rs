@@ -7,7 +7,7 @@ use common::{block_on, DEX_FEE_ADDR_RAW_PUBKEY};
 use itertools::Itertools;
 use mm2_core::mm_ctx::MmCtxBuilder;
 use mocktopus::mocking::{MockResult, Mockable};
-use rpc::v1::types::ToTxHash;
+use rpc::v1::types::{ToTxHash, H160 as H160Json};
 use std::convert::TryFrom;
 use std::mem::discriminant;
 
@@ -1020,4 +1020,47 @@ fn test_send_contract_calls_recoverable_tx() {
         discriminant(&tx_err),
         discriminant(&TransactionErr::TxRecoverable(TransactionEnum::from(tx), String::new()))
     );
+}
+
+#[test]
+fn test_send_to_p2sh_address() {
+    let priv_key = [
+        3, 98, 177, 3, 108, 39, 234, 144, 131, 178, 103, 103, 127, 80, 230, 166, 53, 68, 147, 215, 42, 216, 144, 72,
+        172, 110, 180, 13, 123, 179, 10, 49,
+    ];
+    let (_, coin) = qrc20_coin_for_test(&priv_key, None);
+
+    let req = WithdrawRequest {
+        coin: "QRC20".to_owned(),
+        from: None,
+        to: "maVhgmUNcuJbVM7bd8pGzXZFuQZNiaqReF".to_owned(),
+        amount: BigDecimal::from(10),
+        max: false,
+        fee: None,
+    };
+    let tx = block_on(qrc20_withdraw(coin.clone(), req)).unwrap();
+    println!("tx_hash = {}", tx.tx_hash);
+    println!("tx_hex = {:02x}", tx.tx_hex);
+    coin.send_raw_tx(&format!("{:02x}", tx.tx_hex)).wait().unwrap();
+    // to_address P2PKH: qbsjXrTFihwMfgWTsL9TqnH8CT8ovUpkHa
+    // tx_hash = 793ba8af0fed6dad504d9dc8bdd9f16b4c8c1b3635a7219553fc84625b13a992
+    // tx_hex = 0100000001ef7024aee11b9284ed823532632beedec071fbf7ba22bfa9ece04930ab680cf7010000006a473044022032af0d7348571abde0e62e80cb23ab31c46cf037eca4aca64b14b268dfdce22e02202a92975005ec67345b786c11d725e77de44ca69a3ff687a8883626387d45e9c2012103693bff1b39e8b5a306810023c29b95397eb395530b106b1820ea235fd81d9ce9ffffffff020000000000000000625403a08601012844a9059cbb000000000000000000000000c8eac2ba16212a9678d80e51a13b746d71280a2c000000000000000000000000000000000000000000000000000000003b9aca0014d362e096e873eb7907e205fadc6175c6fec7bc44c26e482c00000000001976a9149e032d4b0090a11dc40fe6c47601499a35d55fbb88ac7866c462
+}
+
+#[test]
+fn test_spend_p2sh() {
+    println!("test_spend_p2sh]");
+    let priv_key = [
+        3, 98, 177, 3, 108, 39, 234, 144, 131, 178, 103, 103, 127, 80, 230, 166, 53, 68, 147, 215, 42, 216, 144, 72,
+        172, 110, 180, 13, 123, 179, 10, 49,
+    ];
+    let (_, coin) = qrc20_coin_for_test(&priv_key, None);
+
+    let prev_transaction: UtxoTx = "0100000001ef7024aee11b9284ed823532632beedec071fbf7ba22bfa9ece04930ab680cf7010000006a473044022032af0d7348571abde0e62e80cb23ab31c46cf037eca4aca64b14b268dfdce22e02202a92975005ec67345b786c11d725e77de44ca69a3ff687a8883626387d45e9c2012103693bff1b39e8b5a306810023c29b95397eb395530b106b1820ea235fd81d9ce9ffffffff020000000000000000625403a08601012844a9059cbb000000000000000000000000c8eac2ba16212a9678d80e51a13b746d71280a2c000000000000000000000000000000000000000000000000000000003b9aca0014d362e096e873eb7907e205fadc6175c6fec7bc44c26e482c00000000001976a9149e032d4b0090a11dc40fe6c47601499a35d55fbb88ac7866c462".into();
+    let hash = H160Json::from_str("1549128bbfb33b997949b4105b6a6371c998e212").unwrap();
+    let to: H160 = hash.0.into();
+    let amount: U256 = 300000000.into();
+    let tx = block_on(coin.send_qrc20_transaction_with_simple_redeem(prev_transaction, to, amount)).unwrap();
+    println!("tx_hash = {:02x}", tx.tx_hash());
+    println!("tx_hex = {}", hex::encode(tx.tx_hex()));
 }

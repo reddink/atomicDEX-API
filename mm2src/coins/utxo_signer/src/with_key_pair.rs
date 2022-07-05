@@ -1,5 +1,5 @@
 use crate::sign_common::{complete_tx, p2pk_spend_with_signature, p2pkh_spend_with_signature,
-                         p2sh_spend_with_signature, p2wpkh_spend_with_signature};
+                         p2sh_spend_simple_with_signature, p2sh_spend_with_signature, p2wpkh_spend_with_signature};
 use crate::Signature;
 use chain::{Transaction as UtxoTx, TransactionInput};
 use derive_more::Display;
@@ -139,6 +139,33 @@ pub fn p2sh_spend(
         unsigned_input,
         redeem_script,
         script_data,
+        fork_id,
+        signature,
+    ))
+}
+
+/// Creates signed input spending hash time locked p2sh output
+pub fn p2sh_spend_simple(
+    signer: &TransactionInputSigner,
+    input_index: usize,
+    key_pair: &KeyPair,
+    redeem_script: Script,
+    signature_version: SignatureVersion,
+    fork_id: u32,
+) -> UtxoSignWithKeyPairResult<TransactionInput> {
+    let unsigned_input = get_input(signer, input_index)?;
+
+    let signature = calc_and_sign_sighash(
+        signer,
+        input_index,
+        redeem_script.clone(),
+        key_pair,
+        signature_version,
+        fork_id,
+    )?;
+    Ok(p2sh_spend_simple_with_signature(
+        unsigned_input,
+        redeem_script,
         fork_id,
         signature,
     ))
