@@ -1,6 +1,15 @@
 use super::*;
 use common::log::LogWeak;
 
+///  Dummy Labels constructor macro
+#[macro_export]
+macro_rules! mm_label {
+    ($($label_key:expr => $label_val:expr),+) => {{
+         let labels = vec![$(($label_key.to_owned(), $label_val.to_owned())),+];
+         labels
+    }};
+}
+
 /// The dummy macro that imitates [`crate::mm_metrics::native::mm_counter`].
 /// These macros borrow the `$metrics`, `$name`, `$value` and takes ownership of the `$label_key`, `$label_val` to prevent the `unused_variable` warning.
 /// The labels have to be moved because [`metrics_runtime::Sink::increment_counter_with_labels`] also takes ownership of the labels.

@@ -19,8 +19,9 @@ type MetricLabels = Vec<Label>;
 
 pub(crate) type MetricNameValueMap = HashMap<String, PreparedMetric>;
 
+/// Construct Vec<Label> from a slice of strings.
 #[macro_export]
-macro_rules! label {
+macro_rules! mm_label {
     ($($label_key:expr => $label_val:expr),+) => {{
          let labels = vec![$(($label_key.to_owned(), $label_val.to_owned())),+];
          labels
@@ -43,7 +44,7 @@ macro_rules! mm_counter {
     ($metrics:expr, $name:expr, $value:expr, $($label_key:expr => $label_val:expr),+) => {{
         use $crate::metrics::Recorder;
         if let Some(recorder) = $crate::recorder::TryRecorder::try_recorder(&$metrics) {
-            let labels = label!($($label_key => $label_val),+);
+            let labels = mm_label!($($label_key => $label_val),+);
             let key = $crate::metrics::Key::from_parts($name, labels.as_slice());
             let counter = recorder.register_counter(&key);
             counter.increment($value);
@@ -67,7 +68,7 @@ macro_rules! mm_gauge {
     ($metrics:expr, $name:expr, $value:expr, $($label_key:expr => $label_val:expr),+) => {{
         use $crate::metrics::Recorder;
         if let Some(recorder) = $crate::recorder::TryRecorder::try_recorder(&$metrics){
-            let labels = label!($($label_key => $label_val),+);
+            let labels = mm_label!($($label_key => $label_val),+);
             let key = $crate::metrics::Key::from_parts($name, labels.as_slice());
             let gauge = recorder.register_gauge(&key);
             gauge.set($value);
@@ -92,7 +93,7 @@ macro_rules! mm_timing {
     ($metrics:expr, $name:expr, $value:expr, $($label_key:expr => $label_val:expr),+) => {{
         use $crate::metrics::Recorder;
         if let Some(recorder) = $crate::recorder::TryRecorder::try_recorder(&$metrics){
-            let labels = label!($($label_key => $label_val),+);
+            let labels = mm_label!($($label_key => $label_val),+);
             let key = $crate::metrics::Key::from_parts($name, labels.as_slice());
             let histo = recorder.register_histogram(&key);
             histo.record($value);
