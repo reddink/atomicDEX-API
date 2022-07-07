@@ -9,6 +9,7 @@
 #[macro_use] extern crate common;
 #[macro_use] extern crate enum_primitive_derive;
 #[macro_use] extern crate gstuff;
+#[macro_use] extern crate mm2_metrics;
 #[macro_use] extern crate serde_json;
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate serialization_derive;

@@ -52,11 +52,11 @@ pub struct Metrics {
 }
 
 impl MetricsOps for Metrics {
-    fn init(&self) -> Result<(), String> { Ok(()) }
+    fn init(&self) {}
 
-    fn init_with_dashboard(&self, _log_state: LogWeak, _record_interval: f64) -> Result<(), String> { Ok(()) }
+    fn init_with_dashboard(&self, _log_state: LogWeak, _record_interval: f64) -> MmMetricsResult<()> { Ok(()) }
 
-    fn collect_json(&self) -> Result<Json, String> { Ok(Json::Array(Vec::new())) }
+    fn collect_json(&self) -> MmMetricsResult<Json> { Ok(Json::Array(Vec::new())) }
 }
 
 pub trait TryRecorder {
@@ -66,5 +66,3 @@ pub trait TryRecorder {
 impl TryRecorder for Metrics {
     fn try_recorder(&self) -> Option<Arc<MmRecorder>> { None }
 }
-
-pub fn try_recorder() -> Option<()> { None }

@@ -855,7 +855,7 @@ mod tests {
             72, 172, 110, 180, 13, 123, 179, 10, 49,
         ];
         let (ctx, coin) = qrc20_coin_for_test(&priv_key, None);
-        ctx.metrics.init().unwrap();
+        ctx.metrics.init();
 
         let tx_hash: H256Json = hex::decode("85ede12ccc12fb1709c4d9e403e96c0c394b0916f2f6098d41d8dfa00013fcdb")
             .unwrap()
@@ -887,7 +887,7 @@ mod tests {
             72, 172, 110, 180, 13, 123, 179, 10, 49,
         ];
         let (ctx, coin) = qrc20_coin_for_test(&priv_key, None);
-        ctx.metrics.init().unwrap();
+        ctx.metrics.init();
 
         let tx_hash: H256Json = hex::decode("85ede12ccc12fb1709c4d9e403e96c0c394b0916f2f6098d41d8dfa00013fcdb")
             .unwrap()
@@ -929,7 +929,7 @@ mod tests {
             72, 172, 110, 180, 13, 123, 179, 10, 49,
         ];
         let (ctx, coin) = qrc20_coin_for_test(&priv_key, None);
-        ctx.metrics.init().unwrap();
+        ctx.metrics.init();
 
         let tx_hash: H256Json = hex::decode("85ede12ccc12fb1709c4d9e403e96c0c394b0916f2f6098d41d8dfa00013fcdb")
             .unwrap()
@@ -1023,7 +1023,7 @@ mod tests {
         let (ctx, coin) = qrc20_coin_for_test(&priv_key, None);
 
         let metrics = MetricsArc::new();
-        metrics.init().unwrap();
+        metrics.init();
 
         let tx_hash_invalid: H256Json = hex::decode("0000000000000000000000000000000000000000000000000000000000000000")
             .unwrap()

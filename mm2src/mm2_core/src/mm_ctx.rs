@@ -470,7 +470,7 @@ impl MmArc {
             .unwrap_or(EXPORT_METRICS_INTERVAL);
 
         if interval == 0.0 {
-            try_s!(self.metrics.init());
+            self.metrics.init();
         } else {
             try_s!(self.metrics.init_with_dashboard(self.log.weak(), interval));
         }

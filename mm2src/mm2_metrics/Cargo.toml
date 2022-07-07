@@ -8,15 +8,16 @@ edition = "2021"
 [dependencies]
 base64 = "0.10.0"
 common = { path = "../common" }
+derive_more = "0.99"
 futures = { version = "0.3", package = "futures", features = ["compat", "async-await", "thread-pool"] }
 itertools = "0.10"
+mm2_err_handle = { path = "../mm2_err_handle" }
 serde = "1"
 serde_derive = "1"
 serde_json = { version = "1.0", features = ["preserve_order", "raw_value"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gstuff = { version = "0.7", features = ["crossterm", "nightly"] }
-hdrhistogram = "7.5.0"
 hyper = { version = "0.14.11", features = ["client", "http2", "server", "tcp"] }
 # using webpki-tokio to avoid rejecting valid certificates
 # got "invalid certificate: UnknownIssuer" for https://ropsten.infura.io on iOS using default-features

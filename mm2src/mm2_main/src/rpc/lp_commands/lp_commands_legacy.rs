@@ -177,7 +177,7 @@ pub fn help() -> HyRes {
 pub fn metrics(ctx: MmArc) -> HyRes {
     match ctx.metrics.collect_json().map(|value| value.to_string()) {
         Ok(response) => rpc_response(200, response),
-        Err(err) => rpc_err_response(500, &err),
+        Err(err) => rpc_err_response(500, &err.get_inner().to_string()),
     }
 }
 

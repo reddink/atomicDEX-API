@@ -2698,20 +2698,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hdrhistogram"
-version = "7.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31672b7011be2c4f7456c4ddbcb40e7e9a4a9fad8efe49a6ebaf5f307d0109c0"
-dependencies = [
- "base64 0.13.0",
- "byteorder 1.4.3",
- "crossbeam-channel 0.5.1",
- "flate2",
- "nom 7.1.1",
- "num-traits",
-]
-
-[[package]]
 name = "heck"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4009,12 +3995,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a60c7ce501c71e03a9c9c0d35b861413ae925bd979cc7a4e30d060069aaac8d"
 
 [[package]]
-name = "minimal-lexical"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
-
-[[package]]
 name = "miniz_oxide"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4275,15 +4255,16 @@ version = "0.1.0"
 dependencies = [
  "base64 0.10.1",
  "common",
+ "derive_more",
  "futures 0.3.15",
  "gstuff",
- "hdrhistogram",
  "hyper",
  "hyper-rustls",
  "itertools",
  "metrics",
  "metrics-exporter-prometheus",
  "metrics-util",
+ "mm2_err_handle",
  "serde",
  "serde_derive",
  "serde_json",
@@ -4487,16 +4468,6 @@ dependencies = [
  "lexical-core",
  "memchr",
  "version_check",
-]
-
-[[package]]
-name = "nom"
-version = "7.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8903e5a29a317527874d0402f867152a3d21c908bb0b933e416c65e301d4c36"
-dependencies = [
- "memchr",
- "minimal-lexical",
 ]
 
 [[package]]
@@ -8770,7 +8741,7 @@ dependencies = [
  "group 0.8.0",
  "hex 0.4.2",
  "jubjub",
- "nom 6.1.2",
+ "nom",
  "percent-encoding 2.1.0",
  "protobuf",
  "protobuf-codegen-pure",

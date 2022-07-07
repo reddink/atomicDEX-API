@@ -1,39 +1,54 @@
 #[cfg(not(target_arch = "wasm32"))]
 #[macro_use]
-extern crate gstuff;
-#[macro_use] extern crate serde_derive;
+extern crate common;
 #[cfg(not(target_arch = "wasm32"))]
 #[macro_use]
-extern crate common;
+extern crate gstuff;
+#[macro_use] extern crate serde_derive;
 
+use derive_more::Display;
+use mm2_err_handle::prelude::MmError;
 use serde_json::Value as Json;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
-#[cfg(not(target_arch = "wasm32"))] pub mod recorder;
-#[cfg(not(target_arch = "wasm32"))] pub use metrics;
-#[cfg(not(target_arch = "wasm32"))] pub use recorder::MmRecorder;
-#[cfg(not(target_arch = "wasm32"))] pub mod native;
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{prometheus, Metrics, PreparedMetric};
+#[macro_use]
+pub mod native;
+#[cfg(not(target_arch = "wasm32"))] pub mod recorder;
+#[cfg(not(target_arch = "wasm32"))] use crate::native::Metrics;
+#[cfg(not(target_arch = "wasm32"))] pub use metrics;
+#[cfg(not(target_arch = "wasm32"))] pub use native::prometheus;
+#[cfg(not(target_arch = "wasm32"))]
+use recorder::{MmRecorder, TryRecorder};
 
 #[cfg(target_arch = "wasm32")] mod wasm;
 #[cfg(target_arch = "wasm32")]
-pub use wasm::{try_recorder, Metrics, MmRecorder};
+use wasm::{Metrics, MmRecorder, TryRecorder};
+
+type MmMetricsResult<T> = Result<T, MmError<MmMetricsError>>;
+
+#[derive(Debug, Display)]
+pub enum MmMetricsError {
+    #[display(fmt = "Internal: {}", _0)]
+    Internal(String),
+}
+
+impl From<std::string::String> for MmMetricsError {
+    fn from(str: std::string::String) -> Self { Self::Internal(str) }
+}
 
 pub trait MetricsOps {
-    fn init(&self) -> Result<(), String>
+    /// Initializes mm2 Metrics.
+    fn init(&self)
     where
         Self: Sized;
 
-    fn init_with_dashboard(&self, log_state: common::log::LogWeak, interval: f64) -> Result<(), String>;
+    /// Initializes mm2 Metrics with dashboard.
+    fn init_with_dashboard(&self, log_state: common::log::LogWeak, interval: f64) -> MmMetricsResult<()>;
 
-    /// Collect the metrics as Json.
-    fn collect_json(&self) -> Result<crate::Json, String>;
-}
-
-pub trait TryRecorder {
-    fn try_recorder(&self) -> Option<Arc<MmRecorder>>;
+    /// Collect the metrics in a Json data format.
+    fn collect_json(&self) -> MmMetricsResult<crate::Json>;
 }
 
 #[derive(Clone)]
@@ -44,7 +59,7 @@ impl Default for MetricsArc {
 }
 
 impl MetricsArc {
-    // Create new instance of our metrics recorder set to default
+    // Create new instance of our metrics recorder set to default.
     pub fn new() -> Self { Self(Default::default()) }
 
     /// Try to obtain the `Metrics` from the weak pointer.
@@ -59,17 +74,14 @@ impl TryRecorder for MetricsArc {
 }
 
 impl MetricsOps for MetricsArc {
-    fn init(&self) -> Result<(), String> {
-        self.0.init().unwrap();
+    fn init(&self) { self.0.init(); }
+
+    fn init_with_dashboard(&self, log_state: common::log::LogWeak, interval: f64) -> MmMetricsResult<()> {
+        self.0.init_with_dashboard(log_state, interval)?;
         Ok(())
     }
 
-    fn init_with_dashboard(&self, log_state: common::log::LogWeak, interval: f64) -> Result<(), String> {
-        self.0.init_with_dashboard(log_state, interval).unwrap();
-        Ok(())
-    }
-
-    fn collect_json(&self) -> Result<crate::Json, String> { self.0.collect_json() }
+    fn collect_json(&self) -> MmMetricsResult<crate::Json> { self.0.collect_json() }
 }
 
 #[derive(Clone, Default)]
@@ -115,6 +127,6 @@ pub enum MetricType {
         key: String,
         labels: HashMap<String, String>,
         #[serde(flatten)]
-        quantiles: HashMap<String, u64>,
+        quantiles: HashMap<String, f64>,
     },
 }

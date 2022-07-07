@@ -42,7 +42,6 @@ use keys::{AddressFormat, KeyPair};
 use mm2_core::mm_ctx::{from_ctx, MmArc, MmWeak};
 use mm2_err_handle::prelude::*;
 use mm2_libp2p::{decode_signed, encode_and_sign, encode_message, pub_sub_topic, TopicPrefix, TOPIC_SEPARATOR};
-use mm2_metrics::mm_counter;
 #[cfg(test)] use mocktopus::macros::*;
 use num_traits::identities::Zero;
 use parking_lot::Mutex as PaMutex;
@@ -2364,13 +2363,13 @@ fn collect_orderbook_metrics(ctx: &MmArc, orderbook: &Orderbook) {
     }
 
     let memory_db_size = malloc_size(&orderbook.memory_db);
-    mm_counter!(ctx.metrics, "orderbook.len", orderbook.order_set.len() as u64);
-    mm_counter!(ctx.metrics, "orderbook.memory_db", memory_db_size as u64);
+    mm_gauge!(ctx.metrics, "orderbook.len", orderbook.order_set.len() as f64);
+    mm_gauge!(ctx.metrics, "orderbook.memory_db", memory_db_size as f64);
 
     // TODO remove metrics below after testing
     for (pubkey, pubkey_state) in orderbook.pubkeys_state.iter() {
-        mm_counter!(ctx.metrics, "orders_uuids", pubkey_state.orders_uuids.len() as u64, "pubkey" => pubkey.clone());
-        mm_counter!(ctx.metrics, "history.commited_changes", history_committed_changes(&pubkey_state.order_pairs_trie_state_history) as u64, "pubkey" => pubkey.clone());
+        mm_gauge!(ctx.metrics, "orders_uuids", pubkey_state.orders_uuids.len() as f64, "pubkey" => pubkey.clone());
+        mm_gauge!(ctx.metrics, "history.commited_changes", history_committed_changes(&pubkey_state.order_pairs_trie_state_history) as f64, "pubkey" => pubkey.clone());
     }
 }
 

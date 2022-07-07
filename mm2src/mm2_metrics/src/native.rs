@@ -1,45 +1,50 @@
 use common::log::error;
 use common::{executor::{spawn, Timer},
              log::{LogArc, LogWeak}};
-use gstuff::ERRL;
-use hdrhistogram::Histogram;
-use itertools::Itertools;
-use metrics::{Key, KeyName, Label};
+use metrics::{Key, Label};
 use metrics_exporter_prometheus::PrometheusBuilder;
-use metrics_util::{parse_quantiles, Quantile};
+use mm2_err_handle::prelude::MmError;
 use serde_json::Value;
 use std::{collections::HashMap,
-          fmt::Display,
           sync::{atomic::Ordering, Arc}};
 
 use crate::{common::log::Tag,
             recorder::{labels_to_tags, name_value_map_to_message},
             MetricsOps, MmRecorder};
+use crate::{MmMetricsError, MmMetricsResult};
 
 const QUANTILES: &[f64] = &[0.0, 1.0];
 
 type MetricLabels = Vec<Label>;
 
-pub type MetricNameValueMap = HashMap<String, PreparedMetric>;
+pub(crate) type MetricNameValueMap = HashMap<String, PreparedMetric>;
+
+#[macro_export]
+macro_rules! label {
+    ($($label_key:expr => $label_val:expr),+) => {{
+         let labels = vec![$(($label_key.to_owned(), $label_val.to_owned())),+];
+         labels
+    }};
+}
 
 /// Increment counter if an MmArc is not dropped yet and metrics system is initialized already.
 #[macro_export]
 macro_rules! mm_counter {
     ($metrics:expr, $name:expr, $value:expr) => {{
         use $crate::metrics::Recorder;
-        if let Some(recorder) = $crate::TryRecorder::try_recorder(&$metrics){
-            let key =$crate::metrics::Key::from_static_name($name);
+        if let Some(recorder) = $crate::recorder::TryRecorder::try_recorder(&$metrics) {
+            let key = $crate::metrics::Key::from_static_name($name);
             let counter = recorder.register_counter(&key);
             counter.increment($value);
         };
     }};
 
-    // Register and increment counter with label
+    // Register and increment counter with label.
     ($metrics:expr, $name:expr, $value:expr, $($label_key:expr => $label_val:expr),+) => {{
         use $crate::metrics::Recorder;
-        // use $crate::native::from_slice_to_labels;
-        if let Some(recorder) = $crate::TryRecorder::try_recorder(&$metrics){
-            let key = $crate::metrics::Key::from_parts($name, vec![$(($label_key.to_owned(), $label_val.to_owned())),+].as_slice());
+        if let Some(recorder) = $crate::recorder::TryRecorder::try_recorder(&$metrics) {
+            let labels = label!($($label_key => $label_val),+);
+            let key = $crate::metrics::Key::from_parts($name, labels.as_slice());
             let counter = recorder.register_counter(&key);
             counter.increment($value);
         };
@@ -51,19 +56,19 @@ macro_rules! mm_counter {
 macro_rules! mm_gauge {
     ($metrics:expr, $name:expr, $value:expr) => {{
         use $crate::metrics::Recorder;
-        if let Some(recorder) = $crate::TryRecorder::try_recorder(&$metrics){
-            let key =$crate::metrics::Key::from_static_name($name);
+        if let Some(recorder) = $crate::recorder::TryRecorder::try_recorder(&$metrics){
+            let key = $crate::metrics::Key::from_static_name($name);
             let gauge = recorder.register_gauge(&key);
             gauge.set($value);
         }
     }};
 
-    // Register and set gauge with label
+    // Register and set gauge with label.
     ($metrics:expr, $name:expr, $value:expr, $($label_key:expr => $label_val:expr),+) => {{
         use $crate::metrics::Recorder;
-        // use $crate::native::from_slice_to_labels;
-        if let Some(recorder) = $crate::TryRecorder::try_recorder(&$metrics){
-            let key = $crate::metrics::Key::from_parts($name, vec![$(($label_key.to_owned(), $label_val.to_owned())),+].as_slice());
+        if let Some(recorder) = $crate::recorder::TryRecorder::try_recorder(&$metrics){
+            let labels = label!($($label_key => $label_val),+);
+            let key = $crate::metrics::Key::from_parts($name, labels.as_slice());
             let gauge = recorder.register_gauge(&key);
             gauge.set($value);
         }
@@ -76,26 +81,26 @@ macro_rules! mm_timing {
     ($metrics:expr, $name:expr, $value:expr) => {{
         use $crate::metrics::Recorder;
         use $crate::native::key_from_str;
-        if let Some(recorder) = $crate::TryRecorder::try_recorder(&$metrics){
+        if let Some(recorder) = $crate::recorder::TryRecorder::try_recorder(&$metrics){
             let key =$crate::metrics::Key::from_static_name($name);
             let histo = recorder.register_histogram(&key);
             histo.record($value);
         }
     }};
 
-    // Register and record histogram with label
+    // Register and record histogram with label.
     ($metrics:expr, $name:expr, $value:expr, $($label_key:expr => $label_val:expr),+) => {{
         use $crate::metrics::Recorder;
-        // use $crate::native::from_slice_to_labels;
-        if let Some(recorder) = $crate::TryRecorder::try_recorder(&$metrics){
-            let key = $crate::metrics::Key::from_parts($name, vec![$(($label_key.to_owned(), $label_val.to_owned())),+].as_slice());
+        if let Some(recorder) = $crate::recorder::TryRecorder::try_recorder(&$metrics){
+            let labels = label!($($label_key => $label_val),+);
+            let key = $crate::metrics::Key::from_parts($name, labels.as_slice());
             let histo = recorder.register_histogram(&key);
             histo.record($value);
         }
     }};
 }
 
-/// Market Maker Metrics, used as inner to get metrics data and exporting
+/// Market Maker Metrics, used as inner to get metrics data and exporting.
 #[derive(Default, Clone)]
 pub struct Metrics {
     pub recorder: Arc<MmRecorder>,
@@ -115,22 +120,21 @@ impl Metrics {
 }
 
 impl MetricsOps for Metrics {
-    fn init(&self) -> Result<(), String> {
-        Metrics::default();
-        Ok(())
-    }
+    fn init(&self) { Metrics::default(); }
 
-    fn init_with_dashboard(&self, log_state: LogWeak, interval: f64) -> Result<(), String> {
+    fn init_with_dashboard(&self, log_state: LogWeak, interval: f64) -> MmMetricsResult<()> {
         let recorder = self.recorder.clone();
         let runner = TagObserver::log_tag_metrics(log_state, recorder, interval);
         spawn(runner);
-
         Ok(())
     }
 
-    /// Collect prepared metrics json from the recorder
-    fn collect_json(&self) -> Result<Value, String> {
-        serde_json::to_value(self.recorder.prepare_json()).map_err(|err| ERRL!("{}", err))
+    /// Collect prepared metrics json from the recorder.
+    fn collect_json(&self) -> MmMetricsResult<Value> {
+        match serde_json::to_value(self.recorder.prepare_json()) {
+            Ok(res) => Ok(res),
+            Err(err) => Err(MmError::new(MmMetricsError::Internal(err.to_string()))),
+        }
     }
 }
 
@@ -142,23 +146,18 @@ pub struct TagMetric {
 }
 
 #[derive(PartialEq, PartialOrd)]
-pub enum PreparedMetric {
+pub(crate) enum PreparedMetric {
     Unsigned(u64),
     Float(f64),
-}
-
-impl Display for PreparedMetric {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PreparedMetric::Unsigned(e) => write!(f, "{}", e),
-            PreparedMetric::Float(e) => write!(f, "{}", e),
-        }
-    }
+    Histogram(MmHistogram),
 }
 
 pub struct TagObserver;
 
 impl TagObserver {
+    /// This is for collecting and logging `prepare_tag_metrics` to dashboard.
+    ///
+    /// Used with `init_with_dashboard`.
     pub async fn log_tag_metrics(log_state: LogWeak, recorder: Arc<MmRecorder>, interval: f64) {
         loop {
             Timer::sleep(interval).await;
@@ -178,18 +177,10 @@ impl TagObserver {
                     let message = name_value_map_to_message(&name_value_map);
                     log_state.log_deref_tags("", tags, &message);
                 });
-
-            let quantiles = parse_quantiles(QUANTILES);
-            Self::prepare_tag_histograms(&recorder).into_iter().for_each(|histo| {
-                histo.into_iter().for_each(|(key, hist)| {
-                    let tags = labels_to_tags(Key::from_name(KeyName::from(key.clone())).labels());
-                    let message = format!("{}: {}", key, hist_to_message(quantiles.as_slice(), hist));
-                    log_state.log_deref_tags("", tags, &message);
-                });
-            });
         }
     }
 
+    /// Prepare tag metrics for logging in `log_tag_metrics`.
     fn prepare_tag_metrics(recorder: &MmRecorder) -> HashMap<MetricLabels, MetricNameValueMap> {
         let mut output = HashMap::new();
 
@@ -202,43 +193,52 @@ impl TagObserver {
             let value = f64::from_bits(gauge.get_inner().load(Ordering::Acquire));
             map_metrics_to_prepare_tag_metric_output(key, PreparedMetric::Float(value), &mut output);
         }
-        output
-    }
 
-    fn prepare_tag_histograms(recorder: &MmRecorder) -> Option<HashMap<String, Histogram<u64>>> {
-        let mut output = None;
-        for (key, histogram) in recorder.registry.get_histogram_handles() {
-            let value = histogram.get_inner().data();
-            output = prepared_historam(key, value);
+        for (key, histo) in recorder.registry.get_histogram_handles() {
+            if let Some(values) = MmHistogram::new(&histo.get_inner().data()) {
+                map_metrics_to_prepare_tag_metric_output(key, PreparedMetric::Histogram(values), &mut output);
+            }
         }
         output
     }
 }
 
-fn prepared_historam(key: Key, values: Vec<f64>) -> Option<HashMap<String, Histogram<u64>>> {
-    let mut histograms = HashMap::new();
-    let entry = histograms.entry(key.name().to_string()).or_insert({
-        // Use default significant figures value.
-        // For more info on `sigfig` see the Historgam::new_with_bounds().
-        let sigfig = 3;
-        match Histogram::<u64>::new(sigfig) {
-            Ok(x) => x,
-            Err(err) => {
-                error!("failed to create histogram: {}", err);
-                // do nothing on error
-                return None;
-            },
-        }
-    });
-
-    for value in values {
-        if let Err(err) = entry.record(value as u64) {
-            error!("failed to observe histogram value: {}", err);
-        }
-    }
-    Some(histograms)
+#[derive(PartialEq, PartialOrd)]
+pub(crate) struct MmHistogram {
+    count: usize,
+    min: f64,
+    max: f64,
 }
 
+impl MmHistogram {
+    /// Create new MmHistogram from `&[f64]`.
+    ///
+    /// Return None if data.len() <= 0.
+    pub(crate) fn new(data: &[f64]) -> Option<MmHistogram> {
+        let count: usize = data.len();
+        if count > 0 {
+            let min: f64 = data.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max: f64 = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            return Some(MmHistogram { count, min, max });
+        }
+        None
+    }
+
+    /// Create new MmHistogram from `&[f64]`.
+    pub(crate) fn to_tag_message(&self) -> String { format!("count={} min={} max={}", self.count, self.min, self.max) }
+
+    /// Create new MmHistogram from `&[f64]`.
+    pub(crate) fn to_json_quantiles(&self) -> HashMap<String, f64> {
+        let mut result = HashMap::new();
+        result.insert("count".to_owned(), self.count as f64);
+        result.insert("min".to_owned(), self.min);
+        result.insert("max".to_owned(), self.max);
+
+        result
+    }
+}
+
+/// Used for parsing metrics to `prepare_tag_metric_output`
 fn map_metrics_to_prepare_tag_metric_output(
     key: Key,
     value: PreparedMetric,
@@ -251,22 +251,6 @@ fn map_metrics_to_prepare_tag_metric_output(
         .insert(metric_name.as_str().to_string(), value);
 }
 
-fn hist_to_message(quantiles: &[Quantile], histogram: Histogram<u64>) -> String {
-    if quantiles.is_empty() {
-        return format!("count={}", histogram.len());
-    }
-
-    let fmt_quantiles = quantiles
-        .iter()
-        .map(|quantile| {
-            let key = quantile.label().to_string();
-            let val = histogram.value_at_quantile(quantile.value());
-            format!("{}={}", key, val)
-        })
-        .join(" ");
-    format!("count={} {}", histogram.len(), fmt_quantiles)
-}
-
 pub mod prometheus {
     use crate::{MetricsArc, MetricsWeak};
 
@@ -275,6 +259,7 @@ pub mod prometheus {
     use hyper::http::{self, header, Request, Response, StatusCode};
     use hyper::service::{make_service_fn, service_fn};
     use hyper::{Body, Server};
+    use mm2_err_handle::prelude::MmError;
     use std::convert::Infallible;
     use std::net::SocketAddr;
 
@@ -318,8 +303,8 @@ pub mod prometheus {
         metrics: MetricsWeak,
         credentials: Option<PrometheusCredentials>,
     ) -> Result<Response<Body>, http::Error> {
-        fn on_error(status: StatusCode, error: String) -> Result<Response<Body>, http::Error> {
-            error!("{}", error);
+        fn on_error(status: StatusCode, error: MmError<MmMetricsError>) -> Result<Response<Body>, http::Error> {
+            error!("{}", error.get_inner().to_string());
             Response::builder().status(status).body(Body::empty()).map_err(|err| {
                 error!("{}", err);
                 err
@@ -329,7 +314,10 @@ pub mod prometheus {
         if req.uri() != "/metrics" {
             return on_error(
                 StatusCode::BAD_REQUEST,
-                ERRL!("Warning Prometheus: unexpected URI {}", req.uri()),
+                MmError::new(MmMetricsError::Internal(format!(
+                    "Warning Prometheus: unexpected URI {}",
+                    req.uri()
+                ))),
             );
         }
 
@@ -344,7 +332,9 @@ pub mod prometheus {
             _ => {
                 return on_error(
                     StatusCode::BAD_REQUEST,
-                    ERRL!("Warning Prometheus: metrics system unavailable"),
+                    MmError::new(MmMetricsError::Internal(
+                        "Warning Prometheus: metrics system unavailable".to_string(),
+                    )),
                 )
             },
         };
@@ -354,7 +344,9 @@ pub mod prometheus {
             _ => {
                 return on_error(
                     StatusCode::BAD_REQUEST,
-                    ERRL!("Warning Prometheus: metrics system is not initialized yet"),
+                    MmError::new(MmMetricsError::Internal(
+                        "Warning Prometheus: metrics system is not initialized yet".to_string(),
+                    )),
                 )
             },
         };
@@ -369,17 +361,20 @@ pub mod prometheus {
             })
     }
 
-    fn check_auth_credentials(req: &Request<Body>, expected: PrometheusCredentials) -> Result<(), String> {
+    fn check_auth_credentials(req: &Request<Body>, expected: PrometheusCredentials) -> MmMetricsResult<()> {
         let header_value = req
             .headers()
             .get(header::AUTHORIZATION)
-            .ok_or(ERRL!("Warning Prometheus: authorization required"))
+            .ok_or_else(|| "Warning Prometheus: authorization required".to_string())
             .and_then(|header| Ok(try_s!(header.to_str())))?;
 
         let expected = format!("Basic {}", base64::encode_config(&expected.userpass, base64::URL_SAFE));
 
         if header_value != expected {
-            return Err(format!("Warning Prometheus: invalid credentials: {}", header_value));
+            return Err(MmError::new(MmMetricsError::Internal(format!(
+                "Warning Prometheus: invalid credentials: {}",
+                header_value
+            ))));
         }
 
         Ok(())
@@ -399,7 +394,7 @@ mod test {
     fn test_collect_json() {
         let metrics = MetricsArc::new();
 
-        metrics.init().unwrap();
+        metrics.init();
 
         mm_counter!(metrics, "rpc.traffic.tx", 62, "coin" => "BTC");
         mm_counter!(metrics, "rpc.traffic.rx", 105, "coin" => "BTC");
@@ -498,15 +493,16 @@ mod test {
 
         mm_counter!(mm_metrics, "rpc_client.request.count", 1, "coin" => "tBCH", "client" => "eletrum");
         mm_counter!(mm_metrics, "rpc_client.request.count", 1, "coin" => "tBCH", "client" => "eletrum");
-        mm_timing!(mm_metrics, "rpc_client.request.out", 3.0, "coin" => "tBCH", "client" => "eletrum");
+        mm_timing!(mm_metrics, "peer.outgoing_request.timing", 6.0,  "peer" => "peer");
         block_on(async { Timer::sleep(6.).await });
         mm_gauge!(mm_metrics, "rpc_client.request.in", 2.0, "coin" => "tBCH", "client" => "eletrum");
         mm_counter!(mm_metrics, "rpc_client.request.out", 3, "coin" => "tBCH", "client" => "eletrum");
         mm_counter!(mm_metrics, "rpc_client.request.count", 1, "coin" => "tBCH", "client" => "eletrum");
+        mm_timing!(mm_metrics, "peer.outgoing_request.timing", 2.0, "peer" => "peer");
         mm_counter!(mm_metrics, "rpc_client.request.count", 1, "coin" => "tBCH", "client" => "eletrum");
         mm_gauge!(mm_metrics, "rpc_client.request.in", 6345.0, "coin" => "tBCH", "client" => "eletrum");
         mm_gauge!(mm_metrics, "rpc_client.request.out", 2.0, "coin" => "tBCH", "client" => "eletrum");
-        mm_timing!(mm_metrics, "peer.outgoing_request.timing", 0.4, "peer" => "peer");
+        mm_timing!(mm_metrics, "peer.outgoing_request.timing", 4.0, "peer" => "peer");
         block_on(async { Timer::sleep(6.).await });
     }
 }
