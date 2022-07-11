@@ -35,9 +35,6 @@
 
 use async_trait::async_trait;
 use base58::FromBase58Error;
-use bigdecimal::{BigDecimal, ParseBigDecimalError, Zero};
-use common::mm_number::MmNumber;
-use common::mm_metrics::MetricsWeak;
 use common::{calc_total_pages, now_ms, ten, HttpStatusCode};
 use crypto::{Bip32Error, CryptoCtx, DerivationPath};
 use derive_more::Display;
@@ -50,8 +47,8 @@ use keys::{AddressFormat as UtxoAddressFormat, KeyPair, NetworkPrefix as CashAdd
 use mm2_core::mm_ctx::{from_ctx, MmArc};
 use mm2_err_handle::prelude::*;
 use mm2_metrics::MetricsWeak;
-use mm2_number::bigdecimal::{BigDecimal, ParseBigDecimalError, Zero};
-use mm2_number::MmNumber;
+use mm2_number::{bigdecimal::{BigDecimal, ParseBigDecimalError, Zero},
+                 MmNumber};
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{self as json, Value as Json};
