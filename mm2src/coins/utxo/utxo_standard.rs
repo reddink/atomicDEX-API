@@ -21,7 +21,11 @@ use common::mm_number::MmNumber;
 use crypto::trezor::utxo::TrezorUtxoCoin;
 use crypto::Bip44Chain;
 use futures::{FutureExt, TryFutureExt};
+use crypto::trezor::utxo::TrezorUtxoCoin;
+use crypto::Bip44Chain;
+use futures::{FutureExt, TryFutureExt};
 use mm2_metrics::MetricsArc;
+use mm2_number::MmNumber;
 use serialization::CoinVariant;
 use utxo_signer::UtxoSignerOps;
 
