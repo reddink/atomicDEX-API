@@ -1,6 +1,4 @@
-#[cfg(not(target_arch = "wasm32"))]
-#[macro_use]
-extern crate common;
+#[macro_use] extern crate common;
 #[cfg(not(target_arch = "wasm32"))]
 #[macro_use]
 extern crate gstuff;
@@ -12,30 +10,22 @@ use serde_json::Value as Json;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
-#[cfg(not(target_arch = "wasm32"))]
 #[macro_use]
 pub mod native;
-#[cfg(not(target_arch = "wasm32"))] pub mod recorder;
-#[cfg(not(target_arch = "wasm32"))] use crate::native::Metrics;
-#[cfg(not(target_arch = "wasm32"))] pub use metrics;
+pub mod recorder;
+
+pub use metrics;
 #[cfg(not(target_arch = "wasm32"))] pub use native::prometheus;
-#[cfg(not(target_arch = "wasm32"))]
+use native::Metrics;
 use recorder::{MmRecorder, TryRecorder};
 
-#[cfg(target_arch = "wasm32")] mod wasm;
-#[cfg(target_arch = "wasm32")]
-use wasm::{Metrics, MmRecorder, TryRecorder};
-
-type MmMetricsResult<T> = Result<T, MmError<MmMetricsError>>;
+pub type MmMetricsResult<T> = Result<T, MmError<MmMetricsError>>;
 
 #[derive(Debug, Display)]
 pub enum MmMetricsError {
+    PrometheusTransport(String),
     #[display(fmt = "Internal: {}", _0)]
     Internal(String),
-}
-
-impl From<std::string::String> for MmMetricsError {
-    fn from(str: std::string::String) -> Self { Self::Internal(str) }
 }
 
 pub trait MetricsOps {
@@ -77,8 +67,7 @@ impl MetricsOps for MetricsArc {
     fn init(&self) { self.0.init(); }
 
     fn init_with_dashboard(&self, log_state: common::log::LogWeak, interval: f64) -> MmMetricsResult<()> {
-        self.0.init_with_dashboard(log_state, interval)?;
-        Ok(())
+        self.0.init_with_dashboard(log_state, interval)
     }
 
     fn collect_json(&self) -> MmMetricsResult<crate::Json> { self.0.collect_json() }

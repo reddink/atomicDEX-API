@@ -1151,7 +1151,6 @@ dependencies = [
  "arrayref",
  "async-trait",
  "backtrace",
- "base64 0.10.1",
  "bytes 1.1.0",
  "cc",
  "cfg-if 1.0.0",
@@ -4257,6 +4256,7 @@ dependencies = [
  "hyper",
  "hyper-rustls",
  "itertools",
+ "js-sys",
  "metrics",
  "metrics-exporter-prometheus",
  "metrics-util",
@@ -4264,6 +4264,10 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]

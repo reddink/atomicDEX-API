@@ -1,19 +1,16 @@
-use common::log::error;
+#[cfg(not(target_arch = "wasm32"))] use common::log::error;
 use common::{executor::{spawn, Timer},
              log::{LogArc, LogWeak}};
+use itertools::Itertools;
 use metrics::{Key, Label};
-use metrics_exporter_prometheus::PrometheusBuilder;
 use mm2_err_handle::prelude::MmError;
 use serde_json::Value;
 use std::{collections::HashMap,
+          slice::Iter,
           sync::{atomic::Ordering, Arc}};
 
-use crate::{common::log::Tag,
-            recorder::{labels_to_tags, name_value_map_to_message},
-            MetricsOps, MmRecorder};
-use crate::{MmMetricsError, MmMetricsResult};
-
-const QUANTILES: &[f64] = &[0.0, 1.0];
+use crate::MmMetricsError;
+use crate::{common::log::Tag, MetricsOps, MmMetricsResult, MmRecorder};
 
 type MetricLabels = Vec<Label>;
 
@@ -44,8 +41,7 @@ macro_rules! mm_counter {
     ($metrics:expr, $name:expr, $value:expr, $($label_key:expr => $label_val:expr),+) => {{
         use $crate::metrics::Recorder;
         if let Some(recorder) = $crate::recorder::TryRecorder::try_recorder(&$metrics) {
-            let labels = mm_label!($($label_key => $label_val),+);
-            let key = $crate::metrics::Key::from_parts($name, labels.as_slice());
+            let key = $crate::metrics::Key::from_parts($name, mm_label!($($label_key => $label_val),+).as_slice());
             let counter = recorder.register_counter(&key);
             counter.increment($value);
         };
@@ -68,8 +64,7 @@ macro_rules! mm_gauge {
     ($metrics:expr, $name:expr, $value:expr, $($label_key:expr => $label_val:expr),+) => {{
         use $crate::metrics::Recorder;
         if let Some(recorder) = $crate::recorder::TryRecorder::try_recorder(&$metrics){
-            let labels = mm_label!($($label_key => $label_val),+);
-            let key = $crate::metrics::Key::from_parts($name, labels.as_slice());
+            let key = $crate::metrics::Key::from_parts($name, mm_label!($($label_key => $label_val),+).as_slice());
             let gauge = recorder.register_gauge(&key);
             gauge.set($value);
         }
@@ -93,8 +88,7 @@ macro_rules! mm_timing {
     ($metrics:expr, $name:expr, $value:expr, $($label_key:expr => $label_val:expr),+) => {{
         use $crate::metrics::Recorder;
         if let Some(recorder) = $crate::recorder::TryRecorder::try_recorder(&$metrics){
-            let labels = mm_label!($($label_key => $label_val),+);
-            let key = $crate::metrics::Key::from_parts($name, labels.as_slice());
+            let key = $crate::metrics::Key::from_parts($name, mm_label!($($label_key => $label_val),+).as_slice());
             let histo = recorder.register_histogram(&key);
             histo.record($value);
         }
@@ -109,15 +103,8 @@ pub struct Metrics {
 
 impl Metrics {
     /// Collect the metrics in Prometheus format.
-    pub fn collect_prometheus_format(&self) -> Result<String, String> {
-        let prometheus = PrometheusBuilder::new()
-            .set_quantiles(QUANTILES)
-            .unwrap()
-            .build()
-            .unwrap();
-
-        Ok(prometheus.0.handle().render())
-    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn collect_prometheus_format(&self) -> String { self.recorder.render() }
 }
 
 impl MetricsOps for Metrics {
@@ -204,6 +191,28 @@ impl TagObserver {
     }
 }
 
+pub(crate) fn labels_to_tags(labels: Iter<Label>) -> Vec<Tag> {
+    labels
+        .map(|label| Tag {
+            key: label.clone().into_parts().0.to_string(),
+            val: Some(label.value().to_string()),
+        })
+        .collect()
+}
+
+/// Used for parsing `MetricNameValueMap` into Message(loggable string).
+pub(crate) fn name_value_map_to_message(name_value_map: &MetricNameValueMap) -> String {
+    name_value_map
+        .iter()
+        .sorted_by(|x, y| x.partial_cmp(y).expect("sorting faulted"))
+        .map(|(key, value)| match value {
+            crate::native::PreparedMetric::Unsigned(e) => format!("{}={:?}", key, e),
+            crate::native::PreparedMetric::Float(e) => format!("{}={:?}", key, e),
+            crate::native::PreparedMetric::Histogram(e) => format!("{}={:?}", key, e.to_tag_message()),
+        })
+        .join(" ")
+}
+
 #[derive(PartialEq, PartialOrd)]
 pub(crate) struct MmHistogram {
     count: usize,
@@ -218,9 +227,12 @@ impl MmHistogram {
     pub(crate) fn new(data: &[f64]) -> Option<MmHistogram> {
         let count: usize = data.len();
         if count > 0 {
-            let min: f64 = data.iter().cloned().fold(f64::INFINITY, f64::min);
-            let max: f64 = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-            return Some(MmHistogram { count, min, max });
+            let minmax = data.iter().minmax().into_option();
+            return minmax.map(|(min, max)| MmHistogram {
+                count,
+                min: *min,
+                max: *max,
+            });
         }
         None
     }
@@ -252,6 +264,7 @@ fn map_metrics_to_prepare_tag_metric_output(
         .insert(metric_name.as_str().to_string(), value);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod prometheus {
     use crate::{MetricsArc, MetricsWeak};
 
@@ -340,17 +353,7 @@ pub mod prometheus {
             },
         };
 
-        let body = match metrics.0.collect_prometheus_format() {
-            Ok(body) => Body::from(body),
-            _ => {
-                return on_error(
-                    StatusCode::BAD_REQUEST,
-                    MmError::new(MmMetricsError::Internal(
-                        "Warning Prometheus: metrics system is not initialized yet".to_string(),
-                    )),
-                )
-            },
-        };
+        let body = Body::from(metrics.0.collect_prometheus_format());
 
         Response::builder()
             .status(StatusCode::OK)
@@ -366,8 +369,14 @@ pub mod prometheus {
         let header_value = req
             .headers()
             .get(header::AUTHORIZATION)
-            .ok_or_else(|| "Warning Prometheus: authorization required".to_string())
-            .and_then(|header| Ok(try_s!(header.to_str())))?;
+            .ok_or_else(|| {
+                MmMetricsError::PrometheusTransport("Warning Prometheus: authorization required".to_string())
+            })
+            .and_then(|header| {
+                Ok(header
+                    .to_str()
+                    .map_err(|e| MmMetricsError::PrometheusTransport(e.to_string())))?
+            })?;
 
         let expected = format!("Basic {}", base64::encode_config(&expected.userpass, base64::URL_SAFE));
 
