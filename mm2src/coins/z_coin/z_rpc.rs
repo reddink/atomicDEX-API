@@ -2,7 +2,7 @@ use super::{z_coin_errors::*, ZcoinConsensusParams};
 use crate::utxo::utxo_common;
 use common::executor::Timer;
 use common::log::{debug, error, info};
-use common::{async_blocking, spawn_abortable, AbortOnDropHandle};
+use common::{async_blocking, spawn_abortable, AbortOnDropHandle, Future01CompatExt};
 use db_common::sqlite::rusqlite::{params, Connection, Error as SqliteError, NO_PARAMS};
 use db_common::sqlite::{query_single_row, run_optimization_pragmas};
 use futures::channel::mpsc::{channel, Receiver as AsyncReceiver, Sender as AsyncSender};
@@ -12,7 +12,6 @@ use futures::StreamExt;
 use http::Uri;
 use mm2_err_handle::prelude::*;
 use parking_lot::Mutex;
-use prost::Message;
 use protobuf::Message as ProtobufMessage;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -32,6 +31,7 @@ use zcash_primitives::zip32::ExtendedFullViewingKey;
 mod z_coin_grpc {
     tonic::include_proto!("cash.z.wallet.sdk.rpc");
 }
+use crate::utxo::rpc_clients::{NativeClient, UtxoRpcClientOps};
 use z_coin_grpc::compact_tx_streamer_client::CompactTxStreamerClient;
 use z_coin_grpc::{BlockId, BlockRange, ChainSpec, TxFilter};
 
@@ -174,7 +174,6 @@ pub(super) async fn init_light_client(
         .connect()
         .await
         .map_to_mm(ZcoinLightClientInitError::ConnectionFailure)?;
-    let grpc_client = CompactTxStreamerClient::new(tonic_channel);
 
     let (sync_status_notifier, sync_watcher) = channel(1);
     let (on_tx_gen_notifier, on_tx_gen_watcher) = channel(1);
@@ -182,7 +181,55 @@ pub(super) async fn init_light_client(
     let wallet_db = Arc::new(Mutex::new(wallet_db));
     let sync_handle = SaplingSyncLoopHandle {
         current_block: BlockHeight::from_u32(0),
-        grpc_client,
+        rpc_client: RpcClient::Light(CompactTxStreamerClient::new(tonic_channel)),
+        blocks_db,
+        wallet_db: wallet_db.clone(),
+        consensus_params,
+        sync_status_notifier,
+        on_tx_gen_watcher,
+        watch_for_tx: None,
+    };
+    let abort_handle = spawn_abortable(light_wallet_db_sync_loop(sync_handle));
+
+    Ok((
+        SaplingSyncConnector::new_mutex_wrapped(sync_watcher, on_tx_gen_notifier, abort_handle),
+        wallet_db,
+    ))
+}
+
+pub(super) async fn init_native_client(
+    native_client: NativeClient,
+    cache_db_path: PathBuf,
+    wallet_db_path: PathBuf,
+    consensus_params: ZcoinConsensusParams,
+    evk: ExtendedFullViewingKey,
+) -> Result<(AsyncMutex<SaplingSyncConnector>, WalletDbShared), MmError<ZcoinNativeClientInitError>> {
+    let blocks_db =
+        async_blocking(|| BlockDb::for_path(cache_db_path).map_to_mm(ZcoinNativeClientInitError::BlocksDbInitFailure))
+            .await?;
+
+    let wallet_db = async_blocking({
+        let consensus_params = consensus_params.clone();
+        move || -> Result<_, MmError<ZcoinNativeClientInitError>> {
+            let db = WalletDb::for_path(wallet_db_path, consensus_params)
+                .map_to_mm(ZcoinNativeClientInitError::WalletDbInitFailure)?;
+            run_optimization_pragmas(db.sql_conn()).map_to_mm(ZcoinNativeClientInitError::WalletDbInitFailure)?;
+            init_wallet_db(&db).map_to_mm(ZcoinNativeClientInitError::WalletDbInitFailure)?;
+            if db.get_extended_full_viewing_keys()?.is_empty() {
+                init_accounts_table(&db, &[evk])?;
+            }
+            Ok(db)
+        }
+    })
+    .await?;
+
+    let (sync_status_notifier, sync_watcher) = channel(1);
+    let (on_tx_gen_notifier, on_tx_gen_watcher) = channel(1);
+
+    let wallet_db = Arc::new(Mutex::new(wallet_db));
+    let sync_handle = SaplingSyncLoopHandle {
+        current_block: BlockHeight::from_u32(0),
+        rpc_client: RpcClient::Native(native_client),
         blocks_db,
         wallet_db: wallet_db.clone(),
         consensus_params,
@@ -241,9 +288,14 @@ pub enum SyncStatus {
     },
 }
 
+enum RpcClient {
+    Native(NativeClient),
+    Light(CompactTxStreamerClient<Channel>),
+}
+
 pub struct SaplingSyncLoopHandle {
     current_block: BlockHeight,
-    grpc_client: CompactTxStreamerClient<Channel>,
+    rpc_client: RpcClient,
     blocks_db: BlockDb,
     wallet_db: WalletDbShared,
     consensus_params: ZcoinConsensusParams,
@@ -292,13 +344,17 @@ impl SaplingSyncLoopHandle {
     }
 
     async fn update_blocks_cache(&mut self) -> Result<(), MmError<UpdateBlocksCacheErr>> {
-        let request = tonic::Request::new(ChainSpec {});
-        let current_blockchain_block = self.grpc_client.get_latest_block(request).await?;
+        let current_block = match &self.rpc_client {
+            RpcClient::Native(client) => client.get_block_count().compat().await?,
+            RpcClient::Light(client) => {
+                let request = tonic::Request::new(ChainSpec {});
+                let block = client.get_latest_block(request).await?;
+                let res: u64 = block.into_inner().height;
+                res
+            },
+        };
         let current_block_in_db = block_in_place(|| self.blocks_db.get_latest_block())?;
-
         let from_block = current_block_in_db as u64 + 1;
-        let current_block: u64 = current_blockchain_block.into_inner().height;
-
         if current_block >= from_block {
             let request = tonic::Request::new(BlockRange {
                 start: Some(BlockId {

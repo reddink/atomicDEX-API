@@ -1,6 +1,6 @@
 use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawInProgressStatus, WithdrawTaskHandle};
-use crate::utxo::rpc_clients::{ElectrumRpcRequest, UnspentInfo, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcFut,
-                               UtxoRpcResult};
+use crate::utxo::rpc_clients::{ElectrumRpcRequest, NativeClient, UnspentInfo, UtxoRpcClientEnum, UtxoRpcError,
+                               UtxoRpcFut, UtxoRpcResult};
 use crate::utxo::utxo_builder::{UtxoCoinBuilderCommonOps, UtxoCoinWithIguanaPrivKeyBuilder,
                                 UtxoFieldsWithIguanaPrivKeyBuilder};
 use crate::utxo::utxo_common::{big_decimal_from_sat_unsigned, payment_script};
@@ -65,7 +65,7 @@ use z_htlc::{z_p2sh_spend, z_send_dex_fee, z_send_htlc};
 
 mod z_rpc;
 pub use z_rpc::SyncStatus;
-use z_rpc::{init_light_client, SaplingSyncConnector, SaplingSyncGuard, WalletDbShared};
+use z_rpc::{init_light_client, init_native_client, SaplingSyncConnector, SaplingSyncGuard, WalletDbShared};
 
 mod z_coin_errors;
 pub use z_coin_errors::*;
@@ -480,7 +480,17 @@ impl<'a> UtxoCoinWithIguanaPrivKeyBuilder for ZCoinBuilder<'a> {
         let evk = ExtendedFullViewingKey::from(&self.z_spending_key);
         let (sync_state_connector, light_wallet_db) = match &self.z_coin_params.mode {
             ZcoinRpcMode::Native => {
-                return MmError::err(ZCoinBuildError::NativeModeIsNotSupportedYet);
+                let native_client: NativeClient = self.native_client().unwrap();
+                let cache_db_path = self.db_dir_path.join(format!("{}_native_cache.db", self.ticker));
+                let wallet_db_path = self.db_dir_path.join(format!("{}_native_wallet.db", self.ticker));
+                init_native_client(
+                    native_client,
+                    cache_db_path,
+                    wallet_db_path,
+                    self.consensus_params.clone(),
+                    evk,
+                )
+                .await?
             },
             ZcoinRpcMode::Light {
                 light_wallet_d_servers, ..
