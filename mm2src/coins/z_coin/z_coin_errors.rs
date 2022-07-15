@@ -17,6 +17,7 @@ pub enum UpdateBlocksCacheErr {
     GrpcError(tonic::Status),
     DbError(SqliteError),
     JsonRpsErr(UtxoRpcError),
+    InternalError(String),
 }
 
 impl From<tonic::Status> for UpdateBlocksCacheErr {

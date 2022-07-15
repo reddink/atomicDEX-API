@@ -483,14 +483,14 @@ pub enum EstimateFeeMethod {
     SmartFee,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum BlockNonce {
     String(String),
     U64(u64),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct VerboseBlock {
     /// Block hash
     pub hash: H256Json,
