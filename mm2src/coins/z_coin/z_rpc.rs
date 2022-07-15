@@ -12,6 +12,7 @@ use futures::StreamExt;
 use http::Uri;
 use mm2_err_handle::prelude::*;
 use parking_lot::Mutex;
+use prost::Message;
 use protobuf::Message as ProtobufMessage;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -181,7 +182,7 @@ pub(super) async fn init_light_client(
     let wallet_db = Arc::new(Mutex::new(wallet_db));
     let sync_handle = SaplingSyncLoopHandle {
         current_block: BlockHeight::from_u32(0),
-        rpc_client: RpcClient::Light(CompactTxStreamerClient::new(tonic_channel)),
+        rpc_client: ZRpcClient::Light(CompactTxStreamerClient::new(tonic_channel)),
         blocks_db,
         wallet_db: wallet_db.clone(),
         consensus_params,
@@ -229,7 +230,7 @@ pub(super) async fn init_native_client(
     let wallet_db = Arc::new(Mutex::new(wallet_db));
     let sync_handle = SaplingSyncLoopHandle {
         current_block: BlockHeight::from_u32(0),
-        rpc_client: RpcClient::Native(native_client),
+        rpc_client: ZRpcClient::Native(native_client),
         blocks_db,
         wallet_db: wallet_db.clone(),
         consensus_params,
@@ -288,14 +289,24 @@ pub enum SyncStatus {
     },
 }
 
-enum RpcClient {
+enum ZRpcClient {
     Native(NativeClient),
     Light(CompactTxStreamerClient<Channel>),
 }
 
+struct BlockIDNative {
+    height: u32,
+    hash: Vec<u8>,
+}
+
+struct BlockRangeNative {
+    start: BlockIDNative,
+    end: BlockIDNative,
+}
+
 pub struct SaplingSyncLoopHandle {
     current_block: BlockHeight,
-    rpc_client: RpcClient,
+    rpc_client: ZRpcClient,
     blocks_db: BlockDb,
     wallet_db: WalletDbShared,
     consensus_params: ZcoinConsensusParams,
@@ -344,9 +355,9 @@ impl SaplingSyncLoopHandle {
     }
 
     async fn update_blocks_cache(&mut self) -> Result<(), MmError<UpdateBlocksCacheErr>> {
-        let current_block = match &self.rpc_client {
-            RpcClient::Native(client) => client.get_block_count().compat().await?,
-            RpcClient::Light(client) => {
+        let current_block = match &mut self.rpc_client {
+            ZRpcClient::Native(client) => client.get_block_count().compat().await?,
+            ZRpcClient::Light(client) => {
                 let request = tonic::Request::new(ChainSpec {});
                 let block = client.get_latest_block(request).await?;
                 let res: u64 = block.into_inner().height;
@@ -356,23 +367,26 @@ impl SaplingSyncLoopHandle {
         let current_block_in_db = block_in_place(|| self.blocks_db.get_latest_block())?;
         let from_block = current_block_in_db as u64 + 1;
         if current_block >= from_block {
-            let request = tonic::Request::new(BlockRange {
-                start: Some(BlockId {
-                    height: from_block,
-                    hash: Vec::new(),
-                }),
-                end: Some(BlockId {
-                    height: current_block,
-                    hash: Vec::new(),
-                }),
-            });
-
-            let mut response = self.grpc_client.get_block_range(request).await?;
-
-            while let Some(block) = response.get_mut().message().await? {
-                debug!("Got block {:?}", block);
-                block_in_place(|| self.blocks_db.insert_block(block.height as u32, block.encode_to_vec()))?;
-                self.notify_blocks_cache_status(block.height, current_block);
+            match &mut self.rpc_client {
+                ZRpcClient::Light(client) => {
+                    let request = tonic::Request::new(BlockRange {
+                        start: Some(BlockId {
+                            height: from_block,
+                            hash: Vec::new(),
+                        }),
+                        end: Some(BlockId {
+                            height: current_block,
+                            hash: Vec::new(),
+                        }),
+                    });
+                    let mut response = client.get_block_range(request).await?;
+                    while let Some(block) = response.get_mut().message().await? {
+                        debug!("Got block {:?}", block);
+                        block_in_place(|| self.blocks_db.insert_block(block.height as u32, block.encode_to_vec()))?;
+                        self.notify_blocks_cache_status(block.height, current_block);
+                    }
+                },
+                ZRpcClient::Native(client) => unreachable!(),
             }
         }
 
@@ -419,7 +433,7 @@ impl SaplingSyncLoopHandle {
                     hash: tx_id.0.into(),
                 };
                 let request = tonic::Request::new(filter);
-                match self.grpc_client.get_transaction(request).await {
+                match self.rpc_client.get_transaction(request).await {
                     Ok(_) => break,
                     Err(e) => {
                         error!("Error on getting tx {}", tx_id);
