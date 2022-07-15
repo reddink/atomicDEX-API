@@ -295,16 +295,6 @@ enum ZRpcClient {
     Light(CompactTxStreamerClient<Channel>),
 }
 
-struct BlockIDNative {
-    height: u32,
-    hash: Vec<u8>,
-}
-
-struct BlockRangeNative {
-    start: BlockIDNative,
-    end: BlockIDNative,
-}
-
 pub struct SaplingSyncLoopHandle {
     current_block: BlockHeight,
     rpc_client: ZRpcClient,
