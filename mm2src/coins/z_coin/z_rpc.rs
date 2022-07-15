@@ -318,6 +318,28 @@ pub struct SaplingSyncLoopHandle {
     watch_for_tx: Option<TxId>,
 }
 
+// #[async_trait]
+// trait Client {
+//     async fn get_block_height(&mut self) -> Result<u64, MmError<UpdateBlocksCacheErr>>;
+// }
+//
+// #[async_trait]
+// impl Client for NativeClient {
+//     async fn get_block_height(&mut self) -> Result<u64, MmError<UtxoRpcError>> {
+//         self.get_block_count().compat().await
+//     }
+// }
+//
+// #[async_trait]
+// impl Client for CompactTxStreamerClient<Channel> {
+//     async fn get_block_height(&mut self) -> Result<u64, MmError<UpdateBlocksCacheErr>> {
+//         let request = tonic::Request::new(ChainSpec {});
+//         let block = self.get_latest_block(request).await?;
+//         let res = block.into_inner().height;
+//         Ok(res)
+//     }
+// }
+
 impl SaplingSyncLoopHandle {
     fn notify_blocks_cache_status(&mut self, current_scanned_block: u64, latest_block: u64) {
         if self
