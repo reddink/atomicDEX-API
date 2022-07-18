@@ -18,6 +18,8 @@ use zcash_primitives::transaction::builder::Error as ZTxBuilderError;
 pub enum UpdateBlocksCacheErr {
     GrpcError(tonic::Status),
     DbError(SqliteError),
+    JsonRpsErr(UtxoRpcError),
+    InternalError(String),
 }
 
 impl From<tonic::Status> for UpdateBlocksCacheErr {
@@ -26,6 +28,10 @@ impl From<tonic::Status> for UpdateBlocksCacheErr {
 
 impl From<SqliteError> for UpdateBlocksCacheErr {
     fn from(err: SqliteError) -> Self { UpdateBlocksCacheErr::DbError(err) }
+}
+
+impl From<UtxoRpcError> for UpdateBlocksCacheErr {
+    fn from(err: UtxoRpcError) -> Self { UpdateBlocksCacheErr::JsonRpsErr(err) }
 }
 
 #[derive(Debug, Display)]
@@ -38,8 +44,22 @@ pub enum ZcoinLightClientInitError {
     ZcashSqliteError(ZcashClientError),
 }
 
+#[derive(Debug, Display)]
+#[non_exhaustive]
+pub enum ZcoinNativeClientInitError {
+    TlsConfigFailure(tonic::transport::Error),
+    ConnectionFailure(tonic::transport::Error),
+    BlocksDbInitFailure(SqliteError),
+    WalletDbInitFailure(SqliteError),
+    ZcashSqliteError(ZcashClientError),
+}
+
 impl From<ZcashClientError> for ZcoinLightClientInitError {
     fn from(err: ZcashClientError) -> Self { ZcoinLightClientInitError::ZcashSqliteError(err) }
+}
+
+impl From<ZcashClientError> for ZcoinNativeClientInitError {
+    fn from(err: ZcashClientError) -> Self { ZcoinNativeClientInitError::ZcashSqliteError(err) }
 }
 
 #[derive(Debug, Display)]
@@ -181,6 +201,7 @@ pub enum ZCoinBuildError {
     NativeModeIsNotSupportedYet,
     InvalidLightwalletdUri(InvalidUri),
     LightClientInitErr(ZcoinLightClientInitError),
+    NativeClientInitError(ZcoinNativeClientInitError),
     ZCashParamsNotFound,
 }
 
@@ -206,6 +227,10 @@ impl From<InvalidUri> for ZCoinBuildError {
 
 impl From<ZcoinLightClientInitError> for ZCoinBuildError {
     fn from(err: ZcoinLightClientInitError) -> Self { ZCoinBuildError::LightClientInitErr(err) }
+}
+
+impl From<ZcoinNativeClientInitError> for ZCoinBuildError {
+    fn from(err: ZcoinNativeClientInitError) -> Self { ZCoinBuildError::NativeClientInitError(err) }
 }
 
 pub(super) enum SqlTxHistoryError {
