@@ -76,7 +76,6 @@ macro_rules! mm_gauge {
 macro_rules! mm_timing {
     ($metrics:expr, $name:expr, $value:expr) => {{
         use $crate::metrics::Recorder;
-        use $crate::native::key_from_str;
         if let Some(recorder) = $crate::recorder::TryRecorder::try_recorder(&$metrics){
             let key =$crate::metrics::Key::from_static_name($name);
             let histo = recorder.register_histogram(&key);
@@ -394,6 +393,8 @@ pub mod prometheus {
 #[cfg(test)]
 mod test {
 
+    use std::time::Instant;
+
     use crate::{MetricsArc, MetricsOps};
 
     use common::{block_on,
@@ -495,24 +496,78 @@ mod test {
     }
 
     #[test]
-    fn collect_tag_metrics() {
+    fn test_dashboard() {
         let log_state = LogArc::new(LogState::in_memory());
         let mm_metrics = MetricsArc::new();
 
         mm_metrics.init_with_dashboard(log_state.weak(), 6.).unwrap();
 
-        mm_counter!(mm_metrics, "rpc_client.request.count", 1, "coin" => "tBCH", "client" => "eletrum");
-        mm_counter!(mm_metrics, "rpc_client.request.count", 1, "coin" => "tBCH", "client" => "eletrum");
-        mm_timing!(mm_metrics, "peer.outgoing_request.timing", 6.0,  "peer" => "peer");
+        let start1 = Instant::now();
+
+        mm_counter!(mm_metrics, "rpc.traffic.tx", 62, "coin" => "BTC");
+        mm_counter!(mm_metrics, "rpc.traffic.rx", 105, "coin"=> "BTC");
+
+        mm_counter!(mm_metrics, "rpc.traffic.tx", 54, "coin" => "KMD");
+        mm_counter!(mm_metrics, "rpc.traffic.rx", 158, "coin" => "KMD");
+
+        mm_gauge!(mm_metrics, "rpc.connection.count", 3.0, "coin" => "KMD");
+
+        let end = start1.duration_since(start1);
+        mm_timing!(mm_metrics,
+                    "rpc.query.spent_time",
+                    end,
+                    "coin" => "KMD",
+                    "method" => "blockchain.transaction.get");
+
         block_on(async { Timer::sleep(6.).await });
-        mm_gauge!(mm_metrics, "rpc_client.request.in", 2.0, "coin" => "tBCH", "client" => "eletrum");
-        mm_counter!(mm_metrics, "rpc_client.request.out", 3, "coin" => "tBCH", "client" => "eletrum");
-        mm_counter!(mm_metrics, "rpc_client.request.count", 1, "coin" => "tBCH", "client" => "eletrum");
-        mm_timing!(mm_metrics, "peer.outgoing_request.timing", 2.0, "peer" => "peer");
-        mm_counter!(mm_metrics, "rpc_client.request.count", 1, "coin" => "tBCH", "client" => "eletrum");
-        mm_gauge!(mm_metrics, "rpc_client.request.in", 6345.0, "coin" => "tBCH", "client" => "eletrum");
-        mm_gauge!(mm_metrics, "rpc_client.request.out", 2.0, "coin" => "tBCH", "client" => "eletrum");
-        mm_timing!(mm_metrics, "peer.outgoing_request.timing", 4.0, "peer" => "peer");
+
+        mm_counter!(mm_metrics, "rpc.traffic.tx", 30, "coin" => "BTC");
+        mm_counter!(mm_metrics, "rpc.traffic.rx", 44, "coin" => "BTC");
+
+        mm_gauge!(mm_metrics, "rpc.connection.count", 5.0, "coin" => "KMD");
+
+        let end = start1.duration_since(start1);
+
+        mm_timing!(mm_metrics,
+                    "rpc.query.spent_time",
+                    end,
+                    "coin"=> "KMD",
+                    "method"=>"blockchain.transaction.get");
+
+        // measure without labels
+        mm_counter!(mm_metrics, "test.counter", 0);
+        mm_gauge!(mm_metrics, "test.gauge", 1.0);
+        let end = start1.duration_since(start1);
+        mm_timing!(mm_metrics, "test.uptime", end);
+
         block_on(async { Timer::sleep(6.).await });
+    }
+
+    #[test]
+    fn test_prometheus_format() {
+        let mm_metrics = MetricsArc::new();
+
+        mm_metrics.init();
+
+        mm_counter!(mm_metrics, "rpc.traffic.tx", 62, "coin" => "BTC");
+        mm_counter!(mm_metrics, "rpc.traffic.rx", 105, "coin" => "BTC");
+
+        mm_counter!(mm_metrics, "rpc.traffic.tx", 30, "coin" => "BTC");
+        mm_counter!(mm_metrics, "rpc.traffic.rx", 44, "coin" => "BTC");
+
+        mm_counter!(mm_metrics, "rpc.traffic.tx", 54, "coin" => "KMD");
+        mm_counter!(mm_metrics, "rpc.traffic.rx", 158, "coin" => "KMD");
+
+        mm_gauge!(mm_metrics, "rpc.connection.count", 3.0, "coin" => "KMD");
+        mm_gauge!(mm_metrics, "rpc.connection.count", 5.0, "coin" => "KMD");
+
+        mm_timing!(mm_metrics,
+                    "rpc.query.spent_time",
+                    4.0,
+                    "coin"=> "KMD",
+                    "method"=>"blockchain.transaction.get");
+
+        // println!("{}", mm_metrics.0.collect_prometheus_format());
+        // TODO
     }
 }

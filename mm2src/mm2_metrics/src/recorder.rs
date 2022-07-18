@@ -32,40 +32,25 @@ impl Default for MmRecorder {
 impl MmRecorder {
     #[cfg(not(target_arch = "wasm32"))]
     fn get_metrics(&self) -> Snapshot {
-        let counters = self
-            .registry
-            .get_counter_handles()
-            .into_iter()
-            .map(|(key, counter)| {
-                let value = counter.get_inner().load(Ordering::Acquire);
-                let inner = key_value_to_snapshot_entry(key.clone(), value);
-                (key.into_parts().0.as_str().to_string(), inner)
-            })
-            .collect::<HashMap<_, _>>();
+        let mut counters = HashMap::new();
+        for (key, counter) in self.registry.get_counter_handles() {
+            key_value_to_snapshot_entry(&mut counters, key, counter.get_inner().load(Ordering::Acquire), 0);
+        }
 
-        let gauges = self
-            .registry
-            .get_gauge_handles()
-            .into_iter()
-            .map(|(key, gauge)| {
-                gauge.get_generation();
-                let value = gauge.get_inner().load(Ordering::Acquire);
-                let inner = key_value_to_snapshot_entry(key.clone(), f64::from_bits(value));
-                (key.into_parts().0.as_str().to_string(), inner)
-            })
-            .collect::<HashMap<_, _>>();
+        let mut gauges = HashMap::new();
+        for (key, gauge) in self.registry.get_gauge_handles() {
+            key_value_to_snapshot_entry(
+                &mut gauges,
+                key,
+                f64::from_bits(gauge.get_inner().load(Ordering::Acquire)),
+                0.0,
+            );
+        }
 
-        let histograms = self
-            .registry
-            .get_histogram_handles()
-            .into_iter()
-            .map(|(key, histogram)| {
-                histogram.get_generation();
-                let value = histogram.get_inner().data();
-                let inner = key_value_to_snapshot_entry(key.clone(), value);
-                (key.into_parts().0.as_str().to_string(), inner)
-            })
-            .collect::<HashMap<_, _>>();
+        let mut histograms = HashMap::new();
+        for (key, histogram) in self.registry.get_histogram_handles() {
+            key_value_to_snapshot_entry(&mut histograms, key, histogram.get_inner().data(), vec![]);
+        }
 
         Snapshot {
             counters,
@@ -102,7 +87,7 @@ impl MmRecorder {
 
         for (key, histogram) in histograms.drain() {
             let key = Key::from_name(key.to_owned());
-            let (name, _) = key_to_parts(&key, None);
+            let (name, labels) = key_to_parts(&key, None);
             write_type_line(&mut output, &name, "histogram");
             for (_, values) in histogram {
                 let mut count = 0;
@@ -113,10 +98,11 @@ impl MmRecorder {
                     sum += value;
                 });
 
+                write_metric_line::<&str, f64>(&mut output, &name, Some("sum"), &labels, None, sum);
                 write_metric_line::<&str, usize>(
                     &mut output,
                     &name,
-                    Some("bucket"),
+                    Some("count"),
                     key_to_parts(&key, None).1.as_slice(),
                     None,
                     count,
@@ -170,11 +156,19 @@ impl MmRecorder {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn key_value_to_snapshot_entry<T: Clone>(key: Key, value: T) -> HashMap<Vec<String>, T> {
-    let (_name, labels) = key_to_parts(&key, None);
-    let mut entry = HashMap::new();
-    entry.insert(labels, value);
-    entry
+fn key_value_to_snapshot_entry<V>(
+    metrics: &mut HashMap<String, HashMap<Vec<String>, V>>,
+    key: Key,
+    value: V,
+    default: V,
+) {
+    let (key_name, labels) = key_to_parts(&key, None);
+    let entry = metrics
+        .entry(key_name)
+        .or_insert_with(HashMap::new)
+        .entry(labels)
+        .or_insert(default);
+    *entry = value;
 }
 
 impl Recorder for MmRecorder {
