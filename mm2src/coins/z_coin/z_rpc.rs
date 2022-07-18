@@ -445,27 +445,32 @@ impl SaplingSyncLoopHandle {
     async fn check_watch_for_tx_existence(&mut self) {
         if let Some(tx_id) = self.watch_for_tx {
             let mut attempts = 0;
-            loop {
-                let filter = TxFilter {
-                    block: None,
-                    index: 0,
-                    hash: tx_id.0.into(),
-                };
-                let request = tonic::Request::new(filter);
-                match self.rpc_client.get_transaction(request).await {
-                    Ok(_) => break,
-                    Err(e) => {
-                        error!("Error on getting tx {}", tx_id);
-                        if e.message().contains(utxo_common::NO_TX_ERROR_CODE) {
-                            if attempts >= 3 {
-                                self.watch_for_tx = None;
-                                return;
+            if let ZRpcClient::Light(client) = &mut self.rpc_client {
+                loop {
+                    let filter = TxFilter {
+                        block: None,
+                        index: 0,
+                        hash: tx_id.0.into(),
+                    };
+                    let request = tonic::Request::new(filter);
+                    match client.get_transaction(request).await {
+                        Ok(_) => break,
+                        Err(e) => {
+                            error!("Error on getting tx {}", tx_id);
+                            if e.message().contains(utxo_common::NO_TX_ERROR_CODE) {
+                                if attempts >= 3 {
+                                    self.watch_for_tx = None;
+                                    return;
+                                }
+                                attempts += 1;
                             }
-                            attempts += 1;
-                        }
-                        Timer::sleep(30.).await;
-                    },
+                            Timer::sleep(30.).await;
+                        },
+                    }
                 }
+            }
+            if let ZRpcClient::Native(client) = &self.rpc_client {
+                todo!()
             }
         }
     }
