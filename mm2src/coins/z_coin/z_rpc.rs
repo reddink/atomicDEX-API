@@ -380,35 +380,33 @@ impl SaplingSyncLoopHandle {
         let current_block_in_db = block_in_place(|| self.blocks_db.get_latest_block())?;
         let from_block = current_block_in_db as u64 + 1;
         if current_block >= from_block {
-            match &mut self.rpc_client {
-                ZRpcClient::Light(client) => {
-                    let request = tonic::Request::new(BlockRange {
-                        start: Some(BlockId {
-                            height: from_block,
-                            hash: Vec::new(),
-                        }),
-                        end: Some(BlockId {
-                            height: current_block,
-                            hash: Vec::new(),
-                        }),
-                    });
-                    let mut response = client.get_block_range(request).await?;
-                    while let Some(block) = response.get_mut().message().await? {
-                        debug!("Got block {:?}", block);
-                        block_in_place(|| self.blocks_db.insert_block(block.height as u32, block.encode_to_vec()))?;
-                        self.notify_blocks_cache_status(block.height, current_block);
-                    }
-                },
-                ZRpcClient::Native(client) => {
-                    for height in from_block..=current_block {
-                        let block = client.get_block_by_height(height).await?;
-                        debug!("Got block {:?}", block);
-                        let serialized_block =
-                            serialize(&block).map_to_mm(|e| UpdateBlocksCacheErr::InternalError(e.to_string()))?;
-                        block_in_place(|| self.blocks_db.insert_block(block.height.unwrap(), serialized_block))?;
-                        self.notify_blocks_cache_status(block.height.unwrap() as u64, current_block);
-                    }
-                },
+            if let ZRpcClient::Light(client) = &mut self.rpc_client {
+                let request = tonic::Request::new(BlockRange {
+                    start: Some(BlockId {
+                        height: from_block,
+                        hash: Vec::new(),
+                    }),
+                    end: Some(BlockId {
+                        height: current_block,
+                        hash: Vec::new(),
+                    }),
+                });
+                let mut response = client.get_block_range(request).await?;
+                while let Some(block) = response.get_mut().message().await? {
+                    debug!("Got block {:?}", block);
+                    block_in_place(|| self.blocks_db.insert_block(block.height as u32, block.encode_to_vec()))?;
+                    self.notify_blocks_cache_status(block.height, current_block);
+                }
+            }
+            if let ZRpcClient::Native(client) = &self.rpc_client {
+                for height in from_block..=current_block {
+                    let block = client.get_block_by_height(height).await?;
+                    debug!("Got block {:?}", block);
+                    let serialized_block =
+                        serialize(&block).map_to_mm(|e| UpdateBlocksCacheErr::InternalError(e.to_string()))?;
+                    block_in_place(|| self.blocks_db.insert_block(block.height.unwrap(), serialized_block))?;
+                    self.notify_blocks_cache_status(block.height.unwrap() as u64, current_block);
+                }
             }
         }
         self.current_block = BlockHeight::from_u32(current_block as u32);
