@@ -474,9 +474,16 @@ impl SaplingSyncLoopHandle {
                 loop {
                     match client.get_raw_transaction_bytes(&tx_id.0.into()).compat().await {
                         Ok(_) => break,
-                        Err(_e) => {
+                        Err(e) => {
                             error!("Error on getting tx {}", tx_id);
-                            todo!()
+                            if e.to_string().contains(utxo_common::NO_TX_ERROR_CODE) {
+                                if attempts >= 3 {
+                                    self.watch_for_tx = None;
+                                    return;
+                                }
+                                attempts += 1;
+                            }
+                            Timer::sleep(30.).await;
                         },
                     }
                 }
