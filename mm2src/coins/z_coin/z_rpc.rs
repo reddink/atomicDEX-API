@@ -470,8 +470,16 @@ impl SaplingSyncLoopHandle {
                     }
                 }
             }
-            if let ZRpcClient::Native(_client) = &self.rpc_client {
-                todo!()
+            if let ZRpcClient::Native(client) = &self.rpc_client {
+                loop {
+                    match client.get_raw_transaction_bytes(&tx_id.0.into()).compat().await {
+                        Ok(_) => break,
+                        Err(_e) => {
+                            error!("Error on getting tx {}", tx_id);
+                            todo!()
+                        },
+                    }
+                }
             }
         }
     }
