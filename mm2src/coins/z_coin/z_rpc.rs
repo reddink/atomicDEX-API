@@ -399,6 +399,7 @@ impl SaplingSyncLoopHandle {
                 }
             }
             if let ZRpcClient::Native(client) = &self.rpc_client {
+                let client = client.clone();
                 for height in from_block..=current_block {
                     let block = client.get_block_by_height(height).await?;
                     debug!("Got block {:?}", block);
@@ -469,7 +470,7 @@ impl SaplingSyncLoopHandle {
                     }
                 }
             }
-            if let ZRpcClient::Native(client) = &self.rpc_client {
+            if let ZRpcClient::Native(_client) = &self.rpc_client {
                 todo!()
             }
         }
