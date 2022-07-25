@@ -86,10 +86,7 @@ impl MetricsWeak {
 impl TryRecorder for MetricsWeak {
     fn try_recorder(&self) -> Option<Arc<MmRecorder>> {
         let metrics = MetricsArc::from_weak(self)?;
-        if let Some(recorder) = metrics.try_recorder() {
-            return Some(recorder);
-        };
-        None
+        metrics.try_recorder()
     }
 }
 

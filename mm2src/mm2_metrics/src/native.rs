@@ -205,9 +205,9 @@ pub(crate) fn name_value_map_to_message(name_value_map: &MetricNameValueMap) -> 
         .iter()
         .sorted_by(|x, y| x.partial_cmp(y).expect("sorting faulted"))
         .map(|(key, value)| match value {
-            crate::native::PreparedMetric::Unsigned(e) => format!("{}={:?}", key, e),
-            crate::native::PreparedMetric::Float(e) => format!("{}={:?}", key, e),
-            crate::native::PreparedMetric::Histogram(e) => format!("{}={:?}", key, e.to_tag_message()),
+            crate::native::PreparedMetric::Unsigned(v) => format!("{}={:?}", key, v),
+            crate::native::PreparedMetric::Float(v) => format!("{}={:?}", key, v),
+            crate::native::PreparedMetric::Histogram(v) => format!("{}={:?}", key, v.to_tag_message()),
         })
         .join(" ")
 }
@@ -567,7 +567,7 @@ mod test {
                     "coin"=> "KMD",
                     "method"=>"blockchain.transaction.get");
 
-        // println!("{}", mm_metrics.0.collect_prometheus_format());
+        println!("{}", mm_metrics.0.collect_prometheus_format());
         // TODO
     }
 }
