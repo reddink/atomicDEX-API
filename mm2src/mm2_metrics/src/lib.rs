@@ -13,11 +13,11 @@ pub use mm_metrics::prometheus;
 
 use derive_more::Display;
 use mm2_err_handle::prelude::MmError;
+use mm_metrics::Metrics;
+use recorder::{MmRecorder, TryRecorder};
 use serde_json::Value as Json;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
-use mm_metrics::Metrics;
-use recorder::{MmRecorder, TryRecorder};
 
 pub type MmMetricsResult<T> = Result<T, MmError<MmMetricsError>>;
 
