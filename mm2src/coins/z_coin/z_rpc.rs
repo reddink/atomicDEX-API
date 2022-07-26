@@ -34,6 +34,7 @@ mod z_coin_grpc {
     tonic::include_proto!("cash.z.wallet.sdk.rpc");
 }
 use crate::utxo::rpc_clients::{NativeClient, UtxoRpcClientOps};
+use crate::{BytesJson, H256Json};
 use z_coin_grpc::compact_tx_streamer_client::CompactTxStreamerClient;
 use z_coin_grpc::{BlockId, BlockRange, ChainSpec, TxFilter};
 
@@ -290,6 +291,45 @@ pub enum SyncStatus {
     },
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+struct CompactBlockNative {
+    height: u64, // the height of this block
+    hash: H256Json,
+    prev_hash: H256Json,
+    time: u32,
+    header: BytesJson,                // (hash, prev_hash, and time) OR (full header)
+    compact_tx: Vec<CompactTxNative>, // compact transactions from this block
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct CompactTxNative {
+    // Index and hash will allow the receiver to call out to chain
+    // explorers or other data structures to retrieve more information
+    // about this transaction.
+    index: H256Json,
+    hash: H256Json,
+    // The transaction fee: present if server can provide. In the case of a
+    // stateless server and a transaction with transparent inputs, this will be
+    // unset because the calculation requires reference to prior transactions.
+    // in a pure-Sapling context, the fee will be calculable as:
+    //    valueBalance + (sum(vPubNew) - sum(vPubOld) - sum(tOut))
+    fee: u32,
+    spends: Vec<CompactSpendNative>,
+    outputs: Vec<CompactOutputNative>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct CompactSpendNative {
+    nf: Vec<u8>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct CompactOutputNative {
+    cmu: Vec<u8>,
+    epk: Vec<u8>,
+    ciphertext: Vec<u8>,
+}
+
 enum ZRpcClient {
     Native(NativeClient),
     Light(CompactTxStreamerClient<Channel>),
@@ -381,8 +421,24 @@ impl SaplingSyncLoopHandle {
                 for height in from_block..=current_block {
                     let block = client.get_block_by_height(height).await?;
                     debug!("Got block {:?}", block);
+                    let header = client.get_block_header_bytes(block.hash).compat().await?;
+                    let compact_tx = CompactTxNative {
+                        index: Default::default(),
+                        hash: Default::default(),
+                        fee: 0,
+                        spends: vec![],
+                        outputs: vec![],
+                    };
+                    let compact_block = CompactBlockNative {
+                        height,
+                        hash: block.hash,
+                        prev_hash: block.previousblockhash.unwrap(),
+                        time: block.time,
+                        header,
+                        compact_tx: vec![compact_tx],
+                    };
                     let serialized_block =
-                        serialize(&block).map_to_mm(|e| UpdateBlocksCacheErr::InternalError(e.to_string()))?;
+                        serialize(&compact_block).map_to_mm(|e| UpdateBlocksCacheErr::InternalError(e.to_string()))?;
                     block_in_place(|| self.blocks_db.insert_block(block.height.unwrap(), serialized_block))?;
                     self.notify_blocks_cache_status(block.height.unwrap() as u64, current_block);
                 }

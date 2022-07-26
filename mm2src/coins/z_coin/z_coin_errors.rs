@@ -3,6 +3,7 @@ use crate::utxo::rpc_clients::UtxoRpcError;
 use crate::utxo::utxo_builder::UtxoCoinBuildError;
 use crate::WithdrawError;
 use crate::{NumConversError, PrivKeyNotAllowed};
+use common::jsonrpc_client::JsonRpcError;
 use db_common::sqlite::rusqlite::Error as SqliteError;
 use db_common::sqlite::rusqlite::Error as SqlError;
 use derive_more::Display;
@@ -18,8 +19,9 @@ use zcash_primitives::transaction::builder::Error as ZTxBuilderError;
 pub enum UpdateBlocksCacheErr {
     GrpcError(tonic::Status),
     DbError(SqliteError),
-    JsonRpsErr(UtxoRpcError),
+    UtxoRpcError(UtxoRpcError),
     InternalError(String),
+    JsonRpcError(JsonRpcError),
 }
 
 impl From<tonic::Status> for UpdateBlocksCacheErr {
@@ -31,7 +33,11 @@ impl From<SqliteError> for UpdateBlocksCacheErr {
 }
 
 impl From<UtxoRpcError> for UpdateBlocksCacheErr {
-    fn from(err: UtxoRpcError) -> Self { UpdateBlocksCacheErr::JsonRpsErr(err) }
+    fn from(err: UtxoRpcError) -> Self { UpdateBlocksCacheErr::UtxoRpcError(err) }
+}
+
+impl From<JsonRpcError> for UpdateBlocksCacheErr {
+    fn from(err: JsonRpcError) -> Self { UpdateBlocksCacheErr::JsonRpcError(err) }
 }
 
 #[derive(Debug, Display)]
