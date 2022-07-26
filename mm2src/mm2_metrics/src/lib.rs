@@ -4,19 +4,19 @@
 extern crate gstuff;
 #[macro_use] extern crate serde_derive;
 
+#[macro_use]
+pub mod mm_metrics;
+pub mod recorder;
+pub use metrics;
+#[cfg(not(target_arch = "wasm32"))]
+pub use mm_metrics::prometheus;
+
 use derive_more::Display;
 use mm2_err_handle::prelude::MmError;
 use serde_json::Value as Json;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
-
-#[macro_use]
-pub mod native;
-pub mod recorder;
-
-pub use metrics;
-#[cfg(not(target_arch = "wasm32"))] pub use native::prometheus;
-use native::Metrics;
+use mm_metrics::Metrics;
 use recorder::{MmRecorder, TryRecorder};
 
 pub type MmMetricsResult<T> = Result<T, MmError<MmMetricsError>>;

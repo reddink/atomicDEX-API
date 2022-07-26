@@ -1,4 +1,4 @@
-use crate::{native::MmHistogram, MetricType, MetricsJson};
+use crate::{mm_metrics::MmHistogram, MetricType, MetricsJson};
 
 use metrics::{Counter, Gauge, Histogram, Key, KeyName, Label, Recorder, Unit};
 #[cfg(not(target_arch = "wasm32"))]

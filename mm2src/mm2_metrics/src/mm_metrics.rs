@@ -20,8 +20,7 @@ pub(crate) type MetricNameValueMap = HashMap<String, PreparedMetric>;
 #[macro_export]
 macro_rules! mm_label {
     ($($label_key:expr => $label_val:expr),+) => {{
-         let labels = vec![$(($label_key.to_owned(), $label_val.to_owned())),+];
-         labels
+         vec![$(($label_key.to_owned(), $label_val.to_owned())),+]
     }};
 }
 
@@ -149,7 +148,7 @@ impl TagObserver {
         loop {
             Timer::sleep(interval).await;
             let log_state = match LogArc::from_weak(&log_state) {
-                Some(la) => la,
+                Some(log_arc) => log_arc,
                 _ => {
                     return;
                 },
@@ -190,6 +189,19 @@ impl TagObserver {
     }
 }
 
+/// Used for parsing metrics to `prepare_tag_metric_output`
+fn map_metrics_to_prepare_tag_metric_output(
+    key: Key,
+    value: PreparedMetric,
+    output: &mut HashMap<MetricLabels, MetricNameValueMap>,
+) {
+    let (metric_name, labels) = key.into_parts();
+    output
+        .entry(labels)
+        .or_insert_with(MetricNameValueMap::new)
+        .insert(metric_name.as_str().to_string(), value);
+}
+
 pub(crate) fn labels_to_tags(labels: Iter<Label>) -> Vec<Tag> {
     labels
         .map(|label| Tag {
@@ -205,9 +217,9 @@ pub(crate) fn name_value_map_to_message(name_value_map: &MetricNameValueMap) -> 
         .iter()
         .sorted_by(|x, y| x.partial_cmp(y).expect("sorting faulted"))
         .map(|(key, value)| match value {
-            crate::native::PreparedMetric::Unsigned(v) => format!("{}={:?}", key, v),
-            crate::native::PreparedMetric::Float(v) => format!("{}={:?}", key, v),
-            crate::native::PreparedMetric::Histogram(v) => format!("{}={:?}", key, v.to_tag_message()),
+            crate::mm_metrics::PreparedMetric::Unsigned(v) => format!("{}={:?}", key, v),
+            crate::mm_metrics::PreparedMetric::Float(v) => format!("{}={:?}", key, v),
+            crate::mm_metrics::PreparedMetric::Histogram(v) => format!("{}={:?}", key, v.to_tag_message()),
         })
         .join(" ")
 }
@@ -248,19 +260,6 @@ impl MmHistogram {
 
         result
     }
-}
-
-/// Used for parsing metrics to `prepare_tag_metric_output`
-fn map_metrics_to_prepare_tag_metric_output(
-    key: Key,
-    value: PreparedMetric,
-    output: &mut HashMap<MetricLabels, MetricNameValueMap>,
-) {
-    let (metric_name, labels) = key.into_parts();
-    output
-        .entry(labels)
-        .or_insert_with(MetricNameValueMap::new)
-        .insert(metric_name.as_str().to_string(), value);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -393,13 +392,14 @@ pub mod prometheus {
 #[cfg(test)]
 mod test {
 
-    use std::time::Instant;
+    use std::time::Duration;
 
     use crate::{MetricsArc, MetricsOps};
 
     use common::{block_on,
                  executor::Timer,
                  log::{LogArc, LogState}};
+    use quanta::Clock;
 
     #[test]
     fn test_collect_json() {
@@ -502,7 +502,8 @@ mod test {
 
         mm_metrics.init_with_dashboard(log_state.weak(), 6.).unwrap();
 
-        let start1 = Instant::now();
+        let mut clock = Clock::new();
+        let last: quanta::Instant = clock.now();
 
         mm_counter!(mm_metrics, "rpc.traffic.tx", 62, "coin" => "BTC");
         mm_counter!(mm_metrics, "rpc.traffic.rx", 105, "coin"=> "BTC");
@@ -512,10 +513,12 @@ mod test {
 
         mm_gauge!(mm_metrics, "rpc.connection.count", 3.0, "coin" => "KMD");
 
-        let end = start1.duration_since(start1);
+        block_on(async { Timer::sleep(6.).await });
+
+        let delta: Duration = clock.now() - last;
         mm_timing!(mm_metrics,
                     "rpc.query.spent_time",
-                    end,
+                    delta,
                     "coin" => "KMD",
                     "method" => "blockchain.transaction.get");
 
@@ -526,19 +529,18 @@ mod test {
 
         mm_gauge!(mm_metrics, "rpc.connection.count", 5.0, "coin" => "KMD");
 
-        let end = start1.duration_since(start1);
-
+        let delta: Duration = clock.now() - last;
         mm_timing!(mm_metrics,
                     "rpc.query.spent_time",
-                    end,
-                    "coin"=> "KMD",
-                    "method"=>"blockchain.transaction.get");
+                    delta,
+                    "coin" => "KMD",
+                    "method" => "blockchain.transaction.get");
 
         // measure without labels
         mm_counter!(mm_metrics, "test.counter", 0);
         mm_gauge!(mm_metrics, "test.gauge", 1.0);
-        let end = start1.duration_since(start1);
-        mm_timing!(mm_metrics, "test.uptime", end);
+        let delta: Duration = clock.now() - last;
+        mm_timing!(mm_metrics, "test.uptime", delta);
 
         block_on(async { Timer::sleep(6.).await });
     }
@@ -563,11 +565,11 @@ mod test {
 
         mm_timing!(mm_metrics,
                     "rpc.query.spent_time",
-                    4.0,
+                    4.5,
                     "coin"=> "KMD",
                     "method"=>"blockchain.transaction.get");
 
-        println!("{}", mm_metrics.0.collect_prometheus_format());
+        // println!("{}", mm_metrics.0.collect_prometheus_format());
         // TODO
     }
 }
