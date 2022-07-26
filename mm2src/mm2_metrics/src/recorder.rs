@@ -1,12 +1,14 @@
 use crate::{mm_metrics::MmHistogram, MetricType, MetricsJson};
 
-use metrics::{Counter, Gauge, Histogram, Key, KeyName, Label, Recorder, Unit};
+use metrics::{Counter, CounterFn, Gauge, Histogram, Key, KeyName, Label, Recorder, Unit};
 #[cfg(not(target_arch = "wasm32"))]
-use metrics_exporter_prometheus::formatting::{key_to_parts, write_metric_line, write_type_line};
+use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusRecorder};
 use metrics_util::registry::{GenerationalAtomicStorage, GenerationalStorage, Registry};
 use std::{collections::HashMap,
           slice::Iter,
           sync::{atomic::Ordering, Arc}};
+
+const QUANTILES: [f64; 2] = [0.0, 1.0];
 
 pub struct Snapshot {
     pub counters: HashMap<String, HashMap<Vec<String>, u64>>,
@@ -14,105 +16,52 @@ pub struct Snapshot {
     pub histograms: HashMap<String, HashMap<Vec<String>, Vec<f64>>>,
 }
 
+/// Please consider moving it, `MultiGauge` and `MultiHistogram` to a separate mod.
+#[derive(Default)]
+pub(crate) struct MultiCounter {
+    counters: Vec<Counter>,
+}
+
+impl MultiCounter {
+    pub(crate) fn new(counters: Vec<Counter>) -> MultiCounter { MultiCounter { counters } }
+}
+
+impl CounterFn for MultiCounter {
+    fn increment(&self, value: u64) {
+        for counter in self.counters.iter() {
+            counter.increment(value)
+        }
+    }
+
+    fn absolute(&self, value: u64) {
+        for counter in self.counters.iter() {
+            counter.absolute(value)
+        }
+    }
+}
+
 /// `MmRecorder` the core of mm metrics.
 ///
 ///  Registering, Recording, Updating and Collecting metrics is all done from within MmRecorder.
 pub struct MmRecorder {
     pub(crate) registry: Registry<Key, GenerationalAtomicStorage>,
+    #[cfg(not(target_arch = "wasm32"))]
+    prometheus_recorder: PrometheusRecorder,
 }
 
 impl Default for MmRecorder {
     fn default() -> Self {
         Self {
             registry: Registry::new(GenerationalStorage::atomic()),
+            #[cfg(not(target_arch = "wasm32"))]
+            prometheus_recorder: PrometheusBuilder::new().set_quantiles().build_recorder(),
         }
     }
 }
 
 impl MmRecorder {
     #[cfg(not(target_arch = "wasm32"))]
-    fn get_metrics(&self) -> Snapshot {
-        let mut counters = HashMap::new();
-        for (key, counter) in self.registry.get_counter_handles() {
-            key_value_to_snapshot_entry(&mut counters, key, counter.get_inner().load(Ordering::Acquire), 0);
-        }
-
-        let mut gauges = HashMap::new();
-        for (key, gauge) in self.registry.get_gauge_handles() {
-            key_value_to_snapshot_entry(
-                &mut gauges,
-                key,
-                f64::from_bits(gauge.get_inner().load(Ordering::Acquire)),
-                0.0,
-            );
-        }
-
-        let mut histograms = HashMap::new();
-        for (key, histogram) in self.registry.get_histogram_handles() {
-            key_value_to_snapshot_entry(&mut histograms, key, histogram.get_inner().data(), vec![]);
-        }
-
-        Snapshot {
-            counters,
-            gauges,
-            histograms,
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn render(&self) -> String {
-        let Snapshot {
-            mut counters,
-            mut histograms,
-            mut gauges,
-        } = self.get_metrics();
-
-        let mut output = String::new();
-
-        for (name, mut by_labels) in counters.drain() {
-            write_type_line(&mut output, name.as_str(), "counter");
-            for (labels, value) in by_labels.drain() {
-                write_metric_line::<&str, u64>(&mut output, &name, None, &labels, None, value);
-            }
-            output.push('\n');
-        }
-
-        for (name, mut by_labels) in gauges.drain() {
-            write_type_line(&mut output, name.as_str(), "gauge");
-            for (labels, value) in by_labels.drain() {
-                write_metric_line::<&str, f64>(&mut output, &name, None, &labels, None, value);
-            }
-            output.push('\n');
-        }
-
-        for (key, histogram) in histograms.drain() {
-            let key = Key::from_name(key.to_owned());
-            let (name, labels) = key_to_parts(&key, None);
-            write_type_line(&mut output, &name, "histogram");
-            for (_, values) in histogram {
-                let mut count = 0;
-                let mut sum = 0.0;
-
-                count += values.len();
-                values.iter().for_each(|value| {
-                    sum += value;
-                });
-
-                write_metric_line::<&str, f64>(&mut output, &name, Some("sum"), &labels, None, sum);
-                write_metric_line::<&str, usize>(
-                    &mut output,
-                    &name,
-                    Some("count"),
-                    key_to_parts(&key, None).1.as_slice(),
-                    None,
-                    count,
-                );
-                output.push('\n');
-            }
-        }
-
-        output
-    }
+    pub fn render(&self) -> String { self.prometheus_recorder.handle().render() }
 
     pub fn prepare_json(&self) -> MetricsJson {
         let mut output = vec![];
@@ -155,22 +104,6 @@ impl MmRecorder {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn key_value_to_snapshot_entry<V>(
-    metrics: &mut HashMap<String, HashMap<Vec<String>, V>>,
-    key: Key,
-    value: V,
-    default: V,
-) {
-    let (key_name, labels) = key_to_parts(&key, None);
-    let entry = metrics
-        .entry(key_name)
-        .or_insert_with(HashMap::new)
-        .entry(labels)
-        .or_insert(default);
-    *entry = value;
-}
-
 impl Recorder for MmRecorder {
     fn describe_counter(&self, _key_name: KeyName, _unit: Option<Unit>, _description: &'static str) {
         // mm2_metrics doesn't use this method
@@ -184,7 +117,17 @@ impl Recorder for MmRecorder {
         // mm2_metrics doesn't use this method
     }
 
-    fn register_counter(&self, key: &Key) -> Counter { self.registry.get_or_create_counter(key, |e| e.clone().into()) }
+    #[cfg(target_arch = "wasm32")]
+    fn register_counter(&self, key: &Key) -> Counter { self.registry.get_or_create_gauge(key, |e| e.clone().into()) }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn register_counter(&self, key: &Key) -> Counter {
+        let counter = MultiCounter::new(vec![
+            self.registry.get_or_create_gauge(key, |e| e.clone().into()),
+            self.prometheus_recorder.register_counter(key),
+        ]);
+        Counter::from_arc(Arc::new(counter))
+    }
 
     fn register_gauge(&self, key: &Key) -> Gauge { self.registry.get_or_create_gauge(key, |e| e.clone().into()) }
 
