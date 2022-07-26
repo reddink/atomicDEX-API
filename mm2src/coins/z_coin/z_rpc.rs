@@ -429,10 +429,12 @@ impl SaplingSyncLoopHandle {
                         let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
                         let mut spends: Vec<CompactSpendNative> = Vec::new();
                         let mut outputs: Vec<CompactOutputNative> = Vec::new();
-                        // create outs, spends
+                        // create and push outs and spends during iteration
                         for spend in &tx.shielded_spends {}
                         for out in &tx.shielded_outputs {}
                         tx_id += 1;
+                        let spends = spends;
+                        let outputs= outputs;
                         let compact_tx = CompactTxNative {
                             index: tx_id,
                             hash: *hash,
@@ -443,6 +445,7 @@ impl SaplingSyncLoopHandle {
                         compact_txs.push(compact_tx);
                     }
                     let header = client.get_block_header_bytes(block.hash).compat().await?;
+                    let compact_txs = compact_txs;
                     let compact_block = CompactBlockNative {
                         height,
                         hash: block.hash,
