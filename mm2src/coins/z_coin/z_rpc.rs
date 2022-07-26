@@ -15,7 +15,6 @@ use mm2_err_handle::prelude::*;
 use parking_lot::Mutex;
 use prost::Message;
 use protobuf::Message as ProtobufMessage;
-use serialization::deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::task::block_in_place;
@@ -35,7 +34,7 @@ mod z_coin_grpc {
     tonic::include_proto!("cash.z.wallet.sdk.rpc");
 }
 use crate::utxo::rpc_clients::{NativeClient, UtxoRpcClientOps};
-use crate::{BytesJson, H256Json, UtxoTx};
+use crate::{BytesJson, H256Json, ZTransaction};
 use z_coin_grpc::compact_tx_streamer_client::CompactTxStreamerClient;
 use z_coin_grpc::{BlockId, BlockRange, ChainSpec, TxFilter};
 
@@ -426,13 +425,13 @@ impl SaplingSyncLoopHandle {
                     let mut compact_txs: Vec<CompactTxNative> = Vec::new();
                     // create and push compact_tx during iteration
                     for hash in &block.tx {
-                        let tx = client.get_transaction_bytes(hash).compat().await?;
-                        let tx: UtxoTx = deserialize(tx.as_slice()).expect("Panic here to avoid invalid tree state");
+                        let tx_bytes = client.get_transaction_bytes(hash).compat().await?;
+                        let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
                         let mut spends: Vec<CompactSpendNative> = Vec::new();
                         let mut outputs: Vec<CompactOutputNative> = Vec::new();
                         // create outs, spends
-                        for spend in tx.shielded_spends {}
-                        for out in tx.shielded_outputs {}
+                        for spend in &tx.shielded_spends {}
+                        for out in &tx.shielded_outputs {}
                         tx_id += 1;
                         let compact_tx = CompactTxNative {
                             index: tx_id,
