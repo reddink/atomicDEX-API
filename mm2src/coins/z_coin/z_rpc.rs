@@ -15,6 +15,7 @@ use mm2_err_handle::prelude::*;
 use parking_lot::Mutex;
 use prost::Message;
 use protobuf::Message as ProtobufMessage;
+use serialization::deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::task::block_in_place;
@@ -34,7 +35,7 @@ mod z_coin_grpc {
     tonic::include_proto!("cash.z.wallet.sdk.rpc");
 }
 use crate::utxo::rpc_clients::{NativeClient, UtxoRpcClientOps};
-use crate::{BytesJson, H256Json};
+use crate::{BytesJson, H256Json, UtxoTx};
 use z_coin_grpc::compact_tx_streamer_client::CompactTxStreamerClient;
 use z_coin_grpc::{BlockId, BlockRange, ChainSpec, TxFilter};
 
@@ -297,8 +298,8 @@ struct CompactBlockNative {
     hash: H256Json,
     prev_hash: H256Json,
     time: u32,
-    header: BytesJson,                // (hash, prev_hash, and time) OR (full header)
-    compact_tx: Vec<CompactTxNative>, // compact transactions from this block
+    header: BytesJson,                 // (hash, prev_hash, and time) OR (full header)
+    compact_txs: Vec<CompactTxNative>, // compact transactions from this block
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -306,7 +307,7 @@ struct CompactTxNative {
     // Index and hash will allow the receiver to call out to chain
     // explorers or other data structures to retrieve more information
     // about this transaction.
-    index: H256Json,
+    index: u64,
     hash: H256Json,
     // The transaction fee: present if server can provide. In the case of a
     // stateless server and a transaction with transparent inputs, this will be
@@ -421,21 +422,35 @@ impl SaplingSyncLoopHandle {
                 for height in from_block..=current_block {
                     let block = client.get_block_by_height(height).await?;
                     debug!("Got block {:?}", block);
+                    let mut tx_id: u64 = 0;
+                    let mut compact_txs: Vec<CompactTxNative> = Vec::new();
+                    // create and push compact_tx during iteration
+                    for hash in &block.tx {
+                        let tx = client.get_transaction_bytes(hash).compat().await?;
+                        let tx: UtxoTx = deserialize(tx.as_slice()).expect("Panic here to avoid invalid tree state");
+                        let mut spends: Vec<CompactSpendNative> = Vec::new();
+                        let mut outputs: Vec<CompactOutputNative> = Vec::new();
+                        // create outs, spends
+                        for spend in tx.shielded_spends {}
+                        for out in tx.shielded_outputs {}
+                        tx_id += 1;
+                        let compact_tx = CompactTxNative {
+                            index: tx_id,
+                            hash: *hash,
+                            fee: 0,
+                            spends,
+                            outputs,
+                        };
+                        compact_txs.push(compact_tx);
+                    }
                     let header = client.get_block_header_bytes(block.hash).compat().await?;
-                    let compact_tx = CompactTxNative {
-                        index: Default::default(),
-                        hash: Default::default(),
-                        fee: 0,
-                        spends: vec![],
-                        outputs: vec![],
-                    };
                     let compact_block = CompactBlockNative {
                         height,
                         hash: block.hash,
                         prev_hash: block.previousblockhash.unwrap(),
                         time: block.time,
                         header,
-                        compact_tx: vec![compact_tx],
+                        compact_txs,
                     };
                     let serialized_block =
                         serialize(&compact_block).map_to_mm(|e| UpdateBlocksCacheErr::InternalError(e.to_string()))?;
