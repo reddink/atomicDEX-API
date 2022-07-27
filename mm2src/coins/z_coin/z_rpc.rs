@@ -10,6 +10,7 @@ use futures::channel::mpsc::{channel, Receiver as AsyncReceiver, Sender as Async
 use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
 use futures::lock::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 use futures::StreamExt;
+use group::GroupEncoding;
 use http::Uri;
 use mm2_err_handle::prelude::*;
 use parking_lot::Mutex;
