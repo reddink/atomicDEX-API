@@ -291,7 +291,7 @@ pub enum SyncStatus {
     },
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 struct CompactBlockNative {
     height: u64, // the height of this block
     hash: H256Json,
@@ -301,7 +301,7 @@ struct CompactBlockNative {
     compact_txs: Vec<CompactTxNative>, // compact transactions from this block
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 struct CompactTxNative {
     // Index and hash will allow the receiver to call out to chain
     // explorers or other data structures to retrieve more information
@@ -318,16 +318,17 @@ struct CompactTxNative {
     outputs: Vec<CompactOutputNative>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 struct CompactSpendNative {
-    nf: Vec<u8>,
+    nf: [u8; 32],
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 struct CompactOutputNative {
-    cmu: Vec<u8>,
-    epk: Vec<u8>,
-    ciphertext: Vec<u8>,
+    cmu: [u8; 32],
+    epk: [u8; 32],
+    #[serde(serialize_with = "<[_]>::serialize")]
+    ciphertext: [u8; 80],
 }
 
 enum ZRpcClient {
@@ -424,20 +425,30 @@ impl SaplingSyncLoopHandle {
                     let mut tx_id: u64 = 0;
                     let mut compact_txs: Vec<CompactTxNative> = Vec::new();
                     // create and push compact_tx during iteration
-                    for hash in &block.tx {
-                        let tx_bytes = client.get_transaction_bytes(hash).compat().await?;
+                    for hash_tx in &block.tx {
+                        let tx_bytes = client.get_transaction_bytes(hash_tx).compat().await?;
                         let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
                         let mut spends: Vec<CompactSpendNative> = Vec::new();
                         let mut outputs: Vec<CompactOutputNative> = Vec::new();
-                        // create and push outs and spends during iteration
-                        for spend in &tx.shielded_spends {}
-                        for out in &tx.shielded_outputs {}
+                        // create and push outs and spends during iterations
+                        for spend in &tx.shielded_spends {
+                            let compact_spend = CompactSpendNative { nf: spend.nullifier.0 };
+                            spends.push(compact_spend);
+                        }
+                        for out in &tx.shielded_outputs {
+                            let compact_out = CompactOutputNative {
+                                cmu: out.cmu.to_bytes(),
+                                epk: out.ephemeral_key.to_bytes(),
+                                ciphertext: out.out_ciphertext,
+                            };
+                            outputs.push(compact_out);
+                        }
                         tx_id += 1;
                         let spends = spends;
-                        let outputs= outputs;
+                        let outputs = outputs;
                         let compact_tx = CompactTxNative {
                             index: tx_id,
-                            hash: *hash,
+                            hash: *hash_tx,
                             fee: 0,
                             spends,
                             outputs,
