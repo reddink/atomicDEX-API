@@ -1,14 +1,16 @@
 use super::{z_coin_errors::*, ZcoinConsensusParams};
 use crate::utxo::rpc_clients;
+use bincode::serialize;
 use common::executor::Timer;
 use common::log::{debug, error, info};
-use common::{async_blocking, spawn_abortable, AbortOnDropHandle};
+use common::{async_blocking, spawn_abortable, AbortOnDropHandle, Future01CompatExt};
 use db_common::sqlite::rusqlite::{params, Connection, Error as SqliteError, NO_PARAMS};
 use db_common::sqlite::{query_single_row, run_optimization_pragmas};
 use futures::channel::mpsc::{channel, Receiver as AsyncReceiver, Sender as AsyncSender};
 use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
 use futures::lock::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 use futures::StreamExt;
+use group::GroupEncoding;
 use http::Uri;
 use mm2_err_handle::prelude::*;
 use parking_lot::Mutex;
@@ -26,12 +28,15 @@ use zcash_client_sqlite::error::SqliteClientError as ZcashClientError;
 use zcash_client_sqlite::wallet::init::{init_accounts_table, init_wallet_db};
 use zcash_client_sqlite::WalletDb;
 use zcash_primitives::consensus::BlockHeight;
+use zcash_primitives::transaction::components::Amount;
 use zcash_primitives::transaction::TxId;
 use zcash_primitives::zip32::ExtendedFullViewingKey;
 
 mod z_coin_grpc {
     tonic::include_proto!("cash.z.wallet.sdk.rpc");
 }
+use crate::utxo::rpc_clients::{NativeClient, UtxoRpcClientOps};
+use crate::{BytesJson, H256Json, ZTransaction};
 use z_coin_grpc::compact_tx_streamer_client::CompactTxStreamerClient;
 use z_coin_grpc::{BlockId, BlockRange, ChainSpec, TxFilter};
 
@@ -174,7 +179,6 @@ pub(super) async fn init_light_client(
         .connect()
         .await
         .map_to_mm(ZcoinLightClientInitError::ConnectionFailure)?;
-    let grpc_client = CompactTxStreamerClient::new(tonic_channel);
 
     let (sync_status_notifier, sync_watcher) = channel(1);
     let (on_tx_gen_notifier, on_tx_gen_watcher) = channel(1);
@@ -182,7 +186,55 @@ pub(super) async fn init_light_client(
     let wallet_db = Arc::new(Mutex::new(wallet_db));
     let sync_handle = SaplingSyncLoopHandle {
         current_block: BlockHeight::from_u32(0),
-        grpc_client,
+        rpc_client: ZRpcClient::Light(CompactTxStreamerClient::new(tonic_channel)),
+        blocks_db,
+        wallet_db: wallet_db.clone(),
+        consensus_params,
+        sync_status_notifier,
+        on_tx_gen_watcher,
+        watch_for_tx: None,
+    };
+    let abort_handle = spawn_abortable(light_wallet_db_sync_loop(sync_handle));
+
+    Ok((
+        SaplingSyncConnector::new_mutex_wrapped(sync_watcher, on_tx_gen_notifier, abort_handle),
+        wallet_db,
+    ))
+}
+
+pub(super) async fn init_native_client(
+    native_client: NativeClient,
+    cache_db_path: PathBuf,
+    wallet_db_path: PathBuf,
+    consensus_params: ZcoinConsensusParams,
+    evk: ExtendedFullViewingKey,
+) -> Result<(AsyncMutex<SaplingSyncConnector>, WalletDbShared), MmError<ZcoinNativeClientInitError>> {
+    let blocks_db =
+        async_blocking(|| BlockDb::for_path(cache_db_path).map_to_mm(ZcoinNativeClientInitError::BlocksDbInitFailure))
+            .await?;
+
+    let wallet_db = async_blocking({
+        let consensus_params = consensus_params.clone();
+        move || -> Result<_, MmError<ZcoinNativeClientInitError>> {
+            let db = WalletDb::for_path(wallet_db_path, consensus_params)
+                .map_to_mm(ZcoinNativeClientInitError::WalletDbInitFailure)?;
+            run_optimization_pragmas(db.sql_conn()).map_to_mm(ZcoinNativeClientInitError::WalletDbInitFailure)?;
+            init_wallet_db(&db).map_to_mm(ZcoinNativeClientInitError::WalletDbInitFailure)?;
+            if db.get_extended_full_viewing_keys()?.is_empty() {
+                init_accounts_table(&db, &[evk])?;
+            }
+            Ok(db)
+        }
+    })
+    .await?;
+
+    let (sync_status_notifier, sync_watcher) = channel(1);
+    let (on_tx_gen_notifier, on_tx_gen_watcher) = channel(1);
+
+    let wallet_db = Arc::new(Mutex::new(wallet_db));
+    let sync_handle = SaplingSyncLoopHandle {
+        current_block: BlockHeight::from_u32(0),
+        rpc_client: ZRpcClient::Native(native_client),
         blocks_db,
         wallet_db: wallet_db.clone(),
         consensus_params,
@@ -241,9 +293,51 @@ pub enum SyncStatus {
     },
 }
 
+#[derive(Debug, Serialize)]
+struct CompactBlockNative {
+    height: u64,
+    hash: H256Json,
+    prev_hash: H256Json,
+    time: u32,
+    header: BytesJson,
+    compact_txs: Vec<CompactTxNative>,
+}
+
+#[derive(Debug, Serialize)]
+struct CompactTxNative {
+    index: u64,
+    hash: H256Json,
+    // The transaction fee: present if server can provide. In the case of a
+    // stateless server and a transaction with transparent inputs, this will be
+    // unset because the calculation requires reference to prior transactions.
+    // in a pure-Sapling context, the fee will be calculable as:
+    //    valueBalance + (sum(vPubNew) - sum(vPubOld) - sum(tOut))
+    fee: u64,
+    spends: Vec<CompactSpendNative>,
+    outputs: Vec<CompactOutputNative>,
+}
+
+#[derive(Debug, Serialize)]
+struct CompactSpendNative {
+    nf: [u8; 32],
+}
+
+#[derive(Debug, Serialize)]
+struct CompactOutputNative {
+    cmu: [u8; 32],
+    epk: [u8; 32],
+    #[serde(serialize_with = "<[_]>::serialize")]
+    ciphertext: [u8; 80],
+}
+
+enum ZRpcClient {
+    Native(NativeClient),
+    Light(CompactTxStreamerClient<Channel>),
+}
+
 pub struct SaplingSyncLoopHandle {
     current_block: BlockHeight,
-    grpc_client: CompactTxStreamerClient<Channel>,
+    rpc_client: ZRpcClient,
     blocks_db: BlockDb,
     wallet_db: WalletDbShared,
     consensus_params: ZcoinConsensusParams,
@@ -292,34 +386,103 @@ impl SaplingSyncLoopHandle {
     }
 
     async fn update_blocks_cache(&mut self) -> Result<(), MmError<UpdateBlocksCacheErr>> {
-        let request = tonic::Request::new(ChainSpec {});
-        let current_blockchain_block = self.grpc_client.get_latest_block(request).await?;
+        let current_block = match &mut self.rpc_client {
+            ZRpcClient::Native(client) => client.get_block_count().compat().await?,
+            ZRpcClient::Light(client) => {
+                let request = tonic::Request::new(ChainSpec {});
+                let block = client.get_latest_block(request).await?;
+                let res: u64 = block.into_inner().height;
+                res
+            },
+        };
         let current_block_in_db = block_in_place(|| self.blocks_db.get_latest_block())?;
-
         let from_block = current_block_in_db as u64 + 1;
-        let current_block: u64 = current_blockchain_block.into_inner().height;
-
         if current_block >= from_block {
-            let request = tonic::Request::new(BlockRange {
-                start: Some(BlockId {
-                    height: from_block,
-                    hash: Vec::new(),
-                }),
-                end: Some(BlockId {
-                    height: current_block,
-                    hash: Vec::new(),
-                }),
-            });
-
-            let mut response = self.grpc_client.get_block_range(request).await?;
-
-            while let Some(block) = response.get_mut().message().await? {
-                debug!("Got block {:?}", block);
-                block_in_place(|| self.blocks_db.insert_block(block.height as u32, block.encode_to_vec()))?;
-                self.notify_blocks_cache_status(block.height, current_block);
+            if let ZRpcClient::Light(client) = &mut self.rpc_client {
+                let request = tonic::Request::new(BlockRange {
+                    start: Some(BlockId {
+                        height: from_block,
+                        hash: Vec::new(),
+                    }),
+                    end: Some(BlockId {
+                        height: current_block,
+                        hash: Vec::new(),
+                    }),
+                });
+                let mut response = client.get_block_range(request).await?;
+                while let Some(block) = response.get_mut().message().await? {
+                    debug!("Got block {:?}", block);
+                    block_in_place(|| self.blocks_db.insert_block(block.height as u32, block.encode_to_vec()))?;
+                    self.notify_blocks_cache_status(block.height, current_block);
+                }
+            }
+            if let ZRpcClient::Native(client) = &self.rpc_client {
+                let client = client.clone();
+                for height in from_block..=current_block {
+                    let block = client.get_block_by_height(height).await?;
+                    debug!("Got block {:?}", block);
+                    let mut tx_id: u64 = 0;
+                    let mut compact_txs: Vec<CompactTxNative> = Vec::new();
+                    // create and push compact_tx during iteration
+                    for hash_tx in &block.tx {
+                        let tx_bytes = client.get_transaction_bytes(hash_tx).compat().await?;
+                        let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
+                        let mut spends: Vec<CompactSpendNative> = Vec::new();
+                        let mut outputs: Vec<CompactOutputNative> = Vec::new();
+                        // create and push outs and spends during iterations
+                        for spend in &tx.shielded_spends {
+                            let compact_spend = CompactSpendNative { nf: spend.nullifier.0 };
+                            spends.push(compact_spend);
+                        }
+                        for out in &tx.shielded_outputs {
+                            let compact_out = CompactOutputNative {
+                                cmu: out.cmu.to_bytes(),
+                                epk: out.ephemeral_key.to_bytes(),
+                                ciphertext: out.out_ciphertext,
+                            };
+                            outputs.push(compact_out);
+                        }
+                        tx_id += 1;
+                        let spends = spends;
+                        let outputs = outputs;
+                        let mut transparent_input_amount = Amount::zero();
+                        for input in tx.vin.iter() {
+                            let hash = H256Json::from(*input.prevout.hash());
+                            let prev_tx_bytes = client.get_transaction_bytes(&hash).compat().await?;
+                            let prev_tx = ZTransaction::read(prev_tx_bytes.as_slice()).unwrap();
+                            if let Some(spent_output) = prev_tx.vout.get(input.prevout.n() as usize) {
+                                transparent_input_amount += spent_output.value;
+                            }
+                        }
+                        let transparent_output_amount =
+                            tx.vout.iter().fold(Amount::zero(), |current, out| current + out.value);
+                        let fee_amount = tx.value_balance + transparent_input_amount - transparent_output_amount;
+                        let compact_tx = CompactTxNative {
+                            index: tx_id,
+                            hash: *hash_tx,
+                            fee: fee_amount.into(),
+                            spends,
+                            outputs,
+                        };
+                        compact_txs.push(compact_tx);
+                    }
+                    let header = client.get_block_header_bytes(block.hash).compat().await?;
+                    let compact_txs = compact_txs;
+                    let compact_block = CompactBlockNative {
+                        height,
+                        hash: block.hash,
+                        prev_hash: block.previousblockhash.unwrap(),
+                        time: block.time,
+                        header,
+                        compact_txs,
+                    };
+                    let serialized_block =
+                        serialize(&compact_block).map_to_mm(|e| UpdateBlocksCacheErr::InternalError(e.to_string()))?;
+                    block_in_place(|| self.blocks_db.insert_block(block.height.unwrap(), serialized_block))?;
+                    self.notify_blocks_cache_status(block.height.unwrap() as u64, current_block);
+                }
             }
         }
-
         self.current_block = BlockHeight::from_u32(current_block as u32);
         Ok(())
     }
@@ -356,26 +519,46 @@ impl SaplingSyncLoopHandle {
     async fn check_watch_for_tx_existence(&mut self) {
         if let Some(tx_id) = self.watch_for_tx {
             let mut attempts = 0;
-            loop {
-                let filter = TxFilter {
-                    block: None,
-                    index: 0,
-                    hash: tx_id.0.into(),
-                };
-                let request = tonic::Request::new(filter);
-                match self.grpc_client.get_transaction(request).await {
-                    Ok(_) => break,
-                    Err(e) => {
-                        error!("Error on getting tx {}", tx_id);
-                        if e.message().contains(rpc_clients::NO_TX_ERROR_CODE) {
-                            if attempts >= 3 {
-                                self.watch_for_tx = None;
-                                return;
+            if let ZRpcClient::Light(client) = &mut self.rpc_client {
+                loop {
+                    let filter = TxFilter {
+                        block: None,
+                        index: 0,
+                        hash: tx_id.0.into(),
+                    };
+                    let request = tonic::Request::new(filter);
+                    match client.get_transaction(request).await {
+                        Ok(_) => break,
+                        Err(e) => {
+                            error!("Error on getting tx {}", tx_id);
+                            if e.message().contains(rpc_clients::NO_TX_ERROR_CODE) {
+                                if attempts >= 3 {
+                                    self.watch_for_tx = None;
+                                    return;
+                                }
+                                attempts += 1;
                             }
-                            attempts += 1;
-                        }
-                        Timer::sleep(30.).await;
-                    },
+                            Timer::sleep(30.).await;
+                        },
+                    }
+                }
+            }
+            if let ZRpcClient::Native(client) = &self.rpc_client {
+                loop {
+                    match client.get_raw_transaction_bytes(&tx_id.0.into()).compat().await {
+                        Ok(_) => break,
+                        Err(e) => {
+                            error!("Error on getting tx {}", tx_id);
+                            if e.to_string().contains(rpc_clients::NO_TX_ERROR_CODE) {
+                                if attempts >= 3 {
+                                    self.watch_for_tx = None;
+                                    return;
+                                }
+                                attempts += 1;
+                            }
+                            Timer::sleep(30.).await;
+                        },
+                    }
                 }
             }
         }
