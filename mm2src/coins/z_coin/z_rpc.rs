@@ -398,6 +398,7 @@ impl SaplingSyncLoopHandle {
         log!("current_block = {:?}", current_block);
         let current_block_in_db = block_in_place(|| self.blocks_db.get_latest_block())?;
         let from_block = current_block_in_db as u64 + 1;
+        log!("from_block = {:?}", from_block);
         if current_block >= from_block {
             if let ZRpcClient::Light(client) = &mut self.rpc_client {
                 let request = tonic::Request::new(BlockRange {
@@ -420,7 +421,7 @@ impl SaplingSyncLoopHandle {
             if let ZRpcClient::Native(client) = &self.rpc_client {
                 let client = client.clone();
                 for height in from_block..=current_block {
-                    log!("Height in current_block = {:?}", height);
+                    log!("Height in block = {:?}", height);
                     let block = client.get_block_by_height(height).await?;
                     debug!("Got block {:?}", block);
                     log!("Got block = {:?}", block);
@@ -428,8 +429,10 @@ impl SaplingSyncLoopHandle {
                     let mut compact_txs: Vec<CompactTxNative> = Vec::new();
                     // create and push compact_tx during iteration
                     for hash_tx in &block.tx {
+                        log!("hash_tx in block.tx = {:?}", hash_tx);
                         let tx_bytes = client.get_transaction_bytes(hash_tx).compat().await?;
                         let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
+                        log!("tx ZTransaction = {:?}", tx);
                         let mut spends: Vec<CompactSpendNative> = Vec::new();
                         let mut outputs: Vec<CompactOutputNative> = Vec::new();
                         // create and push outs and spends during iterations
@@ -446,10 +449,14 @@ impl SaplingSyncLoopHandle {
                             outputs.push(compact_out);
                         }
                         tx_id += 1;
+                        // making spends and outputs immutable
                         let spends = spends;
+                        log!("spends = {:?}", spends);
                         let outputs = outputs;
+                        log!("outputs = {:?}", outputs);
                         let mut transparent_input_amount = Amount::zero();
                         for input in tx.vin.iter() {
+                            log!("Input from tx.vin.iter = {:?}", input);
                             let hash = H256Json::from(*input.prevout.hash());
                             log!("Hash from prevout = {:?}", hash);
                             let prev_tx_bytes = client.get_transaction_bytes(&hash).compat().await?;
