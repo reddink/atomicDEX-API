@@ -395,7 +395,7 @@ impl SaplingSyncLoopHandle {
                 res
             },
         };
-        log!("current_block = {:?}", current_block);
+        log!("latest block height = {:?}", current_block);
         let current_block_in_db = block_in_place(|| self.blocks_db.get_latest_block())?;
         let from_block = current_block_in_db as u64 + 1;
         log!("from_block = {:?}", from_block);
@@ -421,7 +421,7 @@ impl SaplingSyncLoopHandle {
             if let ZRpcClient::Native(client) = &self.rpc_client {
                 let client = client.clone();
                 for height in from_block..=current_block {
-                    log!("Height in block = {:?}", height);
+                    log!("Height = {:?}", height);
                     let block = client.get_block_by_height(height).await?;
                     debug!("Got block {:?}", block);
                     log!("Got block = {:?}", block);

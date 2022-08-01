@@ -1124,7 +1124,7 @@ impl NativeClientImpl {
 
     /// https://developer.bitcoin.org/reference/rpc/getblockheader.html
     pub fn get_block_header_bytes(&self, block_hash: H256Json) -> RpcRes<BytesJson> {
-        let verbose = 0;
+        let verbose = false;
         rpc_func!(self, "getblockheader", block_hash, verbose)
     }
 }
