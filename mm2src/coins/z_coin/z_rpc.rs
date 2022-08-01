@@ -395,6 +395,7 @@ impl SaplingSyncLoopHandle {
                 res
             },
         };
+        log!("current_block = {:?}", current_block);
         let current_block_in_db = block_in_place(|| self.blocks_db.get_latest_block())?;
         let from_block = current_block_in_db as u64 + 1;
         if current_block >= from_block {
@@ -419,8 +420,10 @@ impl SaplingSyncLoopHandle {
             if let ZRpcClient::Native(client) = &self.rpc_client {
                 let client = client.clone();
                 for height in from_block..=current_block {
+                    log!("Height in current_block = {:?}", height);
                     let block = client.get_block_by_height(height).await?;
                     debug!("Got block {:?}", block);
+                    log!("Got block = {:?}", block);
                     let mut tx_id: u64 = 0;
                     let mut compact_txs: Vec<CompactTxNative> = Vec::new();
                     // create and push compact_tx during iteration
@@ -448,7 +451,9 @@ impl SaplingSyncLoopHandle {
                         let mut transparent_input_amount = Amount::zero();
                         for input in tx.vin.iter() {
                             let hash = H256Json::from(*input.prevout.hash());
+                            log!("Hash from prevout = {:?}", hash);
                             let prev_tx_bytes = client.get_transaction_bytes(&hash).compat().await?;
+                            log!("prev_tx_bytes = {:?}", prev_tx_bytes);
                             let prev_tx = ZTransaction::read(prev_tx_bytes.as_slice()).unwrap();
                             if let Some(spent_output) = prev_tx.vout.get(input.prevout.n() as usize) {
                                 transparent_input_amount += spent_output.value;
