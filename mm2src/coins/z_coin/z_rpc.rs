@@ -28,7 +28,6 @@ use zcash_client_sqlite::error::SqliteClientError as ZcashClientError;
 use zcash_client_sqlite::wallet::init::{init_accounts_table, init_wallet_db};
 use zcash_client_sqlite::WalletDb;
 use zcash_primitives::consensus::BlockHeight;
-use zcash_primitives::transaction::components::Amount;
 use zcash_primitives::transaction::TxId;
 use zcash_primitives::zip32::ExtendedFullViewingKey;
 
@@ -424,15 +423,15 @@ impl SaplingSyncLoopHandle {
                     log!("Height = {:?}", height);
                     let block = client.get_block_by_height(height).await?;
                     debug!("Got block {:?}", block);
-                    log!("Got block = {:?}", block);
+                    // log!("Got block = {:?}", block);
                     let mut tx_id: u64 = 0;
                     let mut compact_txs: Vec<CompactTxNative> = Vec::new();
                     // create and push compact_tx during iteration
                     for hash_tx in &block.tx {
-                        log!("hash_tx in block.tx = {:?}", hash_tx);
+                        // log!("hash_tx in block.tx = {:?}", hash_tx);
                         let tx_bytes = client.get_transaction_bytes(hash_tx).compat().await?;
                         let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
-                        log!("tx ZTransaction = {:?}", tx);
+                        // log!("tx ZTransaction = {:?}", tx);
                         let mut spends: Vec<CompactSpendNative> = Vec::new();
                         let mut outputs: Vec<CompactOutputNative> = Vec::new();
                         // create and push outs and spends during iterations
@@ -451,28 +450,11 @@ impl SaplingSyncLoopHandle {
                         tx_id += 1;
                         // making spends and outputs immutable
                         let spends = spends;
-                        log!("spends = {:?}", spends);
                         let outputs = outputs;
-                        log!("outputs = {:?}", outputs);
-                        let mut transparent_input_amount = Amount::zero();
-                        for input in tx.vin.iter() {
-                            log!("Input from tx.vin.iter = {:?}", input);
-                            let hash = H256Json::from(*input.prevout.hash());
-                            log!("Hash from prevout = {:?}", hash);
-                            let prev_tx_bytes = client.get_transaction_bytes(&hash).compat().await?;
-                            log!("prev_tx_bytes = {:?}", prev_tx_bytes);
-                            let prev_tx = ZTransaction::read(prev_tx_bytes.as_slice()).unwrap();
-                            if let Some(spent_output) = prev_tx.vout.get(input.prevout.n() as usize) {
-                                transparent_input_amount += spent_output.value;
-                            }
-                        }
-                        let transparent_output_amount =
-                            tx.vout.iter().fold(Amount::zero(), |current, out| current + out.value);
-                        let fee_amount = tx.value_balance + transparent_input_amount - transparent_output_amount;
                         let compact_tx = CompactTxNative {
                             index: tx_id,
                             hash: *hash_tx,
-                            fee: fee_amount.into(),
+                            fee: 0,
                             spends,
                             outputs,
                         };
