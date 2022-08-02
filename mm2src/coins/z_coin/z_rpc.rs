@@ -302,7 +302,7 @@ struct CompactBlockNative {
     compact_txs: Vec<CompactTxNative>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Default, Debug, Serialize)]
 struct CompactTxNative {
     index: u64,
     hash: H256Json,
@@ -454,9 +454,9 @@ impl SaplingSyncLoopHandle {
                         let compact_tx = CompactTxNative {
                             index: tx_id,
                             hash: *hash_tx,
-                            fee: 0,
                             spends,
                             outputs,
+                            ..Default::default()
                         };
                         compact_txs.push(compact_tx);
                     }
