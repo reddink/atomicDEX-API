@@ -29,6 +29,7 @@ use zcash_client_sqlite::WalletDb;
 use zcash_primitives::consensus::BlockHeight;
 use zcash_primitives::transaction::TxId;
 use zcash_primitives::zip32::ExtendedFullViewingKey;
+use rpc::v1::types::{H256 as H256Json};
 
 mod z_coin_grpc {
     tonic::include_proto!("cash.z.wallet.sdk.rpc");
@@ -387,18 +388,15 @@ impl SaplingSyncLoopHandle {
                     log!("Height = {:?}", height);
                     let block = client.get_block_by_height(height).await?;
                     debug!("Got block {:?}", block);
-                    // log!("Got block = {:?}", block);
                     let mut tx_id: u64 = 0;
                     let mut compact_txs = Vec::new();
                     // create and push compact_tx during iteration
                     for hash_tx in &block.tx {
-                        // log!("hash_tx in block.tx = {:?}", hash_tx);
                         let tx_bytes = client.get_transaction_bytes(hash_tx).compat().await?;
                         let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
-                        // log!("tx ZTransaction = {:?}", tx);
                         let mut spends = Vec::new();
                         let mut outputs = Vec::new();
-                        // create and push outs and spends during iterations
+                        // create and push spends with outs during iterations
                         for spend in &tx.shielded_spends {
                             let compact_spend = TonicCompactSpend {
                                 nf: spend.nullifier.0.to_vec(),
@@ -414,6 +412,9 @@ impl SaplingSyncLoopHandle {
                             outputs.push(compact_out);
                         }
                         tx_id += 1;
+                        // Shadowing mut variables as immutable. No longer need to update them.
+                        let spends = spends;
+                        let outputs = outputs;
                         let compact_tx = TonicCompactTx {
                             index: tx_id,
                             hash: hash_tx.0.to_vec(),
@@ -504,7 +505,7 @@ impl SaplingSyncLoopHandle {
             }
             if let ZRpcClient::Native(client) = &self.rpc_client {
                 loop {
-                    match client.get_raw_transaction_bytes(&tx_id.0.into()).compat().await {
+                    match client.get_raw_transaction_bytes(&H256Json::from(tx_id.0)).compat().await {
                         Ok(_) => break,
                         Err(e) => {
                             error!("Error on getting tx {}", tx_id);
