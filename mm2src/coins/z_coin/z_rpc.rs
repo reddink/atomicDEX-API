@@ -1,6 +1,5 @@
 use super::{z_coin_errors::*, ZcoinConsensusParams};
 use crate::utxo::rpc_clients;
-use bincode::serialize;
 use common::executor::Timer;
 use common::log::{debug, error, info};
 use common::{async_blocking, spawn_abortable, AbortOnDropHandle, Future01CompatExt};
@@ -15,7 +14,7 @@ use http::Uri;
 use mm2_err_handle::prelude::*;
 use parking_lot::Mutex;
 use prost::Message;
-use protobuf::Message as ProtobufMessage;
+use protobuf::{Message as ProtobufMessage, RepeatedField};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::task::block_in_place;
@@ -23,7 +22,7 @@ use tonic::transport::{Channel, ClientTlsConfig};
 use zcash_client_backend::data_api::chain::{scan_cached_blocks, validate_chain};
 use zcash_client_backend::data_api::error::Error as ChainError;
 use zcash_client_backend::data_api::{BlockSource, WalletRead, WalletWrite};
-use zcash_client_backend::proto::compact_formats::CompactBlock;
+use zcash_client_backend::proto::compact_formats::{CompactBlock, CompactOutput, CompactSpend, CompactTx};
 use zcash_client_sqlite::error::SqliteClientError as ZcashClientError;
 use zcash_client_sqlite::wallet::init::{init_accounts_table, init_wallet_db};
 use zcash_client_sqlite::WalletDb;
@@ -35,7 +34,7 @@ mod z_coin_grpc {
     tonic::include_proto!("cash.z.wallet.sdk.rpc");
 }
 use crate::utxo::rpc_clients::{NativeClient, UtxoRpcClientOps};
-use crate::{BytesJson, H256Json, ZTransaction};
+use crate::ZTransaction;
 use z_coin_grpc::compact_tx_streamer_client::CompactTxStreamerClient;
 use z_coin_grpc::{BlockId, BlockRange, ChainSpec, TxFilter};
 
@@ -292,43 +291,6 @@ pub enum SyncStatus {
     },
 }
 
-#[derive(Debug, Serialize)]
-struct CompactBlockNative {
-    height: u64,
-    hash: H256Json,
-    prev_hash: H256Json,
-    time: u32,
-    header: BytesJson,
-    compact_txs: Vec<CompactTxNative>,
-}
-
-#[derive(Default, Debug, Serialize)]
-struct CompactTxNative {
-    index: u64,
-    hash: H256Json,
-    // The transaction fee: present if server can provide. In the case of a
-    // stateless server and a transaction with transparent inputs, this will be
-    // unset because the calculation requires reference to prior transactions.
-    // in a pure-Sapling context, the fee will be calculable as:
-    //    valueBalance + (sum(vPubNew) - sum(vPubOld) - sum(tOut))
-    fee: u64,
-    spends: Vec<CompactSpendNative>,
-    outputs: Vec<CompactOutputNative>,
-}
-
-#[derive(Debug, Serialize)]
-struct CompactSpendNative {
-    nf: [u8; 32],
-}
-
-#[derive(Debug, Serialize)]
-struct CompactOutputNative {
-    cmu: [u8; 32],
-    epk: [u8; 32],
-    #[serde(serialize_with = "<[_]>::serialize")]
-    ciphertext: [u8; 80],
-}
-
 enum ZRpcClient {
     Native(NativeClient),
     Light(CompactTxStreamerClient<Channel>),
@@ -425,53 +387,46 @@ impl SaplingSyncLoopHandle {
                     debug!("Got block {:?}", block);
                     // log!("Got block = {:?}", block);
                     let mut tx_id: u64 = 0;
-                    let mut compact_txs: Vec<CompactTxNative> = Vec::new();
+                    let mut compact_txs: Vec<CompactTx> = Vec::new();
                     // create and push compact_tx during iteration
                     for hash_tx in &block.tx {
                         // log!("hash_tx in block.tx = {:?}", hash_tx);
                         let tx_bytes = client.get_transaction_bytes(hash_tx).compat().await?;
                         let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
                         // log!("tx ZTransaction = {:?}", tx);
-                        let mut spends: Vec<CompactSpendNative> = Vec::new();
-                        let mut outputs: Vec<CompactOutputNative> = Vec::new();
+                        let mut spends: Vec<CompactSpend> = Vec::new();
+                        let mut outputs: Vec<CompactOutput> = Vec::new();
                         // create and push outs and spends during iterations
                         for spend in &tx.shielded_spends {
-                            let compact_spend = CompactSpendNative { nf: spend.nullifier.0 };
-                            spends.push(compact_spend);
+                            let mut compact_spend = CompactSpend::default_instance().clone();
+                            compact_spend.set_nf(spend.nullifier.0.to_vec());
+                            spends.push(compact_spend.clone());
                         }
                         for out in &tx.shielded_outputs {
-                            let compact_out = CompactOutputNative {
-                                cmu: out.cmu.to_bytes(),
-                                epk: out.ephemeral_key.to_bytes(),
-                                ciphertext: out.out_ciphertext,
-                            };
-                            outputs.push(compact_out);
+                            let mut compact_out = CompactOutput::default_instance().clone();
+                            compact_out.set_cmu(Vec::from(out.cmu.to_bytes()));
+                            compact_out.set_epk(Vec::from(out.ephemeral_key.to_bytes()));
+                            compact_out.set_ciphertext(Vec::from(out.out_ciphertext));
+                            outputs.push(compact_out.clone());
                         }
                         tx_id += 1;
-                        // making spends and outputs immutable
-                        let spends = spends;
-                        let outputs = outputs;
-                        let compact_tx = CompactTxNative {
-                            index: tx_id,
-                            hash: *hash_tx,
-                            spends,
-                            outputs,
-                            ..Default::default()
-                        };
-                        compact_txs.push(compact_tx);
+                        let mut compact_tx = CompactTx::default_instance().clone();
+                        compact_tx.set_index(tx_id);
+                        compact_tx.set_hash(hash_tx.0.to_vec());
+                        compact_tx.set_spends(RepeatedField::from_vec(spends));
+                        compact_tx.set_outputs(RepeatedField::from_vec(outputs));
+                        compact_txs.push(compact_tx.clone());
                     }
                     let header = client.get_block_header_bytes(block.hash).compat().await?;
                     let compact_txs = compact_txs;
-                    let compact_block = CompactBlockNative {
-                        height,
-                        hash: block.hash,
-                        prev_hash: block.previousblockhash.unwrap(),
-                        time: block.time,
-                        header,
-                        compact_txs,
-                    };
-                    let serialized_block =
-                        serialize(&compact_block).map_to_mm(|e| UpdateBlocksCacheErr::InternalError(e.to_string()))?;
+                    let mut compact_block = CompactBlock::default_instance().clone();
+                    compact_block.set_height(height);
+                    compact_block.set_hash(block.hash.0.to_vec());
+                    compact_block.set_prevHash(block.previousblockhash.unwrap().0.to_vec());
+                    compact_block.set_time(block.time);
+                    compact_block.set_header(header.0);
+                    compact_block.set_vtx(RepeatedField::from_vec(compact_txs));
+                    let serialized_block = Vec::new();
                     block_in_place(|| self.blocks_db.insert_block(block.height.unwrap(), serialized_block))?;
                     self.notify_blocks_cache_status(block.height.unwrap() as u64, current_block);
                 }
