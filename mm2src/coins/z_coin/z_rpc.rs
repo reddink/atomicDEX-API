@@ -14,7 +14,7 @@ use http::Uri;
 use mm2_err_handle::prelude::*;
 use parking_lot::Mutex;
 use prost::Message;
-use protobuf::{Message as ProtobufMessage, RepeatedField};
+use protobuf::Message as ProtobufMessage;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::task::block_in_place;
@@ -22,7 +22,7 @@ use tonic::transport::{Channel, ClientTlsConfig};
 use zcash_client_backend::data_api::chain::{scan_cached_blocks, validate_chain};
 use zcash_client_backend::data_api::error::Error as ChainError;
 use zcash_client_backend::data_api::{BlockSource, WalletRead, WalletWrite};
-use zcash_client_backend::proto::compact_formats::{CompactBlock, CompactOutput, CompactSpend, CompactTx};
+use zcash_client_backend::proto::compact_formats::CompactBlock;
 use zcash_client_sqlite::error::SqliteClientError as ZcashClientError;
 use zcash_client_sqlite::wallet::init::{init_accounts_table, init_wallet_db};
 use zcash_client_sqlite::WalletDb;
@@ -36,7 +36,9 @@ mod z_coin_grpc {
 use crate::utxo::rpc_clients::{NativeClient, UtxoRpcClientOps};
 use crate::ZTransaction;
 use z_coin_grpc::compact_tx_streamer_client::CompactTxStreamerClient;
-use z_coin_grpc::{BlockId, BlockRange, ChainSpec, TxFilter};
+use z_coin_grpc::{BlockId, BlockRange, ChainSpec, CompactBlock as TonicCompactBlock,
+                  CompactOutput as TonicCompactOutput, CompactSpend as TonicCompactSpend, CompactTx as TonicCompactTx,
+                  TxFilter};
 
 pub type WalletDbShared = Arc<Mutex<WalletDb<ZcoinConsensusParams>>>;
 
@@ -387,47 +389,55 @@ impl SaplingSyncLoopHandle {
                     debug!("Got block {:?}", block);
                     // log!("Got block = {:?}", block);
                     let mut tx_id: u64 = 0;
-                    let mut compact_txs: Vec<CompactTx> = Vec::new();
+                    let mut compact_txs = Vec::new();
                     // create and push compact_tx during iteration
                     for hash_tx in &block.tx {
                         // log!("hash_tx in block.tx = {:?}", hash_tx);
                         let tx_bytes = client.get_transaction_bytes(hash_tx).compat().await?;
                         let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
                         // log!("tx ZTransaction = {:?}", tx);
-                        let mut spends: Vec<CompactSpend> = Vec::new();
-                        let mut outputs: Vec<CompactOutput> = Vec::new();
+                        let mut spends = Vec::new();
+                        let mut outputs = Vec::new();
                         // create and push outs and spends during iterations
                         for spend in &tx.shielded_spends {
-                            let mut compact_spend = CompactSpend::default_instance().clone();
-                            compact_spend.set_nf(spend.nullifier.0.to_vec());
-                            spends.push(compact_spend.clone());
+                            let compact_spend = TonicCompactSpend {
+                                nf: spend.nullifier.0.to_vec(),
+                            };
+                            spends.push(compact_spend);
                         }
                         for out in &tx.shielded_outputs {
-                            let mut compact_out = CompactOutput::default_instance().clone();
-                            compact_out.set_cmu(Vec::from(out.cmu.to_bytes()));
-                            compact_out.set_epk(Vec::from(out.ephemeral_key.to_bytes()));
-                            compact_out.set_ciphertext(Vec::from(out.out_ciphertext));
-                            outputs.push(compact_out.clone());
+                            let compact_out = TonicCompactOutput {
+                                cmu: out.cmu.to_bytes().to_vec(),
+                                epk: out.ephemeral_key.to_bytes().to_vec(),
+                                ciphertext: out.out_ciphertext.to_vec(),
+                            };
+                            outputs.push(compact_out);
                         }
                         tx_id += 1;
-                        let mut compact_tx = CompactTx::default_instance().clone();
-                        compact_tx.set_index(tx_id);
-                        compact_tx.set_hash(hash_tx.0.to_vec());
-                        compact_tx.set_spends(RepeatedField::from_vec(spends));
-                        compact_tx.set_outputs(RepeatedField::from_vec(outputs));
-                        compact_txs.push(compact_tx.clone());
+                        let compact_tx = TonicCompactTx {
+                            index: tx_id,
+                            hash: hash_tx.0.to_vec(),
+                            fee: 0,
+                            spends,
+                            outputs,
+                        };
+                        compact_txs.push(compact_tx);
                     }
                     let header = client.get_block_header_bytes(block.hash).compat().await?;
                     let compact_txs = compact_txs;
-                    let mut compact_block = CompactBlock::default_instance().clone();
-                    compact_block.set_height(height);
-                    compact_block.set_hash(block.hash.0.to_vec());
-                    compact_block.set_prevHash(block.previousblockhash.unwrap().0.to_vec());
-                    compact_block.set_time(block.time);
-                    compact_block.set_header(header.0);
-                    compact_block.set_vtx(RepeatedField::from_vec(compact_txs));
-                    let serialized_block = Vec::new();
-                    block_in_place(|| self.blocks_db.insert_block(block.height.unwrap(), serialized_block))?;
+                    let compact_block = TonicCompactBlock {
+                        proto_version: 3,
+                        height,
+                        hash: block.hash.0.to_vec(),
+                        prev_hash: block.previousblockhash.unwrap().0.to_vec(),
+                        time: block.time,
+                        header: header.0,
+                        vtx: compact_txs,
+                    };
+                    block_in_place(|| {
+                        self.blocks_db
+                            .insert_block(block.height.unwrap(), compact_block.encode_to_vec())
+                    })?;
                     self.notify_blocks_cache_status(block.height.unwrap() as u64, current_block);
                 }
             }
