@@ -15,6 +15,7 @@ use mm2_err_handle::prelude::*;
 use parking_lot::Mutex;
 use prost::Message;
 use protobuf::Message as ProtobufMessage;
+use rpc::v1::types::H256 as H256Json;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::task::block_in_place;
@@ -29,7 +30,6 @@ use zcash_client_sqlite::WalletDb;
 use zcash_primitives::consensus::BlockHeight;
 use zcash_primitives::transaction::TxId;
 use zcash_primitives::zip32::ExtendedFullViewingKey;
-use rpc::v1::types::{H256 as H256Json};
 
 mod z_coin_grpc {
     tonic::include_proto!("cash.z.wallet.sdk.rpc");
@@ -505,7 +505,11 @@ impl SaplingSyncLoopHandle {
             }
             if let ZRpcClient::Native(client) = &self.rpc_client {
                 loop {
-                    match client.get_raw_transaction_bytes(&H256Json::from(tx_id.0)).compat().await {
+                    match client
+                        .get_raw_transaction_bytes(&H256Json::from(tx_id.0))
+                        .compat()
+                        .await
+                    {
                         Ok(_) => break,
                         Err(e) => {
                             error!("Error on getting tx {}", tx_id);
