@@ -359,16 +359,8 @@ impl SaplingSyncLoopHandle {
                 res
             },
         };
-        log!("latest block height = {:?}", current_block);
         let current_block_in_db = block_in_place(|| self.blocks_db.get_latest_block())?;
-        log!("current_block_in_db = {:?}", current_block_in_db);
         let from_block = current_block_in_db as u64 + 1;
-        log!("from_block = {:?}", from_block);
-        let last_block_in_handler = self.current_block;
-        log!(
-            "LAST block in handler before if current_block = {:?}",
-            last_block_in_handler
-        );
         if current_block >= from_block {
             if let ZRpcClient::Light(client) = &mut self.rpc_client {
                 let request = tonic::Request::new(BlockRange {
@@ -382,7 +374,12 @@ impl SaplingSyncLoopHandle {
                     }),
                 });
                 let mut response = client.get_block_range(request).await?;
+                let mut count = 0;
                 while let Some(block) = response.get_mut().message().await? {
+                    if count < 300 {
+                        log!("WORKING LIGHT = {:?}", block);
+                        count += 1;
+                    }
                     debug!("Got block {:?}", block);
                     block_in_place(|| self.blocks_db.insert_block(block.height as u32, block.encode_to_vec()))?;
                     self.notify_blocks_cache_status(block.height, current_block);
@@ -391,61 +388,64 @@ impl SaplingSyncLoopHandle {
             if let ZRpcClient::Native(client) = &self.rpc_client {
                 let client = client.clone();
                 for height in from_block..=current_block {
-                    if height == 500 || height == 150_000 || height == 200_000 || height == 214_000 {
-                        log!("****************Height reached = {:?}", height);
-                    }
                     let block = client.get_block_by_height(height).await?;
                     debug!("Got block {:?}", block);
-                    let mut tx_id: u64 = 0;
                     let mut compact_txs = Vec::new();
                     // create and push compact_tx during iteration
-                    for hash_tx in &block.tx {
+                    for (tx_id, hash_tx) in block.tx.iter().enumerate() {
                         let tx_bytes = client.get_transaction_bytes(hash_tx).compat().await?;
                         let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
                         let mut spends = Vec::new();
                         let mut outputs = Vec::new();
                         // create and push spends with outs during iterations
-                        for spend in &tx.shielded_spends {
-                            let compact_spend = TonicCompactSpend {
-                                nf: spend.nullifier.to_vec(),
+                        if !tx.shielded_spends.is_empty() || !tx.shielded_outputs.is_empty() {
+                            for spend in &tx.shielded_spends {
+                                let compact_spend = TonicCompactSpend {
+                                    nf: spend.nullifier.to_vec(),
+                                };
+                                spends.push(compact_spend);
+                            }
+                            for out in &tx.shielded_outputs {
+                                let compact_out = TonicCompactOutput {
+                                    cmu: out.cmu.to_bytes().to_vec(),
+                                    epk: out.ephemeral_key.to_bytes().to_vec(),
+                                    // https://zips.z.cash/zip-0307#output-compression
+                                    // The first 52 bytes of the ciphertext contain the contents and opening of the note commitment,
+                                    // which is all of the data needed to spend the note and to verify that the note is spendable.
+                                    ciphertext: out.enc_ciphertext[0..52].to_vec(),
+                                };
+                                outputs.push(compact_out);
+                            }
+                            // Shadowing mut variables as immutable. No longer need to update them.
+                            let spends = spends;
+                            let outputs = outputs;
+                            let compact_tx = TonicCompactTx {
+                                index: tx_id as u64,
+                                hash: hash_tx.0.to_vec(),
+                                fee: 0,
+                                spends,
+                                outputs,
                             };
-                            spends.push(compact_spend);
+                            compact_txs.push(compact_tx);
                         }
-                        for out in &tx.shielded_outputs {
-                            let compact_out = TonicCompactOutput {
-                                cmu: out.cmu.to_bytes().to_vec(),
-                                epk: out.ephemeral_key.to_bytes().to_vec(),
-                                // https://zips.z.cash/zip-0307#output-compression
-                                // The first 52 bytes of the ciphertext contain the contents and opening of the note commitment,
-                                // which is all of the data needed to spend the note and to verify that the note is spendable.
-                                ciphertext: out.enc_ciphertext[0..52].to_vec(),
-                            };
-                            outputs.push(compact_out);
-                        }
-                        tx_id += 1;
-                        // Shadowing mut variables as immutable. No longer need to update them.
-                        let spends = spends;
-                        let outputs = outputs;
-                        let compact_tx = TonicCompactTx {
-                            index: tx_id,
-                            hash: hash_tx.0.to_vec(),
-                            fee: 0,
-                            spends,
-                            outputs,
-                        };
-                        compact_txs.push(compact_tx);
                     }
-                    let header = client.get_block_header_bytes(block.hash).compat().await?;
+                    let mut hash = block.hash.0.to_vec();
+                    hash.reverse();
+                    let mut prev_hash = block.previousblockhash.unwrap().0.to_vec();
+                    prev_hash.reverse();
                     let compact_txs = compact_txs;
                     let compact_block = TonicCompactBlock {
-                        proto_version: 3,
+                        proto_version: 0,
                         height,
-                        hash: block.hash.0.to_vec(),
-                        prev_hash: block.previousblockhash.unwrap().0.to_vec(),
+                        hash,
+                        prev_hash,
                         time: block.time,
-                        header: header.0,
+                        header: Vec::new(),
                         vtx: compact_txs,
                     };
+                    if height < 300 {
+                        log!("WORKING NATIVE = {:?}", compact_block);
+                    }
                     block_in_place(|| {
                         self.blocks_db
                             .insert_block(block.height.unwrap(), compact_block.encode_to_vec())
@@ -454,8 +454,6 @@ impl SaplingSyncLoopHandle {
                 }
             }
         }
-        let block_in_db = block_in_place(|| self.blocks_db.get_latest_block())?;
-        log!("LAST block in db after current_block = {:?}", block_in_db);
         self.current_block = BlockHeight::from_u32(current_block as u32);
         Ok(())
     }
@@ -484,7 +482,6 @@ impl SaplingSyncLoopHandle {
                 e => return MmError::err(e),
             }
         }
-        log!("****************AFTER validate_chain****************");
 
         scan_cached_blocks(&self.consensus_params, &self.blocks_db, &mut wallet_ops, None)?;
         Ok(())
@@ -582,10 +579,8 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle) {
         }
 
         sync_handle.notify_sync_finished();
-        log!("****************AFTER notify_sync_finished****************");
 
         sync_handle.check_watch_for_tx_existence().await;
-        log!("****************AFTER check_watch_for_tx_existence****************");
 
         if let Some(tx_id) = sync_handle.watch_for_tx {
             if !block_in_place(|| is_tx_imported(sync_handle.wallet_db.lock().sql_conn(), tx_id)) {
@@ -595,7 +590,6 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle) {
             }
             sync_handle.watch_for_tx = None;
         }
-        log!("****************AFTER sync_handle.watch_for_tx****************");
 
         if let Ok(Some(sender)) = sync_handle.on_tx_gen_watcher.try_next() {
             match sender.send(sync_handle) {
@@ -605,7 +599,6 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle) {
                 },
             }
         }
-        log!("****************AFTER sync_handle.on_tx_gen_watcher.try_next****************");
 
         Timer::sleep(10.).await;
     }
