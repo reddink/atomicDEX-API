@@ -154,18 +154,18 @@ pub(super) async fn init_light_client(
     wallet_db_path: PathBuf,
     consensus_params: ZcoinConsensusParams,
     evk: ExtendedFullViewingKey,
-) -> Result<(AsyncMutex<SaplingSyncConnector>, WalletDbShared), MmError<ZcoinLightClientInitError>> {
+) -> Result<(AsyncMutex<SaplingSyncConnector>, WalletDbShared), MmError<ZcoinClientInitError>> {
     let blocks_db =
-        async_blocking(|| BlockDb::for_path(cache_db_path).map_to_mm(ZcoinLightClientInitError::BlocksDbInitFailure))
+        async_blocking(|| BlockDb::for_path(cache_db_path).map_to_mm(ZcoinClientInitError::BlocksDbInitFailure))
             .await?;
 
     let wallet_db = async_blocking({
         let consensus_params = consensus_params.clone();
-        move || -> Result<_, MmError<ZcoinLightClientInitError>> {
+        move || -> Result<_, MmError<ZcoinClientInitError>> {
             let db = WalletDb::for_path(wallet_db_path, consensus_params)
-                .map_to_mm(ZcoinLightClientInitError::WalletDbInitFailure)?;
-            run_optimization_pragmas(db.sql_conn()).map_to_mm(ZcoinLightClientInitError::WalletDbInitFailure)?;
-            init_wallet_db(&db).map_to_mm(ZcoinLightClientInitError::WalletDbInitFailure)?;
+                .map_to_mm(ZcoinClientInitError::WalletDbInitFailure)?;
+            run_optimization_pragmas(db.sql_conn()).map_to_mm(ZcoinClientInitError::WalletDbInitFailure)?;
+            init_wallet_db(&db).map_to_mm(ZcoinClientInitError::WalletDbInitFailure)?;
             if db.get_extended_full_viewing_keys()?.is_empty() {
                 init_accounts_table(&db, &[evk])?;
             }
@@ -176,10 +176,10 @@ pub(super) async fn init_light_client(
 
     let tonic_channel = Channel::builder(lightwalletd_url)
         .tls_config(ClientTlsConfig::new())
-        .map_to_mm(ZcoinLightClientInitError::TlsConfigFailure)?
+        .map_to_mm(ZcoinClientInitError::TlsConfigFailure)?
         .connect()
         .await
-        .map_to_mm(ZcoinLightClientInitError::ConnectionFailure)?;
+        .map_to_mm(ZcoinClientInitError::ConnectionFailure)?;
 
     let (sync_status_notifier, sync_watcher) = channel(1);
     let (on_tx_gen_notifier, on_tx_gen_watcher) = channel(1);
@@ -209,18 +209,18 @@ pub(super) async fn init_native_client(
     wallet_db_path: PathBuf,
     consensus_params: ZcoinConsensusParams,
     evk: ExtendedFullViewingKey,
-) -> Result<(AsyncMutex<SaplingSyncConnector>, WalletDbShared), MmError<ZcoinNativeClientInitError>> {
+) -> Result<(AsyncMutex<SaplingSyncConnector>, WalletDbShared), MmError<ZcoinClientInitError>> {
     let blocks_db =
-        async_blocking(|| BlockDb::for_path(cache_db_path).map_to_mm(ZcoinNativeClientInitError::BlocksDbInitFailure))
+        async_blocking(|| BlockDb::for_path(cache_db_path).map_to_mm(ZcoinClientInitError::BlocksDbInitFailure))
             .await?;
 
     let wallet_db = async_blocking({
         let consensus_params = consensus_params.clone();
-        move || -> Result<_, MmError<ZcoinNativeClientInitError>> {
+        move || -> Result<_, MmError<ZcoinClientInitError>> {
             let db = WalletDb::for_path(wallet_db_path, consensus_params)
-                .map_to_mm(ZcoinNativeClientInitError::WalletDbInitFailure)?;
-            run_optimization_pragmas(db.sql_conn()).map_to_mm(ZcoinNativeClientInitError::WalletDbInitFailure)?;
-            init_wallet_db(&db).map_to_mm(ZcoinNativeClientInitError::WalletDbInitFailure)?;
+                .map_to_mm(ZcoinClientInitError::WalletDbInitFailure)?;
+            run_optimization_pragmas(db.sql_conn()).map_to_mm(ZcoinClientInitError::WalletDbInitFailure)?;
+            init_wallet_db(&db).map_to_mm(ZcoinClientInitError::WalletDbInitFailure)?;
             if db.get_extended_full_viewing_keys()?.is_empty() {
                 init_accounts_table(&db, &[evk])?;
             }

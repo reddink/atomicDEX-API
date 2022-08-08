@@ -42,7 +42,7 @@ impl From<JsonRpcError> for UpdateBlocksCacheErr {
 
 #[derive(Debug, Display)]
 #[non_exhaustive]
-pub enum ZcoinLightClientInitError {
+pub enum ZcoinClientInitError {
     TlsConfigFailure(tonic::transport::Error),
     ConnectionFailure(tonic::transport::Error),
     BlocksDbInitFailure(SqliteError),
@@ -50,22 +50,8 @@ pub enum ZcoinLightClientInitError {
     ZcashSqliteError(ZcashClientError),
 }
 
-#[derive(Debug, Display)]
-#[non_exhaustive]
-pub enum ZcoinNativeClientInitError {
-    TlsConfigFailure(tonic::transport::Error),
-    ConnectionFailure(tonic::transport::Error),
-    BlocksDbInitFailure(SqliteError),
-    WalletDbInitFailure(SqliteError),
-    ZcashSqliteError(ZcashClientError),
-}
-
-impl From<ZcashClientError> for ZcoinLightClientInitError {
-    fn from(err: ZcashClientError) -> Self { ZcoinLightClientInitError::ZcashSqliteError(err) }
-}
-
-impl From<ZcashClientError> for ZcoinNativeClientInitError {
-    fn from(err: ZcashClientError) -> Self { ZcoinNativeClientInitError::ZcashSqliteError(err) }
+impl From<ZcashClientError> for ZcoinClientInitError {
+    fn from(err: ZcashClientError) -> Self { ZcoinClientInitError::ZcashSqliteError(err) }
 }
 
 #[derive(Debug, Display)]
@@ -204,10 +190,8 @@ pub enum ZCoinBuildError {
     },
     Io(std::io::Error),
     EmptyLightwalletdUris,
-    NativeModeIsNotSupportedYet,
     InvalidLightwalletdUri(InvalidUri),
-    LightClientInitErr(ZcoinLightClientInitError),
-    NativeClientInitError(ZcoinNativeClientInitError),
+    ClientInitErr(ZcoinClientInitError),
     ZCashParamsNotFound,
 }
 
@@ -231,12 +215,8 @@ impl From<InvalidUri> for ZCoinBuildError {
     fn from(err: InvalidUri) -> Self { ZCoinBuildError::InvalidLightwalletdUri(err) }
 }
 
-impl From<ZcoinLightClientInitError> for ZCoinBuildError {
-    fn from(err: ZcoinLightClientInitError) -> Self { ZCoinBuildError::LightClientInitErr(err) }
-}
-
-impl From<ZcoinNativeClientInitError> for ZCoinBuildError {
-    fn from(err: ZcoinNativeClientInitError) -> Self { ZCoinBuildError::NativeClientInitError(err) }
+impl From<ZcoinClientInitError> for ZCoinBuildError {
+    fn from(err: ZcoinClientInitError) -> Self { ZCoinBuildError::ClientInitErr(err) }
 }
 
 pub(super) enum SqlTxHistoryError {
