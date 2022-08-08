@@ -374,12 +374,7 @@ impl SaplingSyncLoopHandle {
                     }),
                 });
                 let mut response = client.get_block_range(request).await?;
-                let mut count = 0;
                 while let Some(block) = response.get_mut().message().await? {
-                    if count < 300 {
-                        log!("WORKING LIGHT = {:?}", block);
-                        count += 1;
-                    }
                     debug!("Got block {:?}", block);
                     block_in_place(|| self.blocks_db.insert_block(block.height as u32, block.encode_to_vec()))?;
                     self.notify_blocks_cache_status(block.height, current_block);
@@ -391,13 +386,14 @@ impl SaplingSyncLoopHandle {
                     let block = client.get_block_by_height(height).await?;
                     debug!("Got block {:?}", block);
                     let mut compact_txs = Vec::new();
-                    // create and push compact_tx during iteration
+                    // Create and push compact_tx during iteration.
                     for (tx_id, hash_tx) in block.tx.iter().enumerate() {
                         let tx_bytes = client.get_transaction_bytes(hash_tx).compat().await?;
                         let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
                         let mut spends = Vec::new();
                         let mut outputs = Vec::new();
-                        // create and push spends with outs during iterations
+                        // Create and push spends with outs for compact_tx during iterations.
+                        // By default, CompactBlocks only contain CompactTxs for transactions that contain Sapling spends or outputs.
                         if !tx.shielded_spends.is_empty() || !tx.shielded_outputs.is_empty() {
                             for spend in &tx.shielded_spends {
                                 let compact_spend = TonicCompactSpend {
@@ -419,9 +415,11 @@ impl SaplingSyncLoopHandle {
                             // Shadowing mut variables as immutable. No longer need to update them.
                             let spends = spends;
                             let outputs = outputs;
+                            let mut hash_tx_vec = hash_tx.0.to_vec();
+                            hash_tx_vec.reverse();
                             let compact_tx = TonicCompactTx {
                                 index: tx_id as u64,
-                                hash: hash_tx.0.to_vec(),
+                                hash: hash_tx_vec,
                                 fee: 0,
                                 spends,
                                 outputs,
@@ -440,12 +438,10 @@ impl SaplingSyncLoopHandle {
                         hash,
                         prev_hash,
                         time: block.time,
+                        // (hash, prevHash, and time) OR (full header)
                         header: Vec::new(),
                         vtx: compact_txs,
                     };
-                    if height < 300 {
-                        log!("WORKING NATIVE = {:?}", compact_block);
-                    }
                     block_in_place(|| {
                         self.blocks_db
                             .insert_block(block.height.unwrap(), compact_block.encode_to_vec())
