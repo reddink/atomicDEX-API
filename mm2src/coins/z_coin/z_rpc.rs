@@ -386,15 +386,15 @@ impl SaplingSyncLoopHandle {
                     let block = client.get_block_by_height(height).await?;
                     debug!("Got block {:?}", block);
                     let mut compact_txs = Vec::new();
+                    // By default, CompactBlocks only contain CompactTxs for transactions that contain Sapling spends or outputs.
                     // Create and push compact_tx during iteration.
                     for (tx_id, hash_tx) in block.tx.iter().enumerate() {
                         let tx_bytes = client.get_transaction_bytes(hash_tx).compat().await?;
                         let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
                         let mut spends = Vec::new();
                         let mut outputs = Vec::new();
-                        // Create and push spends with outs for compact_tx during iterations.
-                        // By default, CompactBlocks only contain CompactTxs for transactions that contain Sapling spends or outputs.
                         if !tx.shielded_spends.is_empty() || !tx.shielded_outputs.is_empty() {
+                            // Create and push spends with outs for compact_tx during iterations.
                             for spend in &tx.shielded_spends {
                                 let compact_spend = TonicCompactSpend {
                                     nf: spend.nullifier.to_vec(),
@@ -417,6 +417,7 @@ impl SaplingSyncLoopHandle {
                             let outputs = outputs;
                             let mut hash_tx_vec = hash_tx.0.to_vec();
                             hash_tx_vec.reverse();
+
                             let compact_tx = TonicCompactTx {
                                 index: tx_id as u64,
                                 hash: hash_tx_vec,
@@ -431,7 +432,11 @@ impl SaplingSyncLoopHandle {
                     hash.reverse();
                     let mut prev_hash = block.previousblockhash.unwrap().0.to_vec();
                     prev_hash.reverse();
+                    // Shadowing mut variables as immutable.
+                    let hash = hash;
+                    let prev_hash = prev_hash;
                     let compact_txs = compact_txs;
+
                     let compact_block = TonicCompactBlock {
                         proto_version: 0,
                         height,
