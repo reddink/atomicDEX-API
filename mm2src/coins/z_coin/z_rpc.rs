@@ -1,5 +1,6 @@
 use super::{z_coin_errors::*, ZcoinConsensusParams};
 use crate::utxo::rpc_clients;
+use async_trait::async_trait;
 use common::executor::Timer;
 use common::log::{debug, error, info};
 use common::{async_blocking, spawn_abortable, AbortOnDropHandle, Future01CompatExt};
@@ -16,6 +17,7 @@ use parking_lot::Mutex;
 use prost::Message;
 use protobuf::Message as ProtobufMessage;
 use rpc::v1::types::H256 as H256Json;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::task::block_in_place;
@@ -46,6 +48,123 @@ pub type WalletDbShared = Arc<Mutex<WalletDb<ZcoinConsensusParams>>>;
 struct CompactBlockRow {
     height: BlockHeight,
     data: Vec<u8>,
+}
+
+#[async_trait]
+pub trait ZRpcOps {
+    async fn scan_blocks(
+        &mut self,
+        start_block: u64,
+        last_block: u64,
+        on_block: &mut (dyn FnMut(TonicCompactBlock) -> Result<(), MmError<UpdateBlocksCacheErr>> + Send + Sync),
+    ) -> Result<(), MmError<UpdateBlocksCacheErr>>;
+}
+
+#[async_trait]
+impl ZRpcOps for CompactTxStreamerClient<Channel> {
+    async fn scan_blocks(
+        &mut self,
+        start_block: u64,
+        last_block: u64,
+        on_block: &mut (dyn FnMut(TonicCompactBlock) -> Result<(), MmError<UpdateBlocksCacheErr>> + Send + Sync),
+    ) -> Result<(), MmError<UpdateBlocksCacheErr>> {
+        let request = tonic::Request::new(BlockRange {
+            start: Some(BlockId {
+                height: start_block,
+                hash: Vec::new(),
+            }),
+            end: Some(BlockId {
+                height: last_block,
+                hash: Vec::new(),
+            }),
+        });
+        let mut response = self.get_block_range(request).await?;
+        while let Some(block) = response.get_mut().message().await? {
+            debug!("Got block {:?}", block);
+            on_block(block)?;
+        }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl ZRpcOps for NativeClient {
+    async fn scan_blocks(
+        &mut self,
+        start_block: u64,
+        last_block: u64,
+        on_block: &mut (dyn FnMut(TonicCompactBlock) -> Result<(), MmError<UpdateBlocksCacheErr>> + Send + Sync),
+    ) -> Result<(), MmError<UpdateBlocksCacheErr>> {
+        for height in start_block..=last_block {
+            let block = self.get_block_by_height(height).await?;
+            debug!("Got block {:?}", block);
+            let mut compact_txs = Vec::new();
+            // By default, CompactBlocks only contain CompactTxs for transactions that contain Sapling spends or outputs.
+            // Create and push compact_tx during iteration.
+            for (tx_id, hash_tx) in block.tx.iter().enumerate() {
+                let tx_bytes = self.get_transaction_bytes(hash_tx).compat().await?;
+                let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
+                let mut spends = Vec::new();
+                let mut outputs = Vec::new();
+                if !tx.shielded_spends.is_empty() || !tx.shielded_outputs.is_empty() {
+                    // Create and push spends with outs for compact_tx during iterations.
+                    for spend in &tx.shielded_spends {
+                        let compact_spend = TonicCompactSpend {
+                            nf: spend.nullifier.to_vec(),
+                        };
+                        spends.push(compact_spend);
+                    }
+                    for out in &tx.shielded_outputs {
+                        let compact_out = TonicCompactOutput {
+                            cmu: out.cmu.to_bytes().to_vec(),
+                            epk: out.ephemeral_key.to_bytes().to_vec(),
+                            // https://zips.z.cash/zip-0307#output-compression
+                            // The first 52 bytes of the ciphertext contain the contents and opening of the note commitment,
+                            // which is all of the data needed to spend the note and to verify that the note is spendable.
+                            ciphertext: out.enc_ciphertext[0..52].to_vec(),
+                        };
+                        outputs.push(compact_out);
+                    }
+                    // Shadowing mut variables as immutable. No longer need to update them.
+                    let spends = spends;
+                    let outputs = outputs;
+                    let mut hash_tx_vec = hash_tx.0.to_vec();
+                    hash_tx_vec.reverse();
+
+                    let compact_tx = TonicCompactTx {
+                        index: tx_id as u64,
+                        hash: hash_tx_vec,
+                        fee: 0,
+                        spends,
+                        outputs,
+                    };
+                    compact_txs.push(compact_tx);
+                }
+            }
+            let mut hash = block.hash.0.to_vec();
+            hash.reverse();
+            // Set 0 in vector in the case of genesis block.
+            let mut prev_hash = block.previousblockhash.unwrap_or_default().0.to_vec();
+            prev_hash.reverse();
+            // Shadowing mut variables as immutable.
+            let hash = hash;
+            let prev_hash = prev_hash;
+            let compact_txs = compact_txs;
+
+            let compact_block = TonicCompactBlock {
+                proto_version: 0,
+                height,
+                hash,
+                prev_hash,
+                time: block.time,
+                // (hash, prevHash, and time) OR (full header)
+                header: Vec::new(),
+                vtx: compact_txs,
+            };
+            on_block(compact_block)?;
+        }
+        Ok(())
+    }
 }
 
 /// A wrapper for the SQLite connection to the block cache database.
@@ -174,7 +293,7 @@ pub(super) async fn init_light_client(
         async_blocking(|| BlockDb::for_path(cache_db_path).map_to_mm(ZcoinClientInitError::BlocksDbInitFailure))
             .await?;
     let wallet_db = create_wallet_db(wallet_db_path, consensus_params.clone(), evk).await?;
-    let tonic_channel = Channel::builder(lightwalletd_url)
+    let tonic_channel = Channel::builder(lightwalletd_url.clone())
         .tls_config(ClientTlsConfig::new())
         .map_to_mm(ZcoinClientInitError::TlsConfigFailure)?
         .connect()
@@ -188,14 +307,22 @@ pub(super) async fn init_light_client(
     let sync_handle = SaplingSyncLoopHandle {
         current_block: BlockHeight::from_u32(0),
         rpc_client: ZRpcClient::Light(CompactTxStreamerClient::new(tonic_channel)),
-        blocks_db,
+        blocks_db: Mutex::new(blocks_db),
         wallet_db: wallet_db.clone(),
         consensus_params,
         sync_status_notifier,
         on_tx_gen_watcher,
         watch_for_tx: None,
     };
-    let abort_handle = spawn_abortable(light_wallet_db_sync_loop(sync_handle));
+
+    let tonic_channel = Channel::builder(lightwalletd_url)
+        .tls_config(ClientTlsConfig::new())
+        .map_to_mm(ZcoinClientInitError::TlsConfigFailure)?
+        .connect()
+        .await
+        .map_to_mm(ZcoinClientInitError::ConnectionFailure)?;
+    let rpc_copy = CompactTxStreamerClient::new(tonic_channel);
+    let abort_handle = spawn_abortable(light_wallet_db_sync_loop(sync_handle, Box::new(rpc_copy)));
 
     Ok((
         SaplingSyncConnector::new_mutex_wrapped(sync_watcher, on_tx_gen_notifier, abort_handle),
@@ -220,15 +347,15 @@ pub(super) async fn init_native_client(
     let wallet_db = Arc::new(Mutex::new(wallet_db));
     let sync_handle = SaplingSyncLoopHandle {
         current_block: BlockHeight::from_u32(0),
-        rpc_client: ZRpcClient::Native(native_client),
-        blocks_db,
+        rpc_client: ZRpcClient::Native(native_client.clone()),
+        blocks_db: Mutex::new(blocks_db),
         wallet_db: wallet_db.clone(),
         consensus_params,
         sync_status_notifier,
         on_tx_gen_watcher,
         watch_for_tx: None,
     };
-    let abort_handle = spawn_abortable(light_wallet_db_sync_loop(sync_handle));
+    let abort_handle = spawn_abortable(light_wallet_db_sync_loop(sync_handle, Box::new(native_client)));
 
     Ok((
         SaplingSyncConnector::new_mutex_wrapped(sync_watcher, on_tx_gen_notifier, abort_handle),
@@ -245,14 +372,14 @@ fn is_tx_imported(conn: &Connection, tx_id: TxId) -> bool {
 }
 
 pub struct SaplingSyncRespawnGuard {
-    pub(super) sync_handle: Option<SaplingSyncLoopHandle>,
+    pub(super) sync_handle: Option<(SaplingSyncLoopHandle, Box<dyn ZRpcOps + Send>)>,
     pub(super) abort_handle: Arc<Mutex<AbortOnDropHandle>>,
 }
 
 impl Drop for SaplingSyncRespawnGuard {
     fn drop(&mut self) {
-        if let Some(handle) = self.sync_handle.take() {
-            *self.abort_handle.lock() = spawn_abortable(light_wallet_db_sync_loop(handle));
+        if let Some((handle, rpc)) = self.sync_handle.take() {
+            *self.abort_handle.lock() = spawn_abortable(light_wallet_db_sync_loop(handle, rpc));
         }
     }
 }
@@ -260,12 +387,14 @@ impl Drop for SaplingSyncRespawnGuard {
 impl SaplingSyncRespawnGuard {
     pub(super) fn watch_for_tx(&mut self, tx_id: TxId) {
         if let Some(ref mut handle) = self.sync_handle {
-            handle.watch_for_tx = Some(tx_id);
+            handle.0.watch_for_tx = Some(tx_id);
         }
     }
 
     #[inline]
-    pub(super) fn current_block(&self) -> BlockHeight { self.sync_handle.as_ref().expect("always Some").current_block }
+    pub(super) fn current_block(&self) -> BlockHeight {
+        self.sync_handle.as_ref().expect("always Some").0.current_block
+    }
 }
 
 pub enum SyncStatus {
@@ -287,14 +416,14 @@ enum ZRpcClient {
 pub struct SaplingSyncLoopHandle {
     current_block: BlockHeight,
     rpc_client: ZRpcClient,
-    blocks_db: BlockDb,
+    blocks_db: Mutex<BlockDb>,
     wallet_db: WalletDbShared,
     consensus_params: ZcoinConsensusParams,
     /// Notifies about sync status without stopping the loop, e.g. on coin activation
     sync_status_notifier: AsyncSender<SyncStatus>,
     /// If new tx is required to be generated, we stop the sync and respawn it after tx is sent
     /// This watcher waits for such notification
-    on_tx_gen_watcher: AsyncReceiver<OneshotSender<Self>>,
+    on_tx_gen_watcher: AsyncReceiver<OneshotSender<(Self, Box<dyn ZRpcOps + Send>)>>,
     watch_for_tx: Option<TxId>,
 }
 
@@ -334,7 +463,10 @@ impl SaplingSyncLoopHandle {
         }
     }
 
-    async fn update_blocks_cache(&mut self) -> Result<(), MmError<UpdateBlocksCacheErr>> {
+    async fn update_blocks_cache(
+        &mut self,
+        rpc: &mut (dyn ZRpcOps + Send),
+    ) -> Result<(), MmError<UpdateBlocksCacheErr>> {
         let current_block = match &mut self.rpc_client {
             ZRpcClient::Native(client) => client.get_block_count().compat().await?,
             ZRpcClient::Light(client) => {
@@ -344,102 +476,19 @@ impl SaplingSyncLoopHandle {
                 res
             },
         };
-        let current_block_in_db = block_in_place(|| self.blocks_db.get_latest_block())?;
+        let current_block_in_db = block_in_place(|| self.blocks_db.lock().get_latest_block())?;
         let from_block = current_block_in_db as u64 + 1;
         if current_block >= from_block {
-            if let ZRpcClient::Light(client) = &mut self.rpc_client {
-                let request = tonic::Request::new(BlockRange {
-                    start: Some(BlockId {
-                        height: from_block,
-                        hash: Vec::new(),
-                    }),
-                    end: Some(BlockId {
-                        height: current_block,
-                        hash: Vec::new(),
-                    }),
-                });
-                let mut response = client.get_block_range(request).await?;
-                while let Some(block) = response.get_mut().message().await? {
-                    debug!("Got block {:?}", block);
-                    block_in_place(|| self.blocks_db.insert_block(block.height as u32, block.encode_to_vec()))?;
-                    self.notify_blocks_cache_status(block.height, current_block);
-                }
-            }
-            if let ZRpcClient::Native(client) = &self.rpc_client {
-                let client = client.clone();
-                for height in from_block..=current_block {
-                    let block = client.get_block_by_height(height).await?;
-                    debug!("Got block {:?}", block);
-                    let mut compact_txs = Vec::new();
-                    // By default, CompactBlocks only contain CompactTxs for transactions that contain Sapling spends or outputs.
-                    // Create and push compact_tx during iteration.
-                    for (tx_id, hash_tx) in block.tx.iter().enumerate() {
-                        let tx_bytes = client.get_transaction_bytes(hash_tx).compat().await?;
-                        let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
-                        let mut spends = Vec::new();
-                        let mut outputs = Vec::new();
-                        if !tx.shielded_spends.is_empty() || !tx.shielded_outputs.is_empty() {
-                            // Create and push spends with outs for compact_tx during iterations.
-                            for spend in &tx.shielded_spends {
-                                let compact_spend = TonicCompactSpend {
-                                    nf: spend.nullifier.to_vec(),
-                                };
-                                spends.push(compact_spend);
-                            }
-                            for out in &tx.shielded_outputs {
-                                let compact_out = TonicCompactOutput {
-                                    cmu: out.cmu.to_bytes().to_vec(),
-                                    epk: out.ephemeral_key.to_bytes().to_vec(),
-                                    // https://zips.z.cash/zip-0307#output-compression
-                                    // The first 52 bytes of the ciphertext contain the contents and opening of the note commitment,
-                                    // which is all of the data needed to spend the note and to verify that the note is spendable.
-                                    ciphertext: out.enc_ciphertext[0..52].to_vec(),
-                                };
-                                outputs.push(compact_out);
-                            }
-                            // Shadowing mut variables as immutable. No longer need to update them.
-                            let spends = spends;
-                            let outputs = outputs;
-                            let mut hash_tx_vec = hash_tx.0.to_vec();
-                            hash_tx_vec.reverse();
-
-                            let compact_tx = TonicCompactTx {
-                                index: tx_id as u64,
-                                hash: hash_tx_vec,
-                                fee: 0,
-                                spends,
-                                outputs,
-                            };
-                            compact_txs.push(compact_tx);
-                        }
-                    }
-                    let mut hash = block.hash.0.to_vec();
-                    hash.reverse();
-                    // Set 0 in vector in the case of genesis block.
-                    let mut prev_hash = block.previousblockhash.unwrap_or_default().0.to_vec();
-                    prev_hash.reverse();
-                    // Shadowing mut variables as immutable.
-                    let hash = hash;
-                    let prev_hash = prev_hash;
-                    let compact_txs = compact_txs;
-
-                    let compact_block = TonicCompactBlock {
-                        proto_version: 0,
-                        height,
-                        hash,
-                        prev_hash,
-                        time: block.time,
-                        // (hash, prevHash, and time) OR (full header)
-                        header: Vec::new(),
-                        vtx: compact_txs,
-                    };
-                    block_in_place(|| {
-                        self.blocks_db
-                            .insert_block(block.height.unwrap(), compact_block.encode_to_vec())
-                    })?;
-                    self.notify_blocks_cache_status(block.height.unwrap() as u64, current_block);
-                }
-            }
+            rpc.scan_blocks(from_block, current_block, &mut |block: TonicCompactBlock| {
+                block_in_place(|| {
+                    self.blocks_db
+                        .lock()
+                        .insert_block(block.height as u32, block.encode_to_vec())
+                })?;
+                self.notify_blocks_cache_status(block.height, current_block);
+                Ok(())
+            })
+            .await?;
         }
         self.current_block = BlockHeight::from_u32(current_block as u32);
         Ok(())
@@ -453,7 +502,7 @@ impl SaplingSyncLoopHandle {
 
         if let Err(e) = validate_chain(
             &self.consensus_params,
-            &self.blocks_db,
+            &self.blocks_db.lock().deref(),
             wallet_ops.get_max_height_hash()?,
         ) {
             match e {
@@ -464,13 +513,18 @@ impl SaplingSyncLoopHandle {
                         BlockHeight::from_u32(0)
                     };
                     wallet_ops.rewind_to_height(rewind_height)?;
-                    self.blocks_db.rewind_to_height(rewind_height.into())?;
+                    self.blocks_db.lock().rewind_to_height(rewind_height.into())?;
                 },
                 e => return MmError::err(e),
             }
         }
 
-        scan_cached_blocks(&self.consensus_params, &self.blocks_db, &mut wallet_ops, None)?;
+        scan_cached_blocks(
+            &self.consensus_params,
+            self.blocks_db.lock().deref(),
+            &mut wallet_ops,
+            None,
+        )?;
         Ok(())
     }
 
@@ -548,10 +602,10 @@ impl SaplingSyncLoopHandle {
 /// 6. Once the transaction is generated and sent, `SaplingSyncRespawnGuard::watch_for_tx` is called to update `SaplingSyncLoopHandle` state.
 /// 7. Once the loop is respawned, it will check that broadcast tx is imported (or not available anymore) before stopping in favor of
 ///     next wait_for_gen_tx_blockchain_sync call.
-async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle) {
+async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle, mut client: Box<dyn ZRpcOps + Send>) {
     // this loop is spawned as standalone task so it's safe to use block_in_place here
     loop {
-        if let Err(e) = sync_handle.update_blocks_cache().await {
+        if let Err(e) = sync_handle.update_blocks_cache(client.as_mut()).await {
             error!("Error {} on blocks cache update", e);
             Timer::sleep(10.).await;
             continue;
@@ -579,10 +633,11 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle) {
         }
 
         if let Ok(Some(sender)) = sync_handle.on_tx_gen_watcher.try_next() {
-            match sender.send(sync_handle) {
+            match sender.send((sync_handle, client)) {
                 Ok(_) => break,
-                Err(handle_from_channel) => {
+                Err((handle_from_channel, rpc_from_channel)) => {
                     sync_handle = handle_from_channel;
+                    client = rpc_from_channel;
                 },
             }
         }
@@ -592,7 +647,7 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle) {
 }
 
 type SyncWatcher = AsyncReceiver<SyncStatus>;
-type NewTxNotifier = AsyncSender<OneshotSender<SaplingSyncLoopHandle>>;
+type NewTxNotifier = AsyncSender<OneshotSender<(SaplingSyncLoopHandle, Box<dyn ZRpcOps + Send>)>>;
 
 pub(super) struct SaplingSyncConnector {
     sync_watcher: SyncWatcher,
@@ -628,8 +683,8 @@ impl SaplingSyncConnector {
             .map_to_mm(|_| BlockchainScanStopped {})?;
         receiver
             .await
-            .map(|handle| SaplingSyncRespawnGuard {
-                sync_handle: Some(handle),
+            .map(|(handle, rpc)| SaplingSyncRespawnGuard {
+                sync_handle: Some((handle, rpc)),
                 abort_handle: self.abort_handle.clone(),
             })
             .map_to_mm(|_| BlockchainScanStopped {})
