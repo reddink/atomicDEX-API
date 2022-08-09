@@ -502,7 +502,7 @@ impl SaplingSyncLoopHandle {
 
         if let Err(e) = validate_chain(
             &self.consensus_params,
-            &self.blocks_db.lock().deref(),
+            self.blocks_db.lock().deref(),
             wallet_ops.get_max_height_hash()?,
         ) {
             match e {
