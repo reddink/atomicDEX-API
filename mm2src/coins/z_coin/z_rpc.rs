@@ -52,16 +52,27 @@ struct CompactBlockRow {
 
 #[async_trait]
 pub trait ZRpcOps {
+    async fn get_block_height(&mut self) -> Result<u64, MmError<UpdateBlocksCacheErr>>;
+
     async fn scan_blocks(
         &mut self,
         start_block: u64,
         last_block: u64,
         on_block: &mut (dyn FnMut(TonicCompactBlock) -> Result<(), MmError<UpdateBlocksCacheErr>> + Send + Sync),
     ) -> Result<(), MmError<UpdateBlocksCacheErr>>;
+
+    async fn check_watch_for_tx(&mut self, tx_id: TxId, attempts: &mut i32, watch_for_tx: &mut Option<TxId>);
 }
 
 #[async_trait]
 impl ZRpcOps for CompactTxStreamerClient<Channel> {
+    async fn get_block_height(&mut self) -> Result<u64, MmError<UpdateBlocksCacheErr>> {
+        let request = tonic::Request::new(ChainSpec {});
+        let block = self.get_latest_block(request).await?;
+        let res = block.into_inner().height;
+        Ok(res)
+    }
+
     async fn scan_blocks(
         &mut self,
         start_block: u64,
@@ -85,10 +96,39 @@ impl ZRpcOps for CompactTxStreamerClient<Channel> {
         }
         Ok(())
     }
+
+    async fn check_watch_for_tx(&mut self, tx_id: TxId, attempts: &mut i32, watch_for_tx: &mut Option<TxId>) {
+        loop {
+            let filter = TxFilter {
+                block: None,
+                index: 0,
+                hash: tx_id.0.into(),
+            };
+            let request = tonic::Request::new(filter);
+            match self.get_transaction(request).await {
+                Ok(_) => break,
+                Err(e) => {
+                    error!("Error on getting tx {}", tx_id);
+                    if e.message().contains(rpc_clients::NO_TX_ERROR_CODE) {
+                        if *attempts >= 3 {
+                            *watch_for_tx = None;
+                            return;
+                        }
+                        *attempts += 1;
+                    }
+                    Timer::sleep(30.).await;
+                },
+            }
+        }
+    }
 }
 
 #[async_trait]
 impl ZRpcOps for NativeClient {
+    async fn get_block_height(&mut self) -> Result<u64, MmError<UpdateBlocksCacheErr>> {
+        Ok(self.get_block_count().compat().await?)
+    }
+
     async fn scan_blocks(
         &mut self,
         start_block: u64,
@@ -164,6 +204,25 @@ impl ZRpcOps for NativeClient {
             on_block(compact_block)?;
         }
         Ok(())
+    }
+
+    async fn check_watch_for_tx(&mut self, tx_id: TxId, attempts: &mut i32, watch_for_tx: &mut Option<TxId>) {
+        loop {
+            match self.get_raw_transaction_bytes(&H256Json::from(tx_id.0)).compat().await {
+                Ok(_) => break,
+                Err(e) => {
+                    error!("Error on getting tx {}", tx_id);
+                    if e.to_string().contains(rpc_clients::NO_TX_ERROR_CODE) {
+                        if *attempts >= 3 {
+                            *watch_for_tx = None;
+                            return;
+                        }
+                        *attempts += 1;
+                    }
+                    Timer::sleep(30.).await;
+                },
+            }
+        }
     }
 }
 
@@ -293,12 +352,6 @@ pub(super) async fn init_light_client(
         async_blocking(|| BlockDb::for_path(cache_db_path).map_to_mm(ZcoinClientInitError::BlocksDbInitFailure))
             .await?;
     let wallet_db = create_wallet_db(wallet_db_path, consensus_params.clone(), evk).await?;
-    let tonic_channel = Channel::builder(lightwalletd_url.clone())
-        .tls_config(ClientTlsConfig::new())
-        .map_to_mm(ZcoinClientInitError::TlsConfigFailure)?
-        .connect()
-        .await
-        .map_to_mm(ZcoinClientInitError::ConnectionFailure)?;
 
     let (sync_status_notifier, sync_watcher) = channel(1);
     let (on_tx_gen_notifier, on_tx_gen_watcher) = channel(1);
@@ -306,7 +359,6 @@ pub(super) async fn init_light_client(
     let wallet_db = Arc::new(Mutex::new(wallet_db));
     let sync_handle = SaplingSyncLoopHandle {
         current_block: BlockHeight::from_u32(0),
-        rpc_client: ZRpcClient::Light(CompactTxStreamerClient::new(tonic_channel)),
         blocks_db: Mutex::new(blocks_db),
         wallet_db: wallet_db.clone(),
         consensus_params,
@@ -347,7 +399,6 @@ pub(super) async fn init_native_client(
     let wallet_db = Arc::new(Mutex::new(wallet_db));
     let sync_handle = SaplingSyncLoopHandle {
         current_block: BlockHeight::from_u32(0),
-        rpc_client: ZRpcClient::Native(native_client.clone()),
         blocks_db: Mutex::new(blocks_db),
         wallet_db: wallet_db.clone(),
         consensus_params,
@@ -408,14 +459,8 @@ pub enum SyncStatus {
     },
 }
 
-enum ZRpcClient {
-    Native(NativeClient),
-    Light(CompactTxStreamerClient<Channel>),
-}
-
 pub struct SaplingSyncLoopHandle {
     current_block: BlockHeight,
-    rpc_client: ZRpcClient,
     blocks_db: Mutex<BlockDb>,
     wallet_db: WalletDbShared,
     consensus_params: ZcoinConsensusParams,
@@ -467,15 +512,7 @@ impl SaplingSyncLoopHandle {
         &mut self,
         rpc: &mut (dyn ZRpcOps + Send),
     ) -> Result<(), MmError<UpdateBlocksCacheErr>> {
-        let current_block = match &mut self.rpc_client {
-            ZRpcClient::Native(client) => client.get_block_count().compat().await?,
-            ZRpcClient::Light(client) => {
-                let request = tonic::Request::new(ChainSpec {});
-                let block = client.get_latest_block(request).await?;
-                let res: u64 = block.into_inner().height;
-                res
-            },
-        };
+        let current_block = rpc.get_block_height().await?;
         let current_block_in_db = block_in_place(|| self.blocks_db.lock().get_latest_block())?;
         let from_block = current_block_in_db as u64 + 1;
         if current_block >= from_block {
@@ -528,55 +565,11 @@ impl SaplingSyncLoopHandle {
         Ok(())
     }
 
-    async fn check_watch_for_tx_existence(&mut self) {
+    async fn check_watch_for_tx_existence(&mut self, rpc: &mut (dyn ZRpcOps + Send)) {
         if let Some(tx_id) = self.watch_for_tx {
             let mut attempts = 0;
-            if let ZRpcClient::Light(client) = &mut self.rpc_client {
-                loop {
-                    let filter = TxFilter {
-                        block: None,
-                        index: 0,
-                        hash: tx_id.0.into(),
-                    };
-                    let request = tonic::Request::new(filter);
-                    match client.get_transaction(request).await {
-                        Ok(_) => break,
-                        Err(e) => {
-                            error!("Error on getting tx {}", tx_id);
-                            if e.message().contains(rpc_clients::NO_TX_ERROR_CODE) {
-                                if attempts >= 3 {
-                                    self.watch_for_tx = None;
-                                    return;
-                                }
-                                attempts += 1;
-                            }
-                            Timer::sleep(30.).await;
-                        },
-                    }
-                }
-            }
-            if let ZRpcClient::Native(client) = &self.rpc_client {
-                loop {
-                    match client
-                        .get_raw_transaction_bytes(&H256Json::from(tx_id.0))
-                        .compat()
-                        .await
-                    {
-                        Ok(_) => break,
-                        Err(e) => {
-                            error!("Error on getting tx {}", tx_id);
-                            if e.to_string().contains(rpc_clients::NO_TX_ERROR_CODE) {
-                                if attempts >= 3 {
-                                    self.watch_for_tx = None;
-                                    return;
-                                }
-                                attempts += 1;
-                            }
-                            Timer::sleep(30.).await;
-                        },
-                    }
-                }
-            }
+            rpc.check_watch_for_tx(tx_id, &mut attempts, &mut self.watch_for_tx)
+                .await;
         }
     }
 }
@@ -621,7 +614,7 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle, mut c
 
         sync_handle.notify_sync_finished();
 
-        sync_handle.check_watch_for_tx_existence().await;
+        sync_handle.check_watch_for_tx_existence(client.as_mut()).await;
 
         if let Some(tx_id) = sync_handle.watch_for_tx {
             if !block_in_place(|| is_tx_imported(sync_handle.wallet_db.lock().sql_conn(), tx_id)) {
