@@ -775,7 +775,8 @@ impl<'a> UtxoCoinWithIguanaPrivKeyBuilder for ZCoinBuilder<'a> {
                     native_client,
                     cache_db_path,
                     wallet_db_path,
-                    self.consensus_params.clone(),
+                    self.protocol_info.consensus_params.clone(),
+                    self.protocol_info.check_point_block,
                     evk,
                 )
                 .await?
