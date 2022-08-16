@@ -33,6 +33,7 @@
 #[macro_use] extern crate serde_json;
 #[macro_use] extern crate ser_error_derive;
 
+use crate::z_coin::z_rpc::ZRpcOps;
 use async_trait::async_trait;
 use base58::FromBase58Error;
 use common::{calc_total_pages, now_ms, ten, HttpStatusCode};
@@ -1761,13 +1762,13 @@ pub trait MmCoin: SwapOps + MarketCoinOps + Send + Sync + 'static {
 
 #[derive(Clone)]
 #[allow(clippy::large_enum_variant)]
-pub enum MmCoinEnum {
+pub enum MmCoinEnum<T: ZRpcOps + Send> {
     UtxoCoin(UtxoStandardCoin),
     QtumCoin(QtumCoin),
     Qrc20Coin(Qrc20Coin),
     EthCoin(EthCoin),
     #[cfg(not(target_arch = "wasm32"))]
-    ZCoin(ZCoin),
+    ZCoin(ZCoin<T>),
     Bch(BchCoin),
     SlpToken(SlpToken),
     Tendermint(TendermintCoin),
@@ -1780,60 +1781,60 @@ pub enum MmCoinEnum {
     Test(TestCoin),
 }
 
-impl From<UtxoStandardCoin> for MmCoinEnum {
-    fn from(c: UtxoStandardCoin) -> MmCoinEnum { MmCoinEnum::UtxoCoin(c) }
+impl<T: ZRpcOps + Send> From<UtxoStandardCoin> for MmCoinEnum<T> {
+    fn from(c: UtxoStandardCoin) -> MmCoinEnum<T> { MmCoinEnum::UtxoCoin(c) }
 }
 
-impl From<EthCoin> for MmCoinEnum {
-    fn from(c: EthCoin) -> MmCoinEnum { MmCoinEnum::EthCoin(c) }
+impl<T: ZRpcOps + Send> From<EthCoin> for MmCoinEnum<T> {
+    fn from(c: EthCoin) -> MmCoinEnum<T> { MmCoinEnum::EthCoin(c) }
 }
 
-impl From<TestCoin> for MmCoinEnum {
-    fn from(c: TestCoin) -> MmCoinEnum { MmCoinEnum::Test(c) }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl From<SolanaCoin> for MmCoinEnum {
-    fn from(c: SolanaCoin) -> MmCoinEnum { MmCoinEnum::SolanaCoin(c) }
+impl<T: ZRpcOps + Send> From<TestCoin> for MmCoinEnum<T> {
+    fn from(c: TestCoin) -> MmCoinEnum<T> { MmCoinEnum::Test(c) }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl From<SplToken> for MmCoinEnum {
-    fn from(c: SplToken) -> MmCoinEnum { MmCoinEnum::SplToken(c) }
+impl<T: ZRpcOps + Send> From<SolanaCoin> for MmCoinEnum<T> {
+    fn from(c: SolanaCoin) -> MmCoinEnum<T> { MmCoinEnum::SolanaCoin(c) }
 }
 
-impl From<QtumCoin> for MmCoinEnum {
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: ZRpcOps + Send> From<SplToken> for MmCoinEnum<T> {
+    fn from(c: SplToken) -> MmCoinEnum<T> { MmCoinEnum::SplToken(c) }
+}
+
+impl<T: ZRpcOps + Send> From<QtumCoin> for MmCoinEnum<T> {
     fn from(coin: QtumCoin) -> Self { MmCoinEnum::QtumCoin(coin) }
 }
 
-impl From<Qrc20Coin> for MmCoinEnum {
-    fn from(c: Qrc20Coin) -> MmCoinEnum { MmCoinEnum::Qrc20Coin(c) }
+impl<T: ZRpcOps + Send> From<Qrc20Coin> for MmCoinEnum<T> {
+    fn from(c: Qrc20Coin) -> MmCoinEnum<T> { MmCoinEnum::Qrc20Coin(c) }
 }
 
-impl From<BchCoin> for MmCoinEnum {
-    fn from(c: BchCoin) -> MmCoinEnum { MmCoinEnum::Bch(c) }
+impl<T: ZRpcOps + Send> From<BchCoin> for MmCoinEnum<T> {
+    fn from(c: BchCoin) -> MmCoinEnum<T> { MmCoinEnum::Bch(c) }
 }
 
-impl From<SlpToken> for MmCoinEnum {
-    fn from(c: SlpToken) -> MmCoinEnum { MmCoinEnum::SlpToken(c) }
+impl<T: ZRpcOps + Send> From<SlpToken> for MmCoinEnum<T> {
+    fn from(c: SlpToken) -> MmCoinEnum<T> { MmCoinEnum::SlpToken(c) }
 }
 
-impl From<TendermintCoin> for MmCoinEnum {
+impl<T: ZRpcOps + Send> From<TendermintCoin> for MmCoinEnum<T> {
     fn from(c: TendermintCoin) -> Self { MmCoinEnum::Tendermint(c) }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl From<LightningCoin> for MmCoinEnum {
-    fn from(c: LightningCoin) -> MmCoinEnum { MmCoinEnum::LightningCoin(c) }
+impl<T: ZRpcOps + Send> From<LightningCoin> for MmCoinEnum<T> {
+    fn from(c: LightningCoin) -> MmCoinEnum<T> { MmCoinEnum::LightningCoin(c) }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl From<ZCoin> for MmCoinEnum {
-    fn from(c: ZCoin) -> MmCoinEnum { MmCoinEnum::ZCoin(c) }
+impl<T: ZRpcOps + Send> From<ZCoin<T>> for MmCoinEnum<T> {
+    fn from(c: ZCoin<T>) -> MmCoinEnum<T> { MmCoinEnum::ZCoin(c) }
 }
 
 // NB: When stable and groked by IDEs, `enum_dispatch` can be used instead of `Deref` to speed things up.
-impl Deref for MmCoinEnum {
+impl<T: ZRpcOps + Send> Deref for MmCoinEnum<T> {
     type Target = dyn MmCoin;
     fn deref(&self) -> &dyn MmCoin {
         match self {
@@ -1857,7 +1858,7 @@ impl Deref for MmCoinEnum {
     }
 }
 
-impl MmCoinEnum {
+impl<T: ZRpcOps + Send> MmCoinEnum<T> {
     pub fn is_utxo_in_native_mode(&self) -> bool {
         match self {
             MmCoinEnum::UtxoCoin(ref c) => c.as_ref().rpc_client.is_native(),
@@ -1873,18 +1874,18 @@ impl MmCoinEnum {
 }
 
 #[async_trait]
-pub trait BalanceTradeFeeUpdatedHandler {
-    async fn balance_updated(&self, coin: &MmCoinEnum, new_balance: &BigDecimal);
+pub trait BalanceTradeFeeUpdatedHandler<T: ZRpcOps + Send> {
+    async fn balance_updated(&self, coin: &MmCoinEnum<T>, new_balance: &BigDecimal);
 }
 
-pub struct CoinsContext {
+pub struct CoinsContext<T: ZRpcOps + Send> {
     /// A map from a currency ticker symbol to the corresponding coin.
     /// Similar to `LP_coins`.
-    coins: AsyncMutex<HashMap<String, MmCoinEnum>>,
-    balance_update_handlers: AsyncMutex<Vec<Box<dyn BalanceTradeFeeUpdatedHandler + Send + Sync>>>,
-    withdraw_task_manager: WithdrawTaskManagerShared,
-    create_account_manager: CreateAccountTaskManagerShared,
-    scan_addresses_manager: ScanAddressesTaskManagerShared,
+    coins: AsyncMutex<HashMap<String, MmCoinEnum<T>>>,
+    balance_update_handlers: AsyncMutex<Vec<Box<dyn BalanceTradeFeeUpdatedHandler<T> + Send + Sync>>>,
+    withdraw_task_manager: WithdrawTaskManagerShared<T>,
+    create_account_manager: CreateAccountTaskManagerShared<T>,
+    scan_addresses_manager: ScanAddressesTaskManagerShared<T>,
     #[cfg(target_arch = "wasm32")]
     tx_history_db: SharedDb<TxHistoryDb>,
     #[cfg(target_arch = "wasm32")]
@@ -1901,9 +1902,9 @@ pub struct PlatformIsAlreadyActivatedErr {
     pub ticker: String,
 }
 
-impl CoinsContext {
+impl<T: ZRpcOps + Send> CoinsContext<T> {
     /// Obtains a reference to this crate context, creating it if necessary.
-    pub fn from_ctx(ctx: &MmArc) -> Result<Arc<CoinsContext>, String> {
+    pub fn from_ctx(ctx: &MmArc) -> Result<Arc<CoinsContext<T>>, String> {
         Ok(try_s!(from_ctx(&ctx.coins_ctx, move || {
             Ok(CoinsContext {
                 coins: AsyncMutex::new(HashMap::new()),
@@ -1919,7 +1920,7 @@ impl CoinsContext {
         })))
     }
 
-    pub async fn add_coin(&self, coin: MmCoinEnum) -> Result<(), MmError<CoinIsAlreadyActivatedErr>> {
+    pub async fn add_coin(&self, coin: MmCoinEnum<T>) -> Result<(), MmError<CoinIsAlreadyActivatedErr>> {
         let mut coins = self.coins.lock().await;
         if coins.contains_key(coin.ticker()) {
             return MmError::err(CoinIsAlreadyActivatedErr {
@@ -1933,8 +1934,8 @@ impl CoinsContext {
 
     pub async fn add_platform_with_tokens(
         &self,
-        platform: MmCoinEnum,
-        tokens: Vec<MmCoinEnum>,
+        platform: MmCoinEnum<T>,
+        tokens: Vec<MmCoinEnum<T>>,
     ) -> Result<(), MmError<PlatformIsAlreadyActivatedErr>> {
         let mut coins = self.coins.lock().await;
         if coins.contains_key(platform.ticker()) {
@@ -2215,8 +2216,8 @@ impl RpcTransportEventHandler for CoinTransportMetrics {
 }
 
 #[async_trait]
-impl BalanceTradeFeeUpdatedHandler for CoinsContext {
-    async fn balance_updated(&self, coin: &MmCoinEnum, new_balance: &BigDecimal) {
+impl<T: ZRpcOps + Send> BalanceTradeFeeUpdatedHandler<T> for CoinsContext<T> {
+    async fn balance_updated(&self, coin: &MmCoinEnum<T>, new_balance: &BigDecimal) {
         for sub in self.balance_update_handlers.lock().await.iter() {
             sub.balance_updated(coin, new_balance).await
         }
@@ -2248,7 +2249,7 @@ pub fn is_wallet_only_ticker(ctx: &MmArc, ticker: &str) -> bool {
 /// and should be fixed on the call site.
 ///
 /// * `req` - Payload of the corresponding "enable" or "electrum" RPC request.
-pub async fn lp_coininit(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoinEnum, String> {
+pub async fn lp_coininit<T: ZRpcOps + Send>(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoinEnum<T>, String> {
     let cctx = try_s!(CoinsContext::from_ctx(ctx));
     {
         let coins = cctx.coins.lock().await;
@@ -2290,7 +2291,7 @@ pub async fn lp_coininit(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoin
     }
     let protocol: CoinProtocol = try_s!(json::from_value(coins_en["protocol"].clone()));
 
-    let coin: MmCoinEnum = match &protocol {
+    let coin: MmCoinEnum<T> = match &protocol {
         CoinProtocol::UTXO => {
             let params = try_s!(UtxoActivationParams::from_legacy_req(req));
             try_s!(utxo_standard_coin_with_priv_key(ctx, ticker, &coins_en, &params, &secret).await).into()
@@ -2376,9 +2377,9 @@ pub struct RegisterCoinParams {
     pub tx_history: bool,
 }
 
-pub async fn lp_register_coin(
+pub async fn lp_register_coin<T: ZRpcOps + Send>(
     ctx: &MmArc,
-    coin: MmCoinEnum,
+    coin: MmCoinEnum<T>,
     params: RegisterCoinParams,
 ) -> Result<(), MmError<RegisterCoinError>> {
     let RegisterCoinParams { ticker, tx_history } = params;
@@ -2402,7 +2403,7 @@ pub async fn lp_register_coin(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn lp_spawn_tx_history(ctx: MmArc, coin: MmCoinEnum) -> Result<(), String> {
+fn lp_spawn_tx_history<T: ZRpcOps + Send>(ctx: MmArc, coin: MmCoinEnum<T>) -> Result<(), String> {
     try_s!(std::thread::Builder::new()
         .name(format!("tx_history_{}", coin.ticker()))
         .spawn(move || coin.process_history_loop(ctx).wait()));
@@ -2419,14 +2420,18 @@ fn lp_spawn_tx_history(ctx: MmArc, coin: MmCoinEnum) -> Result<(), String> {
 }
 
 /// NB: Returns only the enabled (aka active) coins.
-pub async fn lp_coinfind(ctx: &MmArc, ticker: &str) -> Result<Option<MmCoinEnum>, String> {
+pub async fn lp_coinfind<T: ZRpcOps + Send>(ctx: &MmArc, ticker: &str) -> Result<Option<MmCoinEnum<T>>, String> {
     let cctx = try_s!(CoinsContext::from_ctx(ctx));
     let coins = cctx.coins.lock().await;
     Ok(coins.get(ticker).cloned())
 }
 
 /// Attempts to find a pair of active coins returning None if one is not enabled
-pub async fn find_pair(ctx: &MmArc, base: &str, rel: &str) -> Result<Option<(MmCoinEnum, MmCoinEnum)>, String> {
+pub async fn find_pair<T: ZRpcOps + Send>(
+    ctx: &MmArc,
+    base: &str,
+    rel: &str,
+) -> Result<Option<(MmCoinEnum<T>, MmCoinEnum<T>)>, String> {
     let fut_base = lp_coinfind(ctx, base);
     let fut_rel = lp_coinfind(ctx, rel);
 
@@ -2441,7 +2446,7 @@ pub enum CoinFindError {
     NoSuchCoin { coin: String },
 }
 
-pub async fn lp_coinfind_or_err(ctx: &MmArc, ticker: &str) -> CoinFindResult<MmCoinEnum> {
+pub async fn lp_coinfind_or_err<T: ZRpcOps + Send>(ctx: &MmArc, ticker: &str) -> CoinFindResult<MmCoinEnum<T>> {
     match lp_coinfind(ctx, ticker).await {
         Ok(Some(coin)) => Ok(coin),
         Ok(None) => MmError::err(CoinFindError::NoSuchCoin {
@@ -2709,8 +2714,8 @@ struct EnabledCoin {
     address: String,
 }
 
-pub async fn get_enabled_coins(ctx: MmArc) -> Result<Response<Vec<u8>>, String> {
-    let coins_ctx: Arc<CoinsContext> = try_s!(CoinsContext::from_ctx(&ctx));
+pub async fn get_enabled_coins<T: ZRpcOps + Send>(ctx: MmArc) -> Result<Response<Vec<u8>>, String> {
+    let coins_ctx: Arc<CoinsContext<T>> = try_s!(CoinsContext::from_ctx(&ctx));
     let coins = coins_ctx.coins.lock().await;
     let enabled_coins: Vec<_> = try_s!(coins
         .iter()
@@ -2798,9 +2803,9 @@ pub async fn show_priv_key(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, S
     Ok(try_s!(Response::builder().body(res)))
 }
 
-pub async fn register_balance_update_handler(
+pub async fn register_balance_update_handler<T: ZRpcOps + Send>(
     ctx: MmArc,
-    handler: Box<dyn BalanceTradeFeeUpdatedHandler + Send + Sync>,
+    handler: Box<dyn BalanceTradeFeeUpdatedHandler<T> + Send + Sync>,
 ) {
     let coins_ctx = CoinsContext::from_ctx(&ctx).unwrap();
     coins_ctx.balance_update_handlers.lock().await.push(handler);

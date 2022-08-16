@@ -14,7 +14,7 @@ use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, GetWithdrawSen
             RawTransactionError, RawTransactionRequest, RawTransactionRes, SearchForSwapTxSpendInput, SignatureError,
             SignatureResult, SwapOps, TradePreimageValue, TransactionFut, TxFeeDetails, ValidateAddressResult,
             ValidatePaymentInput, VerificationError, VerificationResult, WithdrawFrom, WithdrawResult,
-            WithdrawSenderAddress};
+            WithdrawSenderAddress, ZRpcOps};
 use bitcrypto::dhash256;
 pub use bitcrypto::{dhash160, sha256, ChecksumType};
 use chain::constants::SEQUENCE_FINAL;
@@ -1871,11 +1871,11 @@ where
     StandardUtxoWithdraw::new(coin, req)?.build().await
 }
 
-pub async fn init_withdraw<T>(
+pub async fn init_withdraw<T, E>(
     ctx: MmArc,
     coin: T,
     req: WithdrawRequest,
-    task_handle: &WithdrawTaskHandle,
+    task_handle: &WithdrawTaskHandle<E>,
 ) -> WithdrawResult
 where
     T: UtxoCommonOps
@@ -1883,6 +1883,7 @@ where
         + UtxoSignerOps
         + CoinWithDerivationMethod
         + GetWithdrawSenderAddress<Address = Address, Pubkey = Public>,
+    E: ZRpcOps + Send,
 {
     InitUtxoWithdraw::new(ctx, coin, req, task_handle).await?.build().await
 }

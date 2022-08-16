@@ -1,6 +1,6 @@
 use crate::coin_balance::HDAddressBalance;
 use crate::rpc_command::hd_account_balance_rpc_error::HDAccountBalanceRpcError;
-use crate::{lp_coinfind_or_err, CoinsContext, MmCoinEnum};
+use crate::{lp_coinfind_or_err, CoinsContext, MmCoinEnum, ZRpcOps};
 use async_trait::async_trait;
 use crypto::RpcDerivationPath;
 use mm2_core::mm_ctx::MmArc;
@@ -8,9 +8,9 @@ use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{InitRpcTaskResponse, RpcTaskStatusError, RpcTaskStatusRequest};
 use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
 
-pub type ScanAddressesTaskManager = RpcTaskManager<InitScanAddressesTask>;
-pub type ScanAddressesTaskManagerShared = RpcTaskManagerShared<InitScanAddressesTask>;
-pub type ScanAddressesTaskHandle = RpcTaskHandle<InitScanAddressesTask>;
+pub type ScanAddressesTaskManager<T> = RpcTaskManager<InitScanAddressesTask<T>>;
+pub type ScanAddressesTaskManagerShared<T> = RpcTaskManagerShared<InitScanAddressesTask<T>>;
+pub type ScanAddressesTaskHandle<T> = RpcTaskHandle<InitScanAddressesTask<T>>;
 pub type ScanAddressesRpcTaskStatus = RpcTaskStatus<
     ScanAddressesResponse,
     HDAccountBalanceRpcError,
@@ -61,12 +61,12 @@ pub trait InitScanAddressesRpcOps {
     ) -> MmResult<ScanAddressesResponse, HDAccountBalanceRpcError>;
 }
 
-pub struct InitScanAddressesTask {
+pub struct InitScanAddressesTask<T: ZRpcOps + Send> {
     req: ScanAddressesRequest,
-    coin: MmCoinEnum,
+    coin: MmCoinEnum<T>,
 }
 
-impl RpcTaskTypes for InitScanAddressesTask {
+impl<T: ZRpcOps + Send> RpcTaskTypes for InitScanAddressesTask<T> {
     type Item = ScanAddressesResponse;
     type Error = HDAccountBalanceRpcError;
     type InProgressStatus = ScanAddressesInProgressStatus;
@@ -75,11 +75,11 @@ impl RpcTaskTypes for InitScanAddressesTask {
 }
 
 #[async_trait]
-impl RpcTask for InitScanAddressesTask {
+impl<T: ZRpcOps + Send> RpcTask for InitScanAddressesTask<T> {
     #[inline]
     fn initial_status(&self) -> Self::InProgressStatus { ScanAddressesInProgressStatus::InProgress }
 
-    async fn run(self, _task_handle: &ScanAddressesTaskHandle) -> Result<Self::Item, MmError<Self::Error>> {
+    async fn run(self, _task_handle: &ScanAddressesTaskHandle<T>) -> Result<Self::Item, MmError<Self::Error>> {
         match self.coin {
             MmCoinEnum::UtxoCoin(utxo) => utxo.init_scan_for_new_addresses_rpc(self.req.params).await,
             MmCoinEnum::QtumCoin(qtum) => qtum.init_scan_for_new_addresses_rpc(self.req.params).await,

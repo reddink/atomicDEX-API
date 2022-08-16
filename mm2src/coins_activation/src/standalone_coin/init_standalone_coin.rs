@@ -16,8 +16,9 @@ use serde_json::Value as Json;
 pub type InitStandaloneCoinResponse = InitRpcTaskResponse;
 pub type InitStandaloneCoinStatusRequest = RpcTaskStatusRequest;
 pub type InitStandaloneCoinUserActionRequest<UserAction> = RpcTaskUserActionRequest<UserAction>;
-pub type InitStandaloneCoinTaskManagerShared<Standalone> = RpcTaskManagerShared<InitStandaloneCoinTask<Standalone>>;
-pub type InitStandaloneCoinTaskHandle<Standalone> = RpcTaskHandle<InitStandaloneCoinTask<Standalone>>;
+pub type InitStandaloneCoinTaskManagerShared<Standalone, T> =
+    RpcTaskManagerShared<InitStandaloneCoinTask<Standalone, T>, T>;
+pub type InitStandaloneCoinTaskHandle<Standalone, T> = RpcTaskHandle<InitStandaloneCoinTask<Standalone, T>, T>;
 
 #[derive(Debug, Deserialize)]
 pub struct InitStandaloneCoinReq<T> {
@@ -26,7 +27,7 @@ pub struct InitStandaloneCoinReq<T> {
 }
 
 #[async_trait]
-pub trait InitStandaloneCoinActivationOps: Into<MmCoinEnum> + Send + Sync + 'static {
+pub trait InitStandaloneCoinActivationOps<T: ZRpcOps + Send>: Into<MmCoinEnum<T>> + Send + Sync + 'static {
     type ActivationRequest: TxHistory + Sync + Send;
     type StandaloneProtocol: TryFromCoinProtocol + Send;
     // The following types are related to `RpcTask` management.
@@ -43,7 +44,7 @@ pub trait InitStandaloneCoinActivationOps: Into<MmCoinEnum> + Send + Sync + 'sta
     type AwaitingStatus: serde::Serialize + Clone + Send + Sync + 'static;
     type UserAction: serde::de::DeserializeOwned + NotMmError + Send + Sync + 'static;
 
-    fn rpc_task_manager(activation_ctx: &CoinsActivationContext) -> &InitStandaloneCoinTaskManagerShared<Self>;
+    fn rpc_task_manager(activation_ctx: &CoinsActivationContext) -> &InitStandaloneCoinTaskManagerShared<Self, T>;
 
     /// Initialization of the standalone coin spawned as `RpcTask`.
     async fn init_standalone_coin(
@@ -52,23 +53,23 @@ pub trait InitStandaloneCoinActivationOps: Into<MmCoinEnum> + Send + Sync + 'sta
         coin_conf: Json,
         activation_request: &Self::ActivationRequest,
         protocol_info: Self::StandaloneProtocol,
-        task_handle: &InitStandaloneCoinTaskHandle<Self>,
+        task_handle: &InitStandaloneCoinTaskHandle<Self, T>,
     ) -> Result<Self, MmError<Self::ActivationError>>;
 
     async fn get_activation_result(
         &self,
         ctx: MmArc,
-        task_handle: &InitStandaloneCoinTaskHandle<Self>,
+        task_handle: &InitStandaloneCoinTaskHandle<Self, T>,
         activation_request: &Self::ActivationRequest,
     ) -> Result<Self::ActivationResult, MmError<Self::ActivationError>>;
 }
 
-pub async fn init_standalone_coin<Standalone>(
+pub async fn init_standalone_coin<Standalone, T: ZRpcOps + Send>(
     ctx: MmArc,
     request: InitStandaloneCoinReq<Standalone::ActivationRequest>,
 ) -> MmResult<InitStandaloneCoinResponse, InitStandaloneCoinError>
 where
-    Standalone: InitStandaloneCoinActivationOps + Send + Sync + 'static,
+    Standalone: InitStandaloneCoinActivationOps<T> + Send + Sync + 'static,
     Standalone::InProgressStatus: InitStandaloneCoinInitialStatus,
     InitStandaloneCoinError: From<Standalone::ActivationError>,
     (Standalone::ActivationError, InitStandaloneCoinError): NotEqual,
@@ -80,7 +81,7 @@ where
     let (coin_conf, protocol_info) = coin_conf_with_protocol(&ctx, &request.ticker)?;
 
     let coins_act_ctx = CoinsActivationContext::from_ctx(&ctx).map_to_mm(InitStandaloneCoinError::Internal)?;
-    let task = InitStandaloneCoinTask::<Standalone> {
+    let task = InitStandaloneCoinTask::<Standalone, T> {
         ctx,
         request,
         coin_conf,
@@ -94,7 +95,7 @@ where
     Ok(InitStandaloneCoinResponse { task_id })
 }
 
-pub async fn init_standalone_coin_status<Standalone: InitStandaloneCoinActivationOps>(
+pub async fn init_standalone_coin_status<Standalone: InitStandaloneCoinActivationOps<T>, T: ZRpcOps + Send>(
     ctx: MmArc,
     req: InitStandaloneCoinStatusRequest,
 ) -> MmResult<
@@ -119,7 +120,7 @@ where
         .map(|rpc_task| rpc_task.map_err(InitStandaloneCoinError::from))
 }
 
-pub async fn init_standalone_coin_user_action<Standalone: InitStandaloneCoinActivationOps>(
+pub async fn init_standalone_coin_user_action<Standalone: InitStandaloneCoinActivationOps<T>, T: ZRpcOps + Send>(
     ctx: MmArc,
     req: InitStandaloneCoinUserActionRequest<Standalone::UserAction>,
 ) -> MmResult<SuccessResponse, InitStandaloneCoinUserActionError> {
@@ -132,14 +133,16 @@ pub async fn init_standalone_coin_user_action<Standalone: InitStandaloneCoinActi
     Ok(SuccessResponse::new())
 }
 
-pub struct InitStandaloneCoinTask<Standalone: InitStandaloneCoinActivationOps> {
+pub struct InitStandaloneCoinTask<Standalone: InitStandaloneCoinActivationOps<T>, T: ZRpcOps + Send> {
     ctx: MmArc,
     request: InitStandaloneCoinReq<Standalone::ActivationRequest>,
     coin_conf: Json,
     protocol_info: Standalone::StandaloneProtocol,
 }
 
-impl<Standalone: InitStandaloneCoinActivationOps> RpcTaskTypes for InitStandaloneCoinTask<Standalone> {
+impl<Standalone: InitStandaloneCoinActivationOps<T>, T: ZRpcOps + Send> RpcTaskTypes<T>
+    for InitStandaloneCoinTask<Standalone, T>
+{
     type Item = Standalone::ActivationResult;
     type Error = Standalone::ActivationError;
     type InProgressStatus = Standalone::InProgressStatus;
@@ -148,15 +151,15 @@ impl<Standalone: InitStandaloneCoinActivationOps> RpcTaskTypes for InitStandalon
 }
 
 #[async_trait]
-impl<Standalone> RpcTask for InitStandaloneCoinTask<Standalone>
+impl<Standalone, T: ZRpcOps + Send> RpcTask<T> for InitStandaloneCoinTask<Standalone, T>
 where
-    Standalone: InitStandaloneCoinActivationOps,
+    Standalone: InitStandaloneCoinActivationOps<T>,
 {
     fn initial_status(&self) -> Self::InProgressStatus {
         <Standalone::InProgressStatus as InitStandaloneCoinInitialStatus>::initial_status()
     }
 
-    async fn run(self, task_handle: &RpcTaskHandle<Self>) -> Result<Self::Item, MmError<Self::Error>> {
+    async fn run(self, task_handle: &RpcTaskHandle<Self, T>) -> Result<Self::Item, MmError<Self::Error>> {
         let ticker = self.request.ticker.clone();
         let coin = Standalone::init_standalone_coin(
             self.ctx.clone(),

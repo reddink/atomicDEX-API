@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use mm2_err_handle::prelude::*;
 use serde::Serialize;
 
-pub trait RpcTaskTypes {
+pub trait RpcTaskTypes<T: ZRpcOps + Send> {
     type Item: Serialize + Clone + Send + Sync + 'static;
     type Error: SerMmErrorType + Clone + Send + Sync + 'static;
     type InProgressStatus: Clone + Send + Sync + 'static;
@@ -12,8 +12,8 @@ pub trait RpcTaskTypes {
 }
 
 #[async_trait]
-pub trait RpcTask: RpcTaskTypes + Sized + Send + 'static {
+pub trait RpcTask<T: ZRpcOps + Send>: RpcTaskTypes<T> + Sized + Send + 'static {
     fn initial_status(&self) -> Self::InProgressStatus;
 
-    async fn run(self, task_handle: &RpcTaskHandle<Self>) -> Result<Self::Item, MmError<Self::Error>>;
+    async fn run(self, task_handle: &RpcTaskHandle<Self, T>) -> Result<Self::Item, MmError<Self::Error>>;
 }

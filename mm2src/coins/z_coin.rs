@@ -68,11 +68,12 @@ use zcash_proofs::prover::LocalTxProver;
 mod z_htlc;
 use z_htlc::{z_p2sh_spend, z_send_dex_fee, z_send_htlc};
 
-mod z_rpc;
+pub(crate) mod z_rpc;
 pub use z_rpc::SyncStatus;
 use z_rpc::{init_light_client, init_native_client, SaplingSyncConnector, SaplingSyncGuard, WalletDbShared};
 
 mod z_coin_errors;
+use crate::z_coin::z_rpc::ZRpcOps;
 pub use z_coin_errors::*;
 
 #[cfg(all(test, feature = "zhtlc-native-tests"))]
@@ -157,7 +158,7 @@ impl Parameters for ZcoinConsensusParams {
     fn b58_script_address_prefix(&self) -> [u8; 2] { self.b58_script_address_prefix }
 }
 
-pub struct ZCoinFields {
+pub struct ZCoinFields<T: ZRpcOps + Send> {
     dex_fee_addr: PaymentAddress,
     my_z_addr: PaymentAddress,
     my_z_addr_encoded: String,
@@ -166,7 +167,7 @@ pub struct ZCoinFields {
     z_tx_prover: Arc<LocalTxProver>,
     light_wallet_db: WalletDbShared,
     consensus_params: ZcoinConsensusParams,
-    sync_state_connector: AsyncMutex<SaplingSyncConnector>,
+    sync_state_connector: AsyncMutex<SaplingSyncConnector<T>>,
 }
 
 impl Transaction for ZTransaction {
@@ -184,9 +185,9 @@ impl Transaction for ZTransaction {
 }
 
 #[derive(Clone)]
-pub struct ZCoin {
+pub struct ZCoin<T: ZRpcOps + Send> {
     utxo_arc: UtxoArc,
-    z_fields: Arc<ZCoinFields>,
+    z_fields: Arc<ZCoinFields<T>>,
 }
 
 pub struct ZOutput {
@@ -252,7 +253,7 @@ pub struct ZcoinTxDetails {
     internal_id: i64,
 }
 
-impl ZCoin {
+impl<T: ZRpcOps + Send> ZCoin<T> {
     #[inline]
     pub fn utxo_rpc_client(&self) -> &UtxoRpcClientEnum { &self.utxo_arc.rpc_client }
 
@@ -283,7 +284,7 @@ impl ZCoin {
             .expect("Zcoin doesn't support HW wallets")
     }
 
-    async fn wait_for_gen_tx_blockchain_sync(&self) -> Result<SaplingSyncGuard<'_>, MmError<BlockchainScanStopped>> {
+    async fn wait_for_gen_tx_blockchain_sync(&self) -> Result<SaplingSyncGuard<'_, T>, MmError<BlockchainScanStopped>> {
         let mut connector_guard = self.z_fields.sync_state_connector.lock().await;
         let sync_respawn_guard = connector_guard.wait_for_gen_tx_blockchain_sync().await?;
         Ok(SaplingSyncGuard {
@@ -336,7 +337,7 @@ impl ZCoin {
         &self,
         t_outputs: Vec<TxOut>,
         z_outputs: Vec<ZOutput>,
-    ) -> Result<(ZTransaction, AdditionalTxData, SaplingSyncGuard<'_>), MmError<GenTxError>> {
+    ) -> Result<(ZTransaction, AdditionalTxData, SaplingSyncGuard<'_, T>), MmError<GenTxError>> {
         let sync_guard = self.wait_for_gen_tx_blockchain_sync().await?;
 
         let tx_fee = self.get_one_kbyte_tx_fee().await?;
@@ -674,7 +675,7 @@ impl ZCoin {
     }
 }
 
-impl AsRef<UtxoCoinFields> for ZCoin {
+impl<T: ZRpcOps + Send> AsRef<UtxoCoinFields> for ZCoin<T> {
     fn as_ref(&self) -> &UtxoCoinFields { &self.utxo_arc }
 }
 
@@ -695,14 +696,14 @@ pub struct ZcoinActivationParams {
     pub requires_notarization: Option<bool>,
 }
 
-pub async fn z_coin_from_conf_and_params(
+pub async fn z_coin_from_conf_and_params<T: ZRpcOps + Send>(
     ctx: &MmArc,
     ticker: &str,
     conf: &Json,
     params: &ZcoinActivationParams,
     protocol_info: ZcoinProtocolInfo,
     secp_priv_key: &[u8],
-) -> Result<ZCoin, MmError<ZCoinBuildError>> {
+) -> Result<ZCoin<T>, MmError<ZCoinBuildError>> {
     let z_key = ExtendedSpendingKey::master(secp_priv_key);
     let db_dir = ctx.dbdir();
     z_coin_from_conf_and_params_with_z_key(ctx, ticker, conf, params, secp_priv_key, db_dir, z_key, protocol_info).await
@@ -734,8 +735,8 @@ impl<'a> UtxoCoinBuilderCommonOps for ZCoinBuilder<'a> {
 impl<'a> UtxoFieldsWithIguanaPrivKeyBuilder for ZCoinBuilder<'a> {}
 
 #[async_trait]
-impl<'a> UtxoCoinWithIguanaPrivKeyBuilder for ZCoinBuilder<'a> {
-    type ResultCoin = ZCoin;
+impl<'a, T: ZRpcOps + Send> UtxoCoinWithIguanaPrivKeyBuilder for ZCoinBuilder<'a> {
+    type ResultCoin = ZCoin<T>;
     type Error = ZCoinBuildError;
 
     fn priv_key(&self) -> &[u8] { self.secp_priv_key }
@@ -873,7 +874,7 @@ impl<'a> ZCoinBuilder<'a> {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn z_coin_from_conf_and_params_with_z_key(
+async fn z_coin_from_conf_and_params_with_z_key<T: ZRpcOps + Send>(
     ctx: &MmArc,
     ticker: &str,
     conf: &Json,
@@ -882,7 +883,7 @@ async fn z_coin_from_conf_and_params_with_z_key(
     db_dir_path: PathBuf,
     z_spending_key: ExtendedSpendingKey,
     protocol_info: ZcoinProtocolInfo,
-) -> Result<ZCoin, MmError<ZCoinBuildError>> {
+) -> Result<ZCoin<T>, MmError<ZCoinBuildError>> {
     let builder = ZCoinBuilder::new(
         ctx,
         ticker,
@@ -896,7 +897,7 @@ async fn z_coin_from_conf_and_params_with_z_key(
     builder.build().await
 }
 
-impl MarketCoinOps for ZCoin {
+impl<T: ZRpcOps + Send> MarketCoinOps for ZCoin<T> {
     fn ticker(&self) -> &str { &self.utxo_arc.conf.ticker }
 
     fn my_address(&self) -> Result<String, String> { Ok(self.z_fields.my_z_addr_encoded.clone()) }
@@ -1017,7 +1018,7 @@ impl MarketCoinOps for ZCoin {
 }
 
 #[async_trait]
-impl SwapOps for ZCoin {
+impl<T: ZRpcOps + Send> SwapOps for ZCoin<T> {
     fn send_taker_fee(&self, _fee_addr: &[u8], amount: BigDecimal, uuid: &[u8]) -> TransactionFut {
         let selfi = self.clone();
         let uuid = uuid.to_owned();
@@ -1374,7 +1375,7 @@ impl SwapOps for ZCoin {
 }
 
 #[async_trait]
-impl MmCoin for ZCoin {
+impl<T: ZRpcOps + Send> MmCoin for ZCoin<T> {
     fn is_asset_chain(&self) -> bool { self.utxo_arc.conf.asset_chain }
 
     fn withdraw(&self, _req: WithdrawRequest) -> WithdrawFut {
@@ -1473,7 +1474,7 @@ impl MmCoin for ZCoin {
 }
 
 #[async_trait]
-impl UtxoTxGenerationOps for ZCoin {
+impl<T: ZRpcOps + Send> UtxoTxGenerationOps for ZCoin<T> {
     async fn get_tx_fee(&self) -> UtxoRpcResult<ActualTxFee> { utxo_common::get_tx_fee(&self.utxo_arc).await }
 
     async fn calc_interest_if_required(
@@ -1487,7 +1488,7 @@ impl UtxoTxGenerationOps for ZCoin {
 }
 
 #[async_trait]
-impl UtxoTxBroadcastOps for ZCoin {
+impl<T: ZRpcOps + Send> UtxoTxBroadcastOps for ZCoin<T> {
     async fn broadcast_tx(&self, tx: &UtxoTx) -> Result<H256Json, MmError<BroadcastTxErr>> {
         utxo_common::broadcast_tx(self, tx).await
     }
@@ -1498,7 +1499,7 @@ impl UtxoTxBroadcastOps for ZCoin {
 /// when [`ZCoin::preimage_trade_fee_required_to_send_outputs`] is refactored.
 #[async_trait]
 #[cfg_attr(test, mockable)]
-impl GetUtxoListOps for ZCoin {
+impl<T: ZRpcOps + Send> GetUtxoListOps for ZCoin<T> {
     async fn get_unspent_ordered_list(
         &self,
         address: &Address,
@@ -1521,8 +1522,12 @@ impl GetUtxoListOps for ZCoin {
     }
 }
 
+impl<T: ZRpcOps + Send> Clone for ZCoin<T> {
+    fn clone(&self) -> Self { self.clone() }
+}
+
 #[async_trait]
-impl UtxoCommonOps for ZCoin {
+impl<T: ZRpcOps + Send> UtxoCommonOps for ZCoin<T> {
     async fn get_htlc_spend_fee(&self, tx_size: u64) -> UtxoRpcResult<u64> {
         utxo_common::get_htlc_spend_fee(self, tx_size).await
     }
@@ -1626,12 +1631,12 @@ impl UtxoCommonOps for ZCoin {
 }
 
 #[async_trait]
-impl InitWithdrawCoin for ZCoin {
+impl<T: ZRpcOps + Send> InitWithdrawCoin<T> for ZCoin<T> {
     async fn init_withdraw(
         &self,
         _ctx: MmArc,
         req: WithdrawRequest,
-        task_handle: &WithdrawTaskHandle,
+        task_handle: &WithdrawTaskHandle<T>,
     ) -> Result<TransactionDetails, MmError<WithdrawError>> {
         if req.fee.is_some() {
             return MmError::err(WithdrawError::InternalError(

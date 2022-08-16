@@ -12,25 +12,25 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, Weak};
 
-pub type RpcTaskManagerShared<Task> = Arc<Mutex<RpcTaskManager<Task>>>;
-pub(crate) type RpcTaskManagerWeak<Task> = Weak<Mutex<RpcTaskManager<Task>>>;
+pub type RpcTaskManagerShared<Task, T> = Arc<Mutex<RpcTaskManager<Task, T>>>;
+pub(crate) type RpcTaskManagerWeak<Task, T> = Weak<Mutex<RpcTaskManager<Task, T>>>;
 
 static NEXT_RPC_TASK_ID: AtomicTaskId = AtomicTaskId::new(0);
 
 fn next_rpc_task_id() -> TaskId { NEXT_RPC_TASK_ID.fetch_add(1, Ordering::Relaxed) }
 
-pub struct RpcTaskManager<Task: RpcTask> {
-    tasks: HashMap<TaskId, TaskStatusExt<Task>>,
+pub struct RpcTaskManager<Task: RpcTask<T>, T: ZRpcOps + Send> {
+    tasks: HashMap<TaskId, TaskStatusExt<Task, T>>,
 }
 
-impl<Task: RpcTask> Default for RpcTaskManager<Task> {
+impl<Task: RpcTask<T>, T: ZRpcOps + Send> Default for RpcTaskManager<Task, T> {
     fn default() -> Self { RpcTaskManager { tasks: HashMap::new() } }
 }
 
-impl<Task: RpcTask> RpcTaskManager<Task> {
+impl<Task: RpcTask<T>, T: ZRpcOps + Send> RpcTaskManager<Task, T> {
     /// Create new instance of `RpcTaskHandle` attached to the only one `RpcTask`.
     /// This function registers corresponding RPC task in the `RpcTaskManager` and returns the task id.
-    pub fn spawn_rpc_task(this: &RpcTaskManagerShared<Task>, task: Task) -> RpcTaskResult<TaskId> {
+    pub fn spawn_rpc_task(this: &RpcTaskManagerShared<Task, T>, task: Task) -> RpcTaskResult<TaskId> {
         let initial_task_status = task.initial_status();
         let (task_id, task_abort_handler) = {
             let mut task_manager = this
@@ -70,7 +70,7 @@ impl<Task: RpcTask> RpcTaskManager<Task> {
     }
 
     /// Returns a task status if it exists, otherwise returns `None`.
-    pub fn task_status(&mut self, task_id: TaskId, forget_if_ready: bool) -> Option<RpcTaskStatusAlias<Task>> {
+    pub fn task_status(&mut self, task_id: TaskId, forget_if_ready: bool) -> Option<RpcTaskStatusAlias<Task, T>> {
         let entry = match self.tasks.entry(task_id) {
             Entry::Occupied(entry) => entry,
             Entry::Vacant(_) => return None,
@@ -90,7 +90,7 @@ impl<Task: RpcTask> RpcTaskManager<Task> {
         Some(rpc_status)
     }
 
-    pub fn new_shared() -> RpcTaskManagerShared<Task> { Arc::new(Mutex::new(Self::default())) }
+    pub fn new_shared() -> RpcTaskManagerShared<Task, T> { Arc::new(Mutex::new(Self::default())) }
 
     pub fn contains(&self, task_id: TaskId) -> bool { self.tasks.contains_key(&task_id) }
 
@@ -124,7 +124,7 @@ impl<Task: RpcTask> RpcTaskManager<Task> {
         }
     }
 
-    pub(crate) fn update_task_status(&mut self, task_id: TaskId, status: TaskStatus<Task>) -> RpcTaskResult<()> {
+    pub(crate) fn update_task_status(&mut self, task_id: TaskId, status: TaskStatus<Task, T>) -> RpcTaskResult<()> {
         match status {
             TaskStatus::Ready(result) => self.on_task_finished(task_id, result),
             TaskStatus::InProgress(in_progress) => self.update_in_progress_status(task_id, in_progress),
@@ -241,7 +241,7 @@ impl<Task: RpcTask> RpcTaskManager<Task> {
 
 /// `TaskStatus` extended with `TaskAbortHandle`.
 /// This is stored in the [`RpcTaskManager::tasks`] container.
-enum TaskStatusExt<Task: RpcTaskTypes> {
+enum TaskStatusExt<Task: RpcTaskTypes<T>, T: ZRpcOps + Send> {
     InProgress {
         status: Task::InProgressStatus,
         abort_handle: TaskAbortHandle,

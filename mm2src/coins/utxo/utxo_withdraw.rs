@@ -3,7 +3,7 @@ use crate::utxo::utxo_common::{big_decimal_from_sat, UtxoTxBuilder};
 use crate::utxo::{output_script, sat_from_big_decimal, ActualTxFee, Address, FeePolicy, GetUtxoListOps, PrivKeyPolicy,
                   UtxoAddressFormat, UtxoCoinFields, UtxoCommonOps, UtxoFeeDetails, UtxoTx, UTXO_LOCK};
 use crate::{CoinWithDerivationMethod, GetWithdrawSenderAddress, MarketCoinOps, TransactionDetails, WithdrawError,
-            WithdrawFee, WithdrawRequest, WithdrawResult};
+            WithdrawFee, WithdrawRequest, WithdrawResult, ZRpcOps};
 use async_trait::async_trait;
 use chain::TransactionOutput;
 use common::log::info;
@@ -229,10 +229,10 @@ where
     }
 }
 
-pub struct InitUtxoWithdraw<'a, Coin> {
+pub struct InitUtxoWithdraw<'a, Coin, T: ZRpcOps + Send> {
     ctx: MmArc,
     coin: Coin,
-    task_handle: &'a WithdrawTaskHandle,
+    task_handle: &'a WithdrawTaskHandle<T>,
     req: WithdrawRequest,
     from_address: Address,
     /// Displayed [`InitUtxoWithdraw::from_address`].
@@ -244,7 +244,7 @@ pub struct InitUtxoWithdraw<'a, Coin> {
 }
 
 #[async_trait]
-impl<'a, Coin> UtxoWithdraw<Coin> for InitUtxoWithdraw<'a, Coin>
+impl<'a, Coin, T: ZRpcOps + Send> UtxoWithdraw<Coin> for InitUtxoWithdraw<'a, Coin, T>
 where
     Coin: UtxoCommonOps + GetUtxoListOps + UtxoSignerOps,
 {
@@ -331,13 +331,13 @@ where
     }
 }
 
-impl<'a, Coin> InitUtxoWithdraw<'a, Coin> {
+impl<'a, Coin, T: ZRpcOps + Send> InitUtxoWithdraw<'a, Coin, T> {
     pub async fn new(
         ctx: MmArc,
         coin: Coin,
         req: WithdrawRequest,
-        task_handle: &'a WithdrawTaskHandle,
-    ) -> Result<InitUtxoWithdraw<'a, Coin>, MmError<WithdrawError>>
+        task_handle: &'a WithdrawTaskHandle<T>,
+    ) -> Result<InitUtxoWithdraw<'a, Coin, T>, MmError<WithdrawError>>
     where
         Coin: CoinWithDerivationMethod + GetWithdrawSenderAddress<Address = Address, Pubkey = PublicKey>,
     {

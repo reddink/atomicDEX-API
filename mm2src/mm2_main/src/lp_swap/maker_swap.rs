@@ -71,7 +71,11 @@ pub fn stats_maker_swap_file_path(ctx: &MmArc, uuid: &Uuid) -> PathBuf {
     stats_maker_swap_dir(ctx).join(format!("{}.json", uuid))
 }
 
-async fn save_my_maker_swap_event(ctx: &MmArc, swap: &MakerSwap, event: MakerSavedEvent) -> Result<(), String> {
+async fn save_my_maker_swap_event<T: ZRpcOps + Send>(
+    ctx: &MmArc,
+    swap: &MakerSwap<T>,
+    event: MakerSavedEvent,
+) -> Result<(), String> {
     let swap = match SavedSwap::load_my_swap_from_db(ctx, swap.uuid).await {
         Ok(Some(swap)) => swap,
         Ok(None) => SavedSwap::Maker(MakerSavedSwap {
@@ -193,10 +197,10 @@ impl From<String> for FailAt {
     }
 }
 
-pub struct MakerSwap {
+pub struct MakerSwap<T: ZRpcOps + Send> {
     ctx: MmArc,
-    maker_coin: MmCoinEnum,
-    taker_coin: MmCoinEnum,
+    maker_coin: MmCoinEnum<T>,
+    taker_coin: MmCoinEnum<T>,
     maker_amount: BigDecimal,
     taker_amount: BigDecimal,
     my_persistent_pub: H264,
@@ -217,7 +221,7 @@ pub struct MakerSwap {
     pub(super) fail_at: Option<FailAt>,
 }
 
-impl MakerSwap {
+impl<T: ZRpcOps + Send> MakerSwap<T> {
     #[inline]
     fn w(&self) -> RwLockWriteGuard<MakerSwapMut> { self.mutable.write().unwrap() }
 
@@ -327,8 +331,8 @@ impl MakerSwap {
         uuid: Uuid,
         my_order_uuid: Option<Uuid>,
         conf_settings: SwapConfirmationsSettings,
-        maker_coin: MmCoinEnum,
-        taker_coin: MmCoinEnum,
+        maker_coin: MmCoinEnum<T>,
+        taker_coin: MmCoinEnum<T>,
         payment_locktime: u64,
         p2p_privkey: Option<KeyPair>,
         secret: H256,
@@ -1040,10 +1044,10 @@ impl MakerSwap {
         ]))
     }
 
-    pub async fn load_from_db_by_uuid(
+    pub async fn load_from_db_by_uuid<T: ZRpcOps + Send>(
         ctx: MmArc,
-        maker_coin: MmCoinEnum,
-        taker_coin: MmCoinEnum,
+        maker_coin: MmCoinEnum<T>,
+        taker_coin: MmCoinEnum<T>,
         swap_uuid: &Uuid,
     ) -> Result<(Self, Option<MakerSwapCommand>), String> {
         let saved = match SavedSwap::load_my_swap_from_db(&ctx, *swap_uuid).await {
@@ -1058,10 +1062,10 @@ impl MakerSwap {
         Self::load_from_saved(ctx, maker_coin, taker_coin, saved)
     }
 
-    pub fn load_from_saved(
+    pub fn load_from_saved<T: ZRpcOps + Send>(
         ctx: MmArc,
-        maker_coin: MmCoinEnum,
-        taker_coin: MmCoinEnum,
+        maker_coin: MmCoinEnum<T>,
+        taker_coin: MmCoinEnum<T>,
         mut saved: MakerSavedSwap,
     ) -> Result<(Self, Option<MakerSwapCommand>), String> {
         if saved.events.is_empty() {
@@ -1116,8 +1120,8 @@ impl MakerSwap {
         Ok((swap, command))
     }
 
-    pub async fn recover_funds(&self) -> Result<RecoveredSwap, String> {
-        async fn try_spend_taker_payment(selfi: &MakerSwap, secret_hash: &[u8]) -> Result<TransactionEnum, String> {
+    pub async fn recover_funds<T: ZRpcOps + Send>(&self) -> Result<RecoveredSwap, String> {
+        async fn try_spend_taker_payment(selfi: &MakerSwap<T>, secret_hash: &[u8]) -> Result<TransactionEnum, String> {
             let taker_payment_hex = &selfi
                 .r()
                 .taker_payment
@@ -1298,7 +1302,7 @@ impl MakerSwap {
     }
 }
 
-impl AtomicSwap for MakerSwap {
+impl<T: ZRpcOps + Send> AtomicSwap for MakerSwap<T> {
     fn locked_amount(&self) -> Vec<LockedAmount> {
         let mut result = Vec::new();
 
@@ -1497,8 +1501,8 @@ impl MakerSwapStatusChanged {
     pub fn event_id() -> TypeId { TypeId::of::<MakerSwapStatusChanged>() }
 }
 
-impl MakerSwapStatusChanged {
-    fn from_maker_swap(maker_swap: &MakerSwap, saved_swap: &MakerSavedEvent) -> Self {
+impl<T: ZRpcOps + Send> MakerSwapStatusChanged {
+    fn from_maker_swap(maker_swap: &MakerSwap<T>, saved_swap: &MakerSavedEvent) -> Self {
         MakerSwapStatusChanged {
             uuid: maker_swap.uuid,
             taker_coin: maker_swap.taker_coin.ticker().to_string(),
@@ -1689,16 +1693,16 @@ impl MakerSavedSwap {
 }
 
 #[allow(clippy::large_enum_variant)]
-pub enum RunMakerSwapInput {
-    StartNew(MakerSwap),
+pub enum RunMakerSwapInput<T: ZRpcOps + Send> {
+    StartNew(MakerSwap<T>),
     KickStart {
-        maker_coin: MmCoinEnum,
-        taker_coin: MmCoinEnum,
+        maker_coin: MmCoinEnum<T>,
+        taker_coin: MmCoinEnum<T>,
         swap_uuid: Uuid,
     },
 }
 
-impl RunMakerSwapInput {
+impl<T: ZRpcOps + Send> RunMakerSwapInput<T> {
     fn uuid(&self) -> &Uuid {
         match self {
             RunMakerSwapInput::StartNew(swap) => &swap.uuid,
@@ -1711,7 +1715,7 @@ impl RunMakerSwapInput {
 /// Panics in case of command or event apply fails, not sure yet how to handle such situations
 /// because it's usually means that swap is in invalid state which is possible only if there's developer error.
 /// Every produced event is saved to local DB. Swap status is broadcasted to P2P network after completion.
-pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
+pub async fn run_maker_swap<T: ZRpcOps + Send>(swap: RunMakerSwapInput<T>, ctx: MmArc) {
     let uuid = swap.uuid().to_owned();
     let mut attempts = 0;
     let swap_lock = loop {
@@ -1854,10 +1858,10 @@ pub struct MakerSwapPreparedParams {
     taker_payment_spend_trade_fee: TradeFee,
 }
 
-pub async fn check_balance_for_maker_swap(
+pub async fn check_balance_for_maker_swap<T: ZRpcOps + Send>(
     ctx: &MmArc,
-    my_coin: &MmCoinEnum,
-    other_coin: &MmCoinEnum,
+    my_coin: &MmCoinEnum<T>,
+    other_coin: &MmCoinEnum<T>,
     volume: MmNumber,
     swap_uuid: Option<&Uuid>,
     prepared_params: Option<MakerSwapPreparedParams>,
@@ -1898,11 +1902,11 @@ pub struct MakerTradePreimage {
     pub volume: Option<MmNumber>,
 }
 
-pub async fn maker_swap_trade_preimage(
+pub async fn maker_swap_trade_preimage<T: ZRpcOps + Send>(
     ctx: &MmArc,
     req: TradePreimageRequest,
-    base_coin: MmCoinEnum,
-    rel_coin: MmCoinEnum,
+    base_coin: MmCoinEnum<T>,
+    rel_coin: MmCoinEnum<T>,
 ) -> TradePreimageRpcResult<MakerTradePreimage> {
     let base_coin_ticker = base_coin.ticker();
     let rel_coin_ticker = rel_coin.ticker();
@@ -1979,9 +1983,9 @@ pub async fn maker_swap_trade_preimage(
 /// Calculate max Maker volume.
 /// Returns [`CheckBalanceError::NotSufficientBalance`] if the balance is not sufficient.
 /// Note the function checks base coin balance if the trade fee should be paid in base coin.
-pub async fn calc_max_maker_vol(
+pub async fn calc_max_maker_vol<T: ZRpcOps + Send>(
     ctx: &MmArc,
-    coin: &MmCoinEnum,
+    coin: &MmCoinEnum<T>,
     balance: &BigDecimal,
     stage: FeeApproxStage,
 ) -> CheckBalanceResult<MmNumber> {

@@ -1,6 +1,7 @@
 use crate::coin_balance::HDAccountBalance;
 use crate::hd_pubkey::{HDXPubExtractor, RpcTaskXPubExtractor};
 use crate::hd_wallet::HDWalletRpcError;
+use crate::z_coin::z_rpc::ZRpcOps;
 use crate::{lp_coinfind_or_err, CoinBalance, CoinWithDerivationMethod, CoinsContext, MmCoinEnum};
 use async_trait::async_trait;
 use common::{true_f, SuccessResponse};
@@ -13,13 +14,13 @@ use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, Rpc
 
 pub type CreateAccountUserAction = HwRpcTaskUserAction;
 pub type CreateAccountAwaitingStatus = HwRpcTaskAwaitingStatus;
-pub type CreateAccountTaskManager = RpcTaskManager<InitCreateAccountTask>;
-pub type CreateAccountTaskManagerShared = RpcTaskManagerShared<InitCreateAccountTask>;
-pub type CreateAccountTaskHandle = RpcTaskHandle<InitCreateAccountTask>;
+pub type CreateAccountTaskManager<T> = RpcTaskManager<InitCreateAccountTask<T>>;
+pub type CreateAccountTaskManagerShared<T> = RpcTaskManagerShared<InitCreateAccountTask<T>>;
+pub type CreateAccountTaskHandle<T> = RpcTaskHandle<InitCreateAccountTask<T>>;
 pub type CreateAccountRpcTaskStatus =
     RpcTaskStatus<HDAccountBalance, HDWalletRpcError, CreateAccountInProgressStatus, CreateAccountAwaitingStatus>;
 
-type CreateAccountXPubExtractor<'task> = RpcTaskXPubExtractor<'task, InitCreateAccountTask>;
+type CreateAccountXPubExtractor<'task, T> = RpcTaskXPubExtractor<'task, InitCreateAccountTask<T>>;
 
 #[derive(Deserialize)]
 pub struct CreateNewAccountRequest {
@@ -57,13 +58,13 @@ pub trait InitCreateHDAccountRpcOps {
         XPubExtractor: HDXPubExtractor + Sync;
 }
 
-pub struct InitCreateAccountTask {
+pub struct InitCreateAccountTask<T: ZRpcOps + Send> {
     ctx: MmArc,
-    coin: MmCoinEnum,
+    coin: MmCoinEnum<T>,
     req: CreateNewAccountRequest,
 }
 
-impl RpcTaskTypes for InitCreateAccountTask {
+impl<T: ZRpcOps + Send> RpcTaskTypes for InitCreateAccountTask<T> {
     type Item = HDAccountBalance;
     type Error = HDWalletRpcError;
     type InProgressStatus = CreateAccountInProgressStatus;
@@ -72,15 +73,15 @@ impl RpcTaskTypes for InitCreateAccountTask {
 }
 
 #[async_trait]
-impl RpcTask for InitCreateAccountTask {
+impl<T: ZRpcOps + Send> RpcTask for InitCreateAccountTask<T> {
     fn initial_status(&self) -> Self::InProgressStatus { CreateAccountInProgressStatus::Preparing }
 
-    async fn run(self, task_handle: &CreateAccountTaskHandle) -> Result<Self::Item, MmError<Self::Error>> {
-        async fn create_new_account_helper<Coin>(
+    async fn run(self, task_handle: &CreateAccountTaskHandle<T>) -> Result<Self::Item, MmError<Self::Error>> {
+        async fn create_new_account_helper<T: ZRpcOps + Send, Coin>(
             ctx: &MmArc,
             coin: Coin,
             params: CreateNewAccountParams,
-            task_handle: &CreateAccountTaskHandle,
+            task_handle: &CreateAccountTaskHandle<T>,
         ) -> MmResult<HDAccountBalance, HDWalletRpcError>
         where
             Coin: InitCreateHDAccountRpcOps + Send + Sync,

@@ -16,9 +16,11 @@ use mm2_err_handle::prelude::*;
 use parking_lot::Mutex;
 use prost::Message;
 use protobuf::Message as ProtobufMessage;
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
+// use futures01::Future;
+use tokio::sync::Mutex as TokioMutex;
 use tokio::task::block_in_place;
 use tonic::transport::{Channel, ClientTlsConfig};
 use zcash_client_backend::data_api::chain::{scan_cached_blocks, validate_chain};
@@ -54,11 +56,14 @@ struct CompactBlockRow {
 pub trait ZRpcOps {
     async fn get_block_height(&mut self) -> Result<u64, MmError<UpdateBlocksCacheErr>>;
 
-    async fn scan_blocks(
+    async fn scan_blocks<
+        Fut: std::future::Future<Output = Result<(), MmError<UpdateBlocksCacheErr>>>,
+        F: FnMut(TonicCompactBlock) -> Fut,
+    >(
         &mut self,
         start_block: u64,
         last_block: u64,
-        on_block: &mut (dyn FnMut(TonicCompactBlock) -> Result<(), MmError<UpdateBlocksCacheErr>> + Send + Sync),
+        on_block: F,
     ) -> Result<(), MmError<UpdateBlocksCacheErr>>;
 
     async fn check_watch_for_tx(&mut self, tx_id: TxId, attempts: &mut i32, watch_for_tx: &mut Option<TxId>);
@@ -73,11 +78,14 @@ impl ZRpcOps for CompactTxStreamerClient<Channel> {
         Ok(res)
     }
 
-    async fn scan_blocks(
+    async fn scan_blocks<
+        Fut: std::future::Future<Output = Result<(), MmError<UpdateBlocksCacheErr>>>,
+        F: FnMut(TonicCompactBlock) -> Fut,
+    >(
         &mut self,
         start_block: u64,
         last_block: u64,
-        on_block: &mut (dyn FnMut(TonicCompactBlock) -> Result<(), MmError<UpdateBlocksCacheErr>> + Send + Sync),
+        mut on_block: F,
     ) -> Result<(), MmError<UpdateBlocksCacheErr>> {
         let request = tonic::Request::new(BlockRange {
             start: Some(BlockId {
@@ -92,7 +100,7 @@ impl ZRpcOps for CompactTxStreamerClient<Channel> {
         let mut response = self.get_block_range(request).await?;
         while let Some(block) = response.get_mut().message().await? {
             debug!("Got block {:?}", block);
-            on_block(block)?;
+            on_block(block).await?;
         }
         Ok(())
     }
@@ -129,11 +137,14 @@ impl ZRpcOps for NativeClient {
         Ok(self.get_block_count().compat().await?)
     }
 
-    async fn scan_blocks(
+    async fn scan_blocks<
+        Fut: std::future::Future<Output = Result<(), MmError<UpdateBlocksCacheErr>>>,
+        F: FnMut(TonicCompactBlock) -> Fut,
+    >(
         &mut self,
         start_block: u64,
         last_block: u64,
-        on_block: &mut (dyn FnMut(TonicCompactBlock) -> Result<(), MmError<UpdateBlocksCacheErr>> + Send + Sync),
+        mut on_block: F,
     ) -> Result<(), MmError<UpdateBlocksCacheErr>> {
         for height in start_block..=last_block {
             let block = self.get_block_by_height(height).await?;
@@ -201,7 +212,7 @@ impl ZRpcOps for NativeClient {
                 header: Vec::new(),
                 vtx: compact_txs,
             };
-            on_block(compact_block)?;
+            on_block(compact_block).await?;
         }
         Ok(())
     }
@@ -351,14 +362,14 @@ async fn create_wallet_db(
     Ok(db)
 }
 
-pub(super) async fn init_light_client(
+pub(super) async fn init_light_client<T: ZRpcOps + Send>(
     lightwalletd_url: Uri,
     cache_db_path: PathBuf,
     wallet_db_path: PathBuf,
     consensus_params: ZcoinConsensusParams,
     check_point_block: Option<CheckPointBlockInfo>,
     evk: ExtendedFullViewingKey,
-) -> Result<(AsyncMutex<SaplingSyncConnector>, WalletDbShared), MmError<ZcoinClientInitError>> {
+) -> Result<(AsyncMutex<SaplingSyncConnector<T>>, WalletDbShared), MmError<ZcoinClientInitError>> {
     let blocks_db =
         async_blocking(|| BlockDb::for_path(cache_db_path).map_to_mm(ZcoinClientInitError::BlocksDbInitFailure))
             .await?;
@@ -371,7 +382,7 @@ pub(super) async fn init_light_client(
     let wallet_db = Arc::new(Mutex::new(wallet_db));
     let sync_handle = SaplingSyncLoopHandle {
         current_block: BlockHeight::from_u32(0),
-        blocks_db: Mutex::new(blocks_db),
+        blocks_db: TokioMutex::new(blocks_db),
         wallet_db: wallet_db.clone(),
         consensus_params,
         sync_status_notifier,
@@ -394,14 +405,14 @@ pub(super) async fn init_light_client(
     ))
 }
 
-pub(super) async fn init_native_client(
+pub(super) async fn init_native_client<T: ZRpcOps + Send>(
     native_client: NativeClient,
     cache_db_path: PathBuf,
     wallet_db_path: PathBuf,
     consensus_params: ZcoinConsensusParams,
     check_point_block: Option<CheckPointBlockInfo>,
     evk: ExtendedFullViewingKey,
-) -> Result<(AsyncMutex<SaplingSyncConnector>, WalletDbShared), MmError<ZcoinClientInitError>> {
+) -> Result<(AsyncMutex<SaplingSyncConnector<T>>, WalletDbShared), MmError<ZcoinClientInitError>> {
     let blocks_db =
         async_blocking(|| BlockDb::for_path(cache_db_path).map_to_mm(ZcoinClientInitError::BlocksDbInitFailure))
             .await?;
@@ -412,7 +423,7 @@ pub(super) async fn init_native_client(
     let wallet_db = Arc::new(Mutex::new(wallet_db));
     let sync_handle = SaplingSyncLoopHandle {
         current_block: BlockHeight::from_u32(0),
-        blocks_db: Mutex::new(blocks_db),
+        blocks_db: TokioMutex::new(blocks_db),
         wallet_db: wallet_db.clone(),
         consensus_params,
         sync_status_notifier,
@@ -435,12 +446,12 @@ fn is_tx_imported(conn: &Connection, tx_id: TxId) -> bool {
     }
 }
 
-pub struct SaplingSyncRespawnGuard {
-    pub(super) sync_handle: Option<(SaplingSyncLoopHandle, Box<dyn ZRpcOps + Send>)>,
+pub struct SaplingSyncRespawnGuard<T: ZRpcOps + Send> {
+    pub(super) sync_handle: Option<(SaplingSyncLoopHandle<T>, Box<T>)>,
     pub(super) abort_handle: Arc<Mutex<AbortOnDropHandle>>,
 }
 
-impl Drop for SaplingSyncRespawnGuard {
+impl<T: ZRpcOps + Send> Drop for SaplingSyncRespawnGuard<T> {
     fn drop(&mut self) {
         if let Some((handle, rpc)) = self.sync_handle.take() {
             *self.abort_handle.lock() = spawn_abortable(light_wallet_db_sync_loop(handle, rpc));
@@ -448,7 +459,7 @@ impl Drop for SaplingSyncRespawnGuard {
     }
 }
 
-impl SaplingSyncRespawnGuard {
+impl<T: ZRpcOps + Send> SaplingSyncRespawnGuard<T> {
     pub(super) fn watch_for_tx(&mut self, tx_id: TxId) {
         if let Some(ref mut handle) = self.sync_handle {
             handle.0.watch_for_tx = Some(tx_id);
@@ -476,20 +487,20 @@ pub enum SyncStatus {
     },
 }
 
-pub struct SaplingSyncLoopHandle {
+pub struct SaplingSyncLoopHandle<T: ZRpcOps + Send> {
     current_block: BlockHeight,
-    blocks_db: Mutex<BlockDb>,
+    blocks_db: TokioMutex<BlockDb>,
     wallet_db: WalletDbShared,
     consensus_params: ZcoinConsensusParams,
     /// Notifies about sync status without stopping the loop, e.g. on coin activation
     sync_status_notifier: AsyncSender<SyncStatus>,
     /// If new tx is required to be generated, we stop the sync and respawn it after tx is sent
     /// This watcher waits for such notification
-    on_tx_gen_watcher: AsyncReceiver<OneshotSender<(Self, Box<dyn ZRpcOps + Send>)>>,
+    on_tx_gen_watcher: AsyncReceiver<OneshotSender<(Self, Box<T>)>>,
     watch_for_tx: Option<TxId>,
 }
 
-impl SaplingSyncLoopHandle {
+impl<T: ZRpcOps + Send> SaplingSyncLoopHandle<T> {
     fn notify_blocks_cache_status(&mut self, current_scanned_block: u64, latest_block: u64) {
         self.sync_status_notifier
             .try_send(SyncStatus::UpdatingBlocksCache {
@@ -527,7 +538,7 @@ impl SaplingSyncLoopHandle {
         rpc: &mut (dyn ZRpcOps + Send),
     ) -> Result<(), MmError<UpdateBlocksCacheErr>> {
         let current_block = rpc.get_block_height().await?;
-        let current_block_in_db = block_in_place(|| self.blocks_db.lock().get_latest_block())?;
+        let current_block_in_db = self.blocks_db.lock().await.get_latest_block()?;
         let extrema = block_in_place(|| self.wallet_db.lock().block_height_extrema())?;
         let mut from_block = self
             .consensus_params
@@ -537,15 +548,29 @@ impl SaplingSyncLoopHandle {
         if let Some((_, max_in_wallet)) = extrema {
             from_block = from_block.max(max_in_wallet.into());
         }
+        // BlockDb is wrapped in Mutex to make it Sync and pass the FnMut closure to async fn from trait
+        let (sender, receiver) = sync_channel(1);
         if current_block >= from_block {
-            rpc.scan_blocks(from_block, current_block, &mut |block: TonicCompactBlock| {
-                block_in_place(|| {
-                    self.blocks_db
-                        .lock()
-                        .insert_block(block.height as u32, block.encode_to_vec())
-                })?;
+            rpc.scan_blocks(from_block, current_block, |block: TonicCompactBlock| async move {
+                self.blocks_db
+                    .lock()
+                    .await
+                    .insert_block(block.height as u32, block.encode_to_vec())
+                    .expect("TODO: panic message");
                 self.notify_blocks_cache_status(block.height, current_block);
                 Ok(())
+
+                // spawn(move || {
+                //     sender.send(block).unwrap();
+                // });
+                // let handle = spawn(move || {
+                //     while let Ok(block) = receiver.recv() {
+                //         self.blocks_db.insert_block(block.height as u32, block.encode_to_vec()).expect("TODO: panic message");
+                //         self.notify_blocks_cache_status(block.height, current_block);
+                //     }
+                // });
+                // handle.join().unwrap();
+                // Ok(())
             })
             .await?;
         }
@@ -563,7 +588,7 @@ impl SaplingSyncLoopHandle {
 
         if let Err(e) = validate_chain(
             &self.consensus_params,
-            self.blocks_db.lock().deref(),
+            &self.blocks_db,
             wallet_ops.get_max_height_hash()?,
         ) {
             match e {
@@ -574,13 +599,13 @@ impl SaplingSyncLoopHandle {
                         BlockHeight::from_u32(0)
                     };
                     wallet_ops.rewind_to_height(rewind_height)?;
-                    self.blocks_db.lock().rewind_to_height(rewind_height.into())?;
+                    self.blocks_db.rewind_to_height(rewind_height.into())?;
                 },
                 e => return MmError::err(e),
             }
         }
 
-        let current_block = BlockHeight::from_u32(self.blocks_db.lock().get_latest_block()?);
+        let current_block = BlockHeight::from_u32(self.blocks_db.get_latest_block()?);
         loop {
             match wallet_ops.block_height_extrema()? {
                 Some((_, max_in_wallet)) => {
@@ -592,12 +617,7 @@ impl SaplingSyncLoopHandle {
                 },
                 None => self.notify_building_wallet_db(0, current_block.into()),
             }
-            scan_cached_blocks(
-                &self.consensus_params,
-                self.blocks_db.lock().deref(),
-                &mut wallet_ops,
-                Some(1000),
-            )?;
+            scan_cached_blocks(&self.consensus_params, &self.blocks_db, &mut wallet_ops, Some(1000))?;
         }
         Ok(())
     }
@@ -632,7 +652,7 @@ impl SaplingSyncLoopHandle {
 /// 6. Once the transaction is generated and sent, `SaplingSyncRespawnGuard::watch_for_tx` is called to update `SaplingSyncLoopHandle` state.
 /// 7. Once the loop is respawned, it will check that broadcast tx is imported (or not available anymore) before stopping in favor of
 ///     next wait_for_gen_tx_blockchain_sync call.
-async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle, mut client: Box<dyn ZRpcOps + Send>) {
+async fn light_wallet_db_sync_loop<T: ZRpcOps + Send>(mut sync_handle: SaplingSyncLoopHandle<T>, mut client: Box<T>) {
     // this loop is spawned as standalone task so it's safe to use block_in_place here
     loop {
         if let Err(e) = sync_handle.update_blocks_cache(client.as_mut()).await {
@@ -677,19 +697,19 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle, mut c
 }
 
 type SyncWatcher = AsyncReceiver<SyncStatus>;
-type NewTxNotifier = AsyncSender<OneshotSender<(SaplingSyncLoopHandle, Box<dyn ZRpcOps + Send>)>>;
+type NewTxNotifier<T> = AsyncSender<OneshotSender<(SaplingSyncLoopHandle<T>, Box<T>)>>;
 
-pub(super) struct SaplingSyncConnector {
+pub(super) struct SaplingSyncConnector<T: ZRpcOps + Send> {
     sync_watcher: SyncWatcher,
-    on_tx_gen_notifier: NewTxNotifier,
+    on_tx_gen_notifier: NewTxNotifier<T>,
     abort_handle: Arc<Mutex<AbortOnDropHandle>>,
 }
 
-impl SaplingSyncConnector {
+impl<T: ZRpcOps + Send> SaplingSyncConnector<T> {
     #[inline]
     pub(super) fn new_mutex_wrapped(
         simple_sync_watcher: SyncWatcher,
-        on_tx_gen_notifier: NewTxNotifier,
+        on_tx_gen_notifier: NewTxNotifier<T>,
         abort_handle: AbortOnDropHandle,
     ) -> AsyncMutex<Self> {
         AsyncMutex::new(SaplingSyncConnector {
@@ -706,7 +726,7 @@ impl SaplingSyncConnector {
 
     pub(super) async fn wait_for_gen_tx_blockchain_sync(
         &mut self,
-    ) -> Result<SaplingSyncRespawnGuard, MmError<BlockchainScanStopped>> {
+    ) -> Result<SaplingSyncRespawnGuard<dyn ZRpcOps + Send>, MmError<BlockchainScanStopped>> {
         let (sender, receiver) = oneshot_channel();
         self.on_tx_gen_notifier
             .try_send(sender)
@@ -721,7 +741,7 @@ impl SaplingSyncConnector {
     }
 }
 
-pub(super) struct SaplingSyncGuard<'a> {
-    pub(super) _connector_guard: AsyncMutexGuard<'a, SaplingSyncConnector>,
-    pub(super) respawn_guard: SaplingSyncRespawnGuard,
+pub(super) struct SaplingSyncGuard<'a, T: ZRpcOps + Send> {
+    pub(super) _connector_guard: AsyncMutexGuard<'a, SaplingSyncConnector<T>>,
+    pub(super) respawn_guard: SaplingSyncRespawnGuard<T>,
 }

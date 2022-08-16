@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use coins::coin_balance::{EnableCoinBalance, IguanaWalletBalance};
 use coins::z_coin::{z_coin_from_conf_and_params, BlockchainScanStopped, SyncStatus, ZCoin, ZCoinBuildError,
                     ZcoinActivationParams, ZcoinProtocolInfo};
-use coins::{BalanceError, CoinProtocol, MarketCoinOps, RegisterCoinError};
+use coins::{BalanceError, CoinProtocol, MarketCoinOps, MmCoinEnum, RegisterCoinError};
 use crypto::hw_rpc_task::{HwRpcTaskAwaitingStatus, HwRpcTaskUserAction};
 use crypto::CryptoInitError;
 use derive_more::Display;
@@ -20,8 +20,8 @@ use serde_derive::Serialize;
 use serde_json::Value as Json;
 use std::time::Duration;
 
-pub type ZcoinTaskManagerShared = InitStandaloneCoinTaskManagerShared<ZCoin>;
-pub type ZcoinRpcTaskHandle = InitStandaloneCoinTaskHandle<ZCoin>;
+pub type ZcoinTaskManagerShared<T> = InitStandaloneCoinTaskManagerShared<ZCoin<T>, T>;
+pub type ZcoinRpcTaskHandle<T> = InitStandaloneCoinTaskHandle<ZCoin<T>, T>;
 pub type ZcoinAwaitingStatus = HwRpcTaskAwaitingStatus;
 pub type ZcoinUserAction = HwRpcTaskUserAction;
 
@@ -157,8 +157,14 @@ impl TryFromCoinProtocol for ZcoinProtocolInfo {
     }
 }
 
+impl<T: ZRpcOps + Send> Into<MmCoinEnum<T>> for ZCoin<T> {
+    fn into(self) -> MmCoinEnum<T> {
+        todo!()
+    }
+}
+
 #[async_trait]
-impl InitStandaloneCoinActivationOps for ZCoin {
+impl<T: ZRpcOps + Send> InitStandaloneCoinActivationOps<T> for ZCoin<T> {
     type ActivationRequest = ZcoinActivationParams;
     type StandaloneProtocol = ZcoinProtocolInfo;
     type ActivationResult = ZcoinActivationResult;
@@ -167,7 +173,7 @@ impl InitStandaloneCoinActivationOps for ZCoin {
     type AwaitingStatus = ZcoinAwaitingStatus;
     type UserAction = ZcoinUserAction;
 
-    fn rpc_task_manager(activation_ctx: &CoinsActivationContext) -> &ZcoinTaskManagerShared {
+    fn rpc_task_manager(activation_ctx: &CoinsActivationContext) -> &ZcoinTaskManagerShared<T> {
         &activation_ctx.init_z_coin_task_manager
     }
 
@@ -177,7 +183,7 @@ impl InitStandaloneCoinActivationOps for ZCoin {
         coin_conf: Json,
         activation_request: &ZcoinActivationParams,
         protocol_info: ZcoinProtocolInfo,
-        task_handle: &ZcoinRpcTaskHandle,
+        task_handle: &ZcoinRpcTaskHandle<T>,
     ) -> MmResult<Self, ZcoinInitError> {
         let secp_privkey = ctx.secp256k1_key_pair().private().secret;
         let coin = z_coin_from_conf_and_params(
@@ -219,7 +225,7 @@ impl InitStandaloneCoinActivationOps for ZCoin {
     async fn get_activation_result(
         &self,
         _ctx: MmArc,
-        task_handle: &ZcoinRpcTaskHandle,
+        task_handle: &ZcoinRpcTaskHandle<T>,
         _activation_request: &Self::ActivationRequest,
     ) -> MmResult<Self::ActivationResult, ZcoinInitError> {
         task_handle.update_in_progress_status(ZcoinInProgressStatus::RequestingWalletBalance)?;

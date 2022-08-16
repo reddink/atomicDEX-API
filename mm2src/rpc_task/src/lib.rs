@@ -22,11 +22,11 @@ pub use task::{RpcTask, RpcTaskTypes};
 pub type FinishedTaskResult<Item, Error> = MmRpcResult<Item, Error>;
 pub type RpcTaskResult<T> = Result<T, MmError<RpcTaskError>>;
 pub type TaskId = u64;
-pub type RpcTaskStatusAlias<Task> = RpcTaskStatus<
-    <Task as RpcTaskTypes>::Item,
-    <Task as RpcTaskTypes>::Error,
-    <Task as RpcTaskTypes>::InProgressStatus,
-    <Task as RpcTaskTypes>::AwaitingStatus,
+pub type RpcTaskStatusAlias<Task, T> = RpcTaskStatus<
+    <Task as RpcTaskTypes<T>>::Item,
+    <Task as RpcTaskTypes<T>>::Error,
+    <Task as RpcTaskTypes<T>>::InProgressStatus,
+    <Task as RpcTaskTypes<T>>::AwaitingStatus,
 >;
 
 type AtomicTaskId = AtomicU64;
@@ -97,7 +97,7 @@ where
     }
 }
 
-enum TaskStatus<Task: RpcTaskTypes> {
+enum TaskStatus<Task: RpcTaskTypes<T>, T: ZRpcOps + Send> {
     Ready(FinishedTaskResult<Task::Item, Task::Error>),
     InProgress(Task::InProgressStatus),
     UserActionRequired {

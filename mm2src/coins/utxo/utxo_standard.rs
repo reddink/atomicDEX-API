@@ -16,7 +16,7 @@ use crate::utxo::utxo_builder::{UtxoArcBuilder, UtxoCoinBuilder};
 use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, GetWithdrawSenderAddress,
             NegotiateSwapContractAddrErr, PrivKeyBuildPolicy, SearchForSwapTxSpendInput, SignatureResult, SwapOps,
             TradePreimageValue, TransactionFut, ValidateAddressResult, ValidatePaymentInput, VerificationResult,
-            WithdrawFut, WithdrawSenderAddress};
+            WithdrawFut, WithdrawSenderAddress, ZRpcOps};
 use crypto::trezor::utxo::TrezorUtxoCoin;
 use crypto::Bip44Chain;
 use futures::{FutureExt, TryFutureExt};
@@ -646,12 +646,12 @@ impl GetWithdrawSenderAddress for UtxoStandardCoin {
 }
 
 #[async_trait]
-impl InitWithdrawCoin for UtxoStandardCoin {
+impl<T: ZRpcOps + Send> InitWithdrawCoin<T> for UtxoStandardCoin {
     async fn init_withdraw(
         &self,
         ctx: MmArc,
         req: WithdrawRequest,
-        task_handle: &WithdrawTaskHandle,
+        task_handle: &WithdrawTaskHandle<T>,
     ) -> Result<TransactionDetails, MmError<WithdrawError>> {
         utxo_common::init_withdraw(ctx, self.clone(), req, task_handle).await
     }

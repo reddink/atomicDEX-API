@@ -1,4 +1,4 @@
-use crate::{lp_coinfind_or_err, CoinsContext, MmCoinEnum, WithdrawError};
+use crate::{lp_coinfind_or_err, CoinsContext, MmCoinEnum, WithdrawError, ZRpcOps};
 use crate::{TransactionDetails, WithdrawRequest};
 use async_trait::async_trait;
 use common::SuccessResponse;
@@ -15,18 +15,18 @@ pub type WithdrawUserActionError = RpcTaskUserActionError;
 pub type InitWithdrawResponse = InitRpcTaskResponse;
 pub type WithdrawStatusRequest = RpcTaskStatusRequest;
 pub type WithdrawUserActionRequest = HwRpcTaskUserActionRequest;
-pub type WithdrawTaskManager = RpcTaskManager<WithdrawTask>;
-pub type WithdrawTaskManagerShared = RpcTaskManagerShared<WithdrawTask>;
-pub type WithdrawTaskHandle = RpcTaskHandle<WithdrawTask>;
-pub type WithdrawRpcStatus = RpcTaskStatusAlias<WithdrawTask>;
+pub type WithdrawTaskManager<T> = RpcTaskManager<WithdrawTask<T>, T>;
+pub type WithdrawTaskManagerShared<T> = RpcTaskManagerShared<WithdrawTask<T>, T>;
+pub type WithdrawTaskHandle<T> = RpcTaskHandle<WithdrawTask<T>>;
+pub type WithdrawRpcStatus<T> = RpcTaskStatusAlias<WithdrawTask<T>>;
 pub type WithdrawInitResult<T> = Result<T, MmError<WithdrawError>>;
 
 #[async_trait]
-pub trait CoinWithdrawInit {
+pub trait CoinWithdrawInit<T: ZRpcOps + Send> {
     fn init_withdraw(
         ctx: MmArc,
         req: WithdrawRequest,
-        rpc_task_handle: &WithdrawTaskHandle,
+        rpc_task_handle: &WithdrawTaskHandle<T>,
     ) -> WithdrawInitResult<TransactionDetails>;
 }
 
@@ -42,10 +42,10 @@ pub async fn init_withdraw(ctx: MmArc, request: WithdrawRequest) -> WithdrawInit
     Ok(InitWithdrawResponse { task_id })
 }
 
-pub async fn withdraw_status(
+pub async fn withdraw_status<T: ZRpcOps + Send>(
     ctx: MmArc,
     req: WithdrawStatusRequest,
-) -> Result<WithdrawRpcStatus, MmError<WithdrawStatusError>> {
+) -> Result<WithdrawRpcStatus<T>, MmError<WithdrawStatusError>> {
     let coins_ctx = CoinsContext::from_ctx(&ctx).map_to_mm(WithdrawStatusError::Internal)?;
     let mut task_manager = coins_ctx
         .withdraw_task_manager
@@ -83,22 +83,22 @@ pub async fn withdraw_user_action(
 }
 
 #[async_trait]
-pub trait InitWithdrawCoin {
+pub trait InitWithdrawCoin<T: ZRpcOps + Send> {
     async fn init_withdraw(
         &self,
         ctx: MmArc,
         req: WithdrawRequest,
-        task_handle: &WithdrawTaskHandle,
+        task_handle: &WithdrawTaskHandle<T>,
     ) -> Result<TransactionDetails, MmError<WithdrawError>>;
 }
 
-pub struct WithdrawTask {
+pub struct WithdrawTask<T: ZRpcOps + Send> {
     ctx: MmArc,
-    coin: MmCoinEnum,
+    coin: MmCoinEnum<T>,
     request: WithdrawRequest,
 }
 
-impl RpcTaskTypes for WithdrawTask {
+impl<T: ZRpcOps + Send> RpcTaskTypes<T> for WithdrawTask<T> {
     type Item = TransactionDetails;
     type Error = WithdrawError;
     type InProgressStatus = WithdrawInProgressStatus;
@@ -107,10 +107,10 @@ impl RpcTaskTypes for WithdrawTask {
 }
 
 #[async_trait]
-impl RpcTask for WithdrawTask {
+impl<T: ZRpcOps + Send> RpcTask<T> for WithdrawTask<T> {
     fn initial_status(&self) -> Self::InProgressStatus { WithdrawInProgressStatus::Preparing }
 
-    async fn run(self, task_handle: &WithdrawTaskHandle) -> Result<Self::Item, MmError<Self::Error>> {
+    async fn run(self, task_handle: &WithdrawTaskHandle<T>) -> Result<Self::Item, MmError<Self::Error>> {
         match self.coin {
             MmCoinEnum::UtxoCoin(ref standard_utxo) => {
                 standard_utxo.init_withdraw(self.ctx, self.request, task_handle).await

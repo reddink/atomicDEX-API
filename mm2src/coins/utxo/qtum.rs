@@ -18,7 +18,8 @@ use crate::utxo::utxo_builder::{BlockHeaderUtxoArcOps, MergeUtxoArcOps, UtxoCoin
 use crate::{eth, CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, DelegationError, DelegationFut,
             GetWithdrawSenderAddress, NegotiateSwapContractAddrErr, PrivKeyBuildPolicy, SearchForSwapTxSpendInput,
             SignatureResult, StakingInfosFut, SwapOps, TradePreimageValue, TransactionFut, UnexpectedDerivationMethod,
-            ValidateAddressResult, ValidatePaymentInput, VerificationResult, WithdrawFut, WithdrawSenderAddress};
+            ValidateAddressResult, ValidatePaymentInput, VerificationResult, WithdrawFut, WithdrawSenderAddress,
+            ZRpcOps};
 use crypto::trezor::utxo::TrezorUtxoCoin;
 use crypto::Bip44Chain;
 use ethereum_types::H160;
@@ -890,12 +891,12 @@ impl GetWithdrawSenderAddress for QtumCoin {
 }
 
 #[async_trait]
-impl InitWithdrawCoin for QtumCoin {
+impl<T: ZRpcOps + Send> InitWithdrawCoin<T> for QtumCoin {
     async fn init_withdraw(
         &self,
         ctx: MmArc,
         req: WithdrawRequest,
-        task_handle: &WithdrawTaskHandle,
+        task_handle: &WithdrawTaskHandle<T>,
     ) -> Result<TransactionDetails, MmError<WithdrawError>> {
         utxo_common::init_withdraw(ctx, self.clone(), req, task_handle).await
     }
