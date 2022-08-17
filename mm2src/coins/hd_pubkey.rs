@@ -1,4 +1,5 @@
 use crate::hd_wallet::{HDWalletRpcError, NewAccountCreatingError};
+use crate::ZRpcOps;
 use async_trait::async_trait;
 use crypto::hw_rpc_task::{HwConnectStatuses, TrezorRpcTaskConnectProcessor};
 use crypto::trezor::trezor_rpc_task::TrezorRpcTaskProcessor;
@@ -101,18 +102,18 @@ pub trait HDXPubExtractor {
     ) -> MmResult<XPub, HDExtractPubkeyError>;
 }
 
-pub enum RpcTaskXPubExtractor<'task, Task: RpcTask> {
+pub enum RpcTaskXPubExtractor<'task, Task: RpcTask<T>, T: ZRpcOps + Send> {
     Trezor {
         hw_ctx: HardwareWalletArc,
-        task_handle: &'task RpcTaskHandle<Task>,
+        task_handle: &'task RpcTaskHandle<Task, T>,
         statuses: HwConnectStatuses<Task::InProgressStatus, Task::AwaitingStatus>,
     },
 }
 
 #[async_trait]
-impl<'task, Task> HDXPubExtractor for RpcTaskXPubExtractor<'task, Task>
+impl<'task, Task, T: ZRpcOps + Send> HDXPubExtractor for RpcTaskXPubExtractor<'task, Task, T>
 where
-    Task: RpcTask,
+    Task: RpcTask<T>,
     Task::UserAction: TryInto<TrezorPinMatrix3x3Response, Error = RpcTaskError> + Send,
 {
     async fn extract_utxo_xpub(
@@ -133,16 +134,16 @@ where
     }
 }
 
-impl<'task, Task> RpcTaskXPubExtractor<'task, Task>
+impl<'task, Task, T: ZRpcOps + Send> RpcTaskXPubExtractor<'task, Task, T>
 where
-    Task: RpcTask,
+    Task: RpcTask<T>,
     Task::UserAction: TryInto<TrezorPinMatrix3x3Response, Error = RpcTaskError> + Send,
 {
     pub fn new(
         ctx: &MmArc,
-        task_handle: &'task RpcTaskHandle<Task>,
+        task_handle: &'task RpcTaskHandle<Task, T>,
         statuses: HwConnectStatuses<Task::InProgressStatus, Task::AwaitingStatus>,
-    ) -> MmResult<RpcTaskXPubExtractor<'task, Task>, HDExtractPubkeyError> {
+    ) -> MmResult<RpcTaskXPubExtractor<'task, Task, T>, HDExtractPubkeyError> {
         let crypto_ctx = CryptoCtx::from_ctx(ctx)?;
         let hw_ctx = crypto_ctx
             .hw_ctx()
@@ -155,17 +156,17 @@ where
     }
 
     /// Constructs an Xpub extractor without checking if the MarketMaker is initialized with a hardware wallet.
-    pub fn new_unchecked(
+    pub fn new_unchecked<T: ZRpcOps + Send>(
         ctx: &MmArc,
-        task_handle: &'task RpcTaskHandle<Task>,
+        task_handle: &'task RpcTaskHandle<Task, T>,
         statuses: HwConnectStatuses<Task::InProgressStatus, Task::AwaitingStatus>,
-    ) -> XPubExtractorUnchecked<RpcTaskXPubExtractor<'task, Task>> {
+    ) -> XPubExtractorUnchecked<RpcTaskXPubExtractor<'task, Task, T>> {
         XPubExtractorUnchecked(Self::new(ctx, task_handle, statuses))
     }
 
     async fn extract_utxo_xpub_from_trezor(
         hw_ctx: &HardwareWalletArc,
-        task_handle: &RpcTaskHandle<Task>,
+        task_handle: &RpcTaskHandle<Task, T>,
         statuses: &HwConnectStatuses<Task::InProgressStatus, Task::AwaitingStatus>,
         trezor_coin: TrezorUtxoCoin,
         derivation_path: DerivationPath,

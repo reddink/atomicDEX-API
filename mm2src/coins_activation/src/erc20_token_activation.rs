@@ -26,8 +26,8 @@ impl From<Erc20TokenActivationError> for EnableTokenError {
     }
 }
 
-impl TryPlatformCoinFromMmCoinEnum for EthCoin {
-    fn try_from_mm_coin(coin: MmCoinEnum) -> Option<Self>
+impl<T: ZRpcOps + Send> TryPlatformCoinFromMmCoinEnum<T> for EthCoin {
+    fn try_from_mm_coin(coin: MmCoinEnum<T>) -> Option<Self>
     where
         Self: Sized,
     {

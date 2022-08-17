@@ -44,8 +44,8 @@ pub struct CoinAddressInfo<Balance> {
 
 pub type TokenBalances = HashMap<String, CoinBalance>;
 
-pub trait TryPlatformCoinFromMmCoinEnum {
-    fn try_from_mm_coin(coin: MmCoinEnum) -> Option<Self>
+pub trait TryPlatformCoinFromMmCoinEnum<T: ZRpcOps + Send> {
+    fn try_from_mm_coin(coin: MmCoinEnum<T>) -> Option<Self>
     where
         Self: Sized;
 }

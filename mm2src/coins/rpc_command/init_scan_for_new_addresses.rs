@@ -8,9 +8,9 @@ use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{InitRpcTaskResponse, RpcTaskStatusError, RpcTaskStatusRequest};
 use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
 
-pub type ScanAddressesTaskManager<T> = RpcTaskManager<InitScanAddressesTask<T>>;
-pub type ScanAddressesTaskManagerShared<T> = RpcTaskManagerShared<InitScanAddressesTask<T>>;
-pub type ScanAddressesTaskHandle<T> = RpcTaskHandle<InitScanAddressesTask<T>>;
+pub type ScanAddressesTaskManager<T> = RpcTaskManager<InitScanAddressesTask<T>, T>;
+pub type ScanAddressesTaskManagerShared<T> = RpcTaskManagerShared<InitScanAddressesTask<T>, T>;
+pub type ScanAddressesTaskHandle<T> = RpcTaskHandle<InitScanAddressesTask<T>, T>;
 pub type ScanAddressesRpcTaskStatus = RpcTaskStatus<
     ScanAddressesResponse,
     HDAccountBalanceRpcError,
@@ -66,7 +66,7 @@ pub struct InitScanAddressesTask<T: ZRpcOps + Send> {
     coin: MmCoinEnum<T>,
 }
 
-impl<T: ZRpcOps + Send> RpcTaskTypes for InitScanAddressesTask<T> {
+impl<T: ZRpcOps + Send> RpcTaskTypes<T> for InitScanAddressesTask<T> {
     type Item = ScanAddressesResponse;
     type Error = HDAccountBalanceRpcError;
     type InProgressStatus = ScanAddressesInProgressStatus;
@@ -75,7 +75,7 @@ impl<T: ZRpcOps + Send> RpcTaskTypes for InitScanAddressesTask<T> {
 }
 
 #[async_trait]
-impl<T: ZRpcOps + Send> RpcTask for InitScanAddressesTask<T> {
+impl<T: ZRpcOps + Send> RpcTask<T> for InitScanAddressesTask<T> {
     #[inline]
     fn initial_status(&self) -> Self::InProgressStatus { ScanAddressesInProgressStatus::InProgress }
 

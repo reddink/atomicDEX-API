@@ -14,9 +14,9 @@ use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, Rpc
 
 pub type CreateAccountUserAction = HwRpcTaskUserAction;
 pub type CreateAccountAwaitingStatus = HwRpcTaskAwaitingStatus;
-pub type CreateAccountTaskManager<T> = RpcTaskManager<InitCreateAccountTask<T>>;
-pub type CreateAccountTaskManagerShared<T> = RpcTaskManagerShared<InitCreateAccountTask<T>>;
-pub type CreateAccountTaskHandle<T> = RpcTaskHandle<InitCreateAccountTask<T>>;
+pub type CreateAccountTaskManager<T> = RpcTaskManager<InitCreateAccountTask<T>, T>;
+pub type CreateAccountTaskManagerShared<T> = RpcTaskManagerShared<InitCreateAccountTask<T>, T>;
+pub type CreateAccountTaskHandle<T> = RpcTaskHandle<InitCreateAccountTask<T>, T>;
 pub type CreateAccountRpcTaskStatus =
     RpcTaskStatus<HDAccountBalance, HDWalletRpcError, CreateAccountInProgressStatus, CreateAccountAwaitingStatus>;
 
@@ -64,7 +64,7 @@ pub struct InitCreateAccountTask<T: ZRpcOps + Send> {
     req: CreateNewAccountRequest,
 }
 
-impl<T: ZRpcOps + Send> RpcTaskTypes for InitCreateAccountTask<T> {
+impl<T: ZRpcOps + Send> RpcTaskTypes<T> for InitCreateAccountTask<T> {
     type Item = HDAccountBalance;
     type Error = HDWalletRpcError;
     type InProgressStatus = CreateAccountInProgressStatus;
@@ -73,7 +73,7 @@ impl<T: ZRpcOps + Send> RpcTaskTypes for InitCreateAccountTask<T> {
 }
 
 #[async_trait]
-impl<T: ZRpcOps + Send> RpcTask for InitCreateAccountTask<T> {
+impl<T: ZRpcOps + Send> RpcTask<T> for InitCreateAccountTask<T> {
     fn initial_status(&self) -> Self::InProgressStatus { CreateAccountInProgressStatus::Preparing }
 
     async fn run(self, task_handle: &CreateAccountTaskHandle<T>) -> Result<Self::Item, MmError<Self::Error>> {

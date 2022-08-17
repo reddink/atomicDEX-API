@@ -8,8 +8,8 @@ use mm2_err_handle::prelude::*;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-impl TryPlatformCoinFromMmCoinEnum for SolanaCoin {
-    fn try_from_mm_coin(coin: MmCoinEnum) -> Option<Self>
+impl<T: ZRpcOps + Send> TryPlatformCoinFromMmCoinEnum<T> for SolanaCoin {
+    fn try_from_mm_coin(coin: MmCoinEnum<T>) -> Option<Self>
     where
         Self: Sized,
     {

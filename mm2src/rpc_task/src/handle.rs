@@ -7,7 +7,7 @@ use mm2_err_handle::prelude::*;
 use std::sync::MutexGuard;
 use std::time::Duration;
 
-type TaskManagerLock<'a, Task> = MutexGuard<'a, RpcTaskManager<Task, T>>;
+type TaskManagerLock<'a, Task, T> = MutexGuard<'a, RpcTaskManager<Task, T>>;
 
 pub struct RpcTaskHandle<Task: RpcTask<T>, T: ZRpcOps + Send> {
     pub(crate) task_manager: RpcTaskManagerWeak<Task, T>,
@@ -22,7 +22,7 @@ impl<Task: RpcTask<T>, T: ZRpcOps + Send> RpcTaskHandle<Task, T> {
 
     fn lock_and_then<F>(&self, f: F) -> RpcTaskResult<T>
     where
-        F: FnOnce(TaskManagerLock<Task>) -> RpcTaskResult<T>,
+        F: FnOnce(TaskManagerLock<Task, T>) -> RpcTaskResult<T>,
     {
         let arc = self
             .task_manager
@@ -34,7 +34,7 @@ impl<Task: RpcTask<T>, T: ZRpcOps + Send> RpcTaskHandle<Task, T> {
         f(lock)
     }
 
-    fn update_task_status(&self, status: TaskStatus<Task>) -> RpcTaskResult<()> {
+    fn update_task_status(&self, status: TaskStatus<Task, T>) -> RpcTaskResult<()> {
         self.lock_and_then(|mut task_manager| task_manager.update_task_status(self.task_id, status))
     }
 

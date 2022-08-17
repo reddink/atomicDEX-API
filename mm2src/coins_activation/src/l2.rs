@@ -16,8 +16,8 @@ pub trait L2ProtocolParams {
 }
 
 #[async_trait]
-pub trait L2ActivationOps: Into<MmCoinEnum> {
-    type PlatformCoin: TryPlatformCoinFromMmCoinEnum;
+pub trait L2ActivationOps<T: ZRpcOps + Send>: Into<MmCoinEnum<T>> {
+    type PlatformCoin: TryPlatformCoinFromMmCoinEnum<T>;
     type ActivationParams;
     type ProtocolInfo: L2ProtocolParams + TryFromCoinProtocol;
     type ValidatedParams;
@@ -95,12 +95,12 @@ pub struct EnableL2Request<T> {
     activation_params: T,
 }
 
-pub async fn enable_l2<L2>(
+pub async fn enable_l2<L2, T: ZRpcOps + Send>(
     ctx: MmArc,
     req: EnableL2Request<L2::ActivationParams>,
 ) -> Result<L2::ActivationResult, MmError<EnableL2Error>>
 where
-    L2: L2ActivationOps,
+    L2: L2ActivationOps<T>,
     EnableL2Error: From<L2::ActivationError>,
     (L2::ActivationError, EnableL2Error): NotEqual,
 {

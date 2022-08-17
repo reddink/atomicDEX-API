@@ -17,8 +17,8 @@ pub type WithdrawStatusRequest = RpcTaskStatusRequest;
 pub type WithdrawUserActionRequest = HwRpcTaskUserActionRequest;
 pub type WithdrawTaskManager<T> = RpcTaskManager<WithdrawTask<T>, T>;
 pub type WithdrawTaskManagerShared<T> = RpcTaskManagerShared<WithdrawTask<T>, T>;
-pub type WithdrawTaskHandle<T> = RpcTaskHandle<WithdrawTask<T>>;
-pub type WithdrawRpcStatus<T> = RpcTaskStatusAlias<WithdrawTask<T>>;
+pub type WithdrawTaskHandle<T> = RpcTaskHandle<WithdrawTask<T>, T>;
+pub type WithdrawRpcStatus<T> = RpcTaskStatusAlias<WithdrawTask<T>, T>;
 pub type WithdrawInitResult<T> = Result<T, MmError<WithdrawError>>;
 
 #[async_trait]

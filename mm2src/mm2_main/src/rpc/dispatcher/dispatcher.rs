@@ -120,7 +120,7 @@ async fn auth(request: &MmRpcRequest, ctx: &MmArc, client: &SocketAddr) -> Dispa
     }
 }
 
-async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Response<Vec<u8>>> {
+async fn dispatcher_v2<T: ZRpcOps + Send>(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Response<Vec<u8>>> {
     match request.method.as_str() {
         "account_balance" => handle_mmrpc(ctx, request, account_balance).await,
         "add_delegation" => handle_mmrpc(ctx, request, add_delegation).await,
@@ -142,18 +142,18 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         "init_create_new_account" => handle_mmrpc(ctx, request, init_create_new_account).await,
         "init_create_new_account_status" => handle_mmrpc(ctx, request, init_create_new_account_status).await,
         "init_create_new_account_user_action" => handle_mmrpc(ctx, request, init_create_new_account_user_action).await,
-        "init_qtum" => handle_mmrpc(ctx, request, init_standalone_coin::<QtumCoin>).await,
-        "init_qtum_status" => handle_mmrpc(ctx, request, init_standalone_coin_status::<QtumCoin>).await,
-        "init_qtum_user_action" => handle_mmrpc(ctx, request, init_standalone_coin_user_action::<QtumCoin>).await,
+        "init_qtum" => handle_mmrpc(ctx, request, init_standalone_coin::<QtumCoin, T>).await,
+        "init_qtum_status" => handle_mmrpc(ctx, request, init_standalone_coin_status::<QtumCoin, T>).await,
+        "init_qtum_user_action" => handle_mmrpc(ctx, request, init_standalone_coin_user_action::<QtumCoin, T>).await,
         "init_scan_for_new_addresses" => handle_mmrpc(ctx, request, init_scan_for_new_addresses).await,
         "init_scan_for_new_addresses_status" => handle_mmrpc(ctx, request, init_scan_for_new_addresses_status).await,
         "init_trezor" => handle_mmrpc(ctx, request, init_trezor).await,
         "init_trezor_status" => handle_mmrpc(ctx, request, init_trezor_status).await,
         "init_trezor_user_action" => handle_mmrpc(ctx, request, init_trezor_user_action).await,
-        "init_utxo" => handle_mmrpc(ctx, request, init_standalone_coin::<UtxoStandardCoin>).await,
-        "init_utxo_status" => handle_mmrpc(ctx, request, init_standalone_coin_status::<UtxoStandardCoin>).await,
+        "init_utxo" => handle_mmrpc(ctx, request, init_standalone_coin::<UtxoStandardCoin, T>).await,
+        "init_utxo_status" => handle_mmrpc(ctx, request, init_standalone_coin_status::<UtxoStandardCoin, T>).await,
         "init_utxo_user_action" => {
-            handle_mmrpc(ctx, request, init_standalone_coin_user_action::<UtxoStandardCoin>).await
+            handle_mmrpc(ctx, request, init_standalone_coin_user_action::<UtxoStandardCoin, T>).await
         },
         "init_withdraw" => handle_mmrpc(ctx, request, init_withdraw).await,
         "my_tx_history" => handle_mmrpc(ctx, request, my_tx_history_v2_rpc).await,
@@ -181,9 +181,11 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
             "get_channel_details" => handle_mmrpc(ctx, request, get_channel_details).await,
             "get_claimable_balances" => handle_mmrpc(ctx, request, get_claimable_balances).await,
             "get_payment_details" => handle_mmrpc(ctx, request, get_payment_details).await,
-            "init_z_coin" => handle_mmrpc(ctx, request, init_standalone_coin::<ZCoin>).await,
-            "init_z_coin_status" => handle_mmrpc(ctx, request, init_standalone_coin_status::<ZCoin>).await,
-            "init_z_coin_user_action" => handle_mmrpc(ctx, request, init_standalone_coin_user_action::<ZCoin>).await,
+            "init_z_coin" => handle_mmrpc(ctx, request, init_standalone_coin::<ZCoin<T>, T>).await,
+            "init_z_coin_status" => handle_mmrpc(ctx, request, init_standalone_coin_status::<ZCoin<T>, T>).await,
+            "init_z_coin_user_action" => {
+                handle_mmrpc(ctx, request, init_standalone_coin_user_action::<ZCoin<T>, T>).await
+            },
             "list_closed_channels_by_filter" => handle_mmrpc(ctx, request, list_closed_channels_by_filter).await,
             "list_open_channels_by_filter" => handle_mmrpc(ctx, request, list_open_channels_by_filter).await,
             "list_payments_by_filter" => handle_mmrpc(ctx, request, list_payments_by_filter).await,

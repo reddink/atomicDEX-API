@@ -10,8 +10,8 @@ use rpc::v1::types::H256 as H256Json;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-impl TryPlatformCoinFromMmCoinEnum for BchCoin {
-    fn try_from_mm_coin(coin: MmCoinEnum) -> Option<Self>
+impl<T: ZRpcOps + Send> TryPlatformCoinFromMmCoinEnum<T> for BchCoin {
+    fn try_from_mm_coin(coin: MmCoinEnum<T>) -> Option<Self>
     where
         Self: Sized,
     {

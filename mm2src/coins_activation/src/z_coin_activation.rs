@@ -158,9 +158,7 @@ impl TryFromCoinProtocol for ZcoinProtocolInfo {
 }
 
 impl<T: ZRpcOps + Send> Into<MmCoinEnum<T>> for ZCoin<T> {
-    fn into(self) -> MmCoinEnum<T> {
-        todo!()
-    }
+    fn into(self) -> MmCoinEnum<T> { todo!() }
 }
 
 #[async_trait]

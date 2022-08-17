@@ -17,8 +17,8 @@ pub trait TokenProtocolParams {
 }
 
 #[async_trait]
-pub trait TokenActivationOps: Into<MmCoinEnum> {
-    type PlatformCoin: TryPlatformCoinFromMmCoinEnum;
+pub trait TokenActivationOps<T: ZRpcOps + Send>: Into<MmCoinEnum<T>> {
+    type PlatformCoin: TryPlatformCoinFromMmCoinEnum<T>;
     type ActivationParams;
     type ProtocolInfo: TokenProtocolParams + TryFromCoinProtocol;
     type ActivationResult;
@@ -96,12 +96,12 @@ pub struct EnableTokenRequest<T> {
     activation_params: T,
 }
 
-pub async fn enable_token<Token>(
+pub async fn enable_token<Token, T: ZRpcOps + Send>(
     ctx: MmArc,
     req: EnableTokenRequest<Token::ActivationParams>,
 ) -> Result<Token::ActivationResult, MmError<EnableTokenError>>
 where
-    Token: TokenActivationOps,
+    Token: TokenActivationOps<T>,
     EnableTokenError: From<Token::ActivationError>,
     (Token::ActivationError, EnableTokenError): NotEqual,
 {

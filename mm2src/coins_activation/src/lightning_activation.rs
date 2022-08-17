@@ -17,8 +17,8 @@ use serde_json::{self as json, Value as Json};
 
 const DEFAULT_LISTENING_PORT: u16 = 9735;
 
-impl TryPlatformCoinFromMmCoinEnum for UtxoStandardCoin {
-    fn try_from_mm_coin(coin: MmCoinEnum) -> Option<Self>
+impl<T: ZRpcOps + Send> TryPlatformCoinFromMmCoinEnum<T> for UtxoStandardCoin {
+    fn try_from_mm_coin(coin: MmCoinEnum<T>) -> Option<Self>
     where
         Self: Sized,
     {
@@ -122,8 +122,12 @@ impl From<LightningValidationErr> for LightningInitError {
     fn from(err: LightningValidationErr) -> Self { LightningInitError::LightningValidationErr(err) }
 }
 
+impl<T: ZRpcOps + Send> Into<MmCoinEnum<T>> for LightningCoin {
+    fn into(self) -> MmCoinEnum<T> { todo!() }
+}
+
 #[async_trait]
-impl L2ActivationOps for LightningCoin {
+impl<T: ZRpcOps + Send> L2ActivationOps<T> for LightningCoin {
     type PlatformCoin = UtxoStandardCoin;
     type ActivationParams = LightningActivationParams;
     type ProtocolInfo = LightningProtocolConf;
