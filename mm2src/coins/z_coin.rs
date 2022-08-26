@@ -794,7 +794,7 @@ impl<'a> UtxoCoinWithIguanaPrivKeyBuilder for ZCoinBuilder<'a> {
                 )?;
 
                 init_light_client(
-                    uri,
+                    light_wallet_d_servers,
                     cache_db_path,
                     wallet_db_path,
                     self.protocol_info.consensus_params.clone(),
