@@ -4,15 +4,14 @@ use crate::utxo::rpc_clients::{JsonRpcPendingRequests, JsonRpcPendingRequestsSha
 use async_trait::async_trait;
 use common::executor::{spawn, Timer};
 use common::log::{debug, error, info, warn, LogOnError};
-use common::{async_blocking, now_float, now_ms, small_rng, spawn_abortable, AbortOnDropHandle, Future01CompatExt,
-             OrdRange};
+use common::{async_blocking, now_float, now_ms, small_rng, spawn_abortable, AbortOnDropHandle, Future01CompatExt};
 use db_common::sqlite::rusqlite::{params, Connection, Error as SqliteError, NO_PARAMS};
 use db_common::sqlite::{query_single_row, run_optimization_pragmas};
 use futures::channel::mpsc::{channel, Receiver as AsyncReceiver, Sender as AsyncSender};
 use futures::channel::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
 use futures::future::{select as select_func, FutureExt};
 use futures::lock::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
-use futures::{select, StreamExt};
+use futures::StreamExt;
 use futures01::sync::{mpsc, oneshot};
 use group::GroupEncoding;
 use http::Uri;
@@ -31,7 +30,7 @@ use tonic::transport::{Channel, ClientTlsConfig};
 use zcash_client_backend::data_api::chain::{scan_cached_blocks, validate_chain};
 use zcash_client_backend::data_api::error::Error as ChainError;
 use zcash_client_backend::data_api::{BlockSource, WalletRead, WalletWrite};
-use zcash_client_backend::proto::compact_formats::{CompactBlock, CompactTx};
+use zcash_client_backend::proto::compact_formats::CompactBlock;
 use zcash_client_sqlite::error::SqliteClientError as ZcashClientError;
 use zcash_client_sqlite::wallet::init::{init_accounts_table, init_blocks_table, init_wallet_db};
 use zcash_client_sqlite::WalletDb;
@@ -39,7 +38,6 @@ use zcash_primitives::block::BlockHash;
 use zcash_primitives::consensus::BlockHeight;
 use zcash_primitives::transaction::TxId;
 use zcash_primitives::zip32::ExtendedFullViewingKey;
-use futures01::{Future, Sink, Stream};
 
 mod z_coin_grpc {
     tonic::include_proto!("cash.z.wallet.sdk.rpc");
@@ -50,10 +48,6 @@ use z_coin_grpc::compact_tx_streamer_client::CompactTxStreamerClient;
 use z_coin_grpc::{BlockId, BlockRange, ChainSpec, CompactBlock as TonicCompactBlock,
                   CompactOutput as TonicCompactOutput, CompactSpend as TonicCompactSpend, CompactTx as TonicCompactTx,
                   TxFilter};
-
-cfg_native! {
-    use futures::io::Error;
-}
 
 pub type WalletDbShared = Arc<Mutex<WalletDb<ZcoinConsensusParams>>>;
 
@@ -238,6 +232,13 @@ impl ZRpcOps for NativeClient {
     }
 }
 
+#[allow(dead_code)]
+fn increase_delay(delay: &AtomicU64) {
+    if delay.load(AtomicOrdering::Relaxed) < 60 {
+        delay.fetch_add(5, AtomicOrdering::Relaxed);
+    }
+}
+
 macro_rules! try_loop {
     ($e:expr, $addr: ident, $delay: ident) => {
         match $e {
@@ -251,12 +252,12 @@ macro_rules! try_loop {
     };
 }
 
-#[derive(Debug)]
-struct LightwalletdConnection {
+#[allow(dead_code)]
+struct LightwalletdConnection<C> {
     /// The lightwalletd connected to this Addr
     addr: String,
     /// The Sender forwarding requests to writing part of underlying stream
-    tx: Arc<AsyncMutex<Option<mpsc::Sender<CompactTxStreamerClient>>>>,
+    rpc_client: Arc<AsyncMutex<Option<mpsc::Sender<CompactTxStreamerClient<C>>>>>,
     /// The Sender used to shutdown the background connection loop when LightwalletdConnection is dropped
     shutdown_tx: Option<oneshot::Sender<()>>,
     /// Responses are stored here
@@ -265,11 +266,12 @@ struct LightwalletdConnection {
     protocol_version: AsyncMutex<Option<f32>>,
 }
 
-impl LightwalletdConnection {
-    async fn is_connected(&self) -> bool { self.tx.lock().await.is_some() }
+#[allow(dead_code)]
+impl LightwalletdConnection<Channel> {
+    async fn is_connected(&self) -> bool { self.rpc_client.lock().await.is_some() }
 }
 
-impl Drop for LightwalletdConnection {
+impl<C> Drop for LightwalletdConnection<C> {
     fn drop(&mut self) {
         if let Some(shutdown_tx) = self.shutdown_tx.take() {
             if shutdown_tx.send(()).is_err() {
@@ -279,7 +281,7 @@ impl Drop for LightwalletdConnection {
     }
 }
 
-#[derive(Debug)]
+#[allow(dead_code)]
 pub struct LightwalletdBuilderArgs {
     pub spawn_ping: bool,
     pub negotiate_version: bool,
@@ -294,12 +296,14 @@ impl Default for LightwalletdBuilderArgs {
     }
 }
 
+#[allow(dead_code)]
 struct LightwalletdImpl {
-    connections: AsyncMutex<Vec<LightwalletdConnection>>,
+    connections: AsyncMutex<Vec<LightwalletdConnection<Channel>>>,
     next_id: AtomicU64,
     event_handlers: Vec<RpcTransportEventHandlerShared>,
 }
 
+#[allow(dead_code)]
 impl LightwalletdImpl {
     fn new() -> LightwalletdImpl {
         LightwalletdImpl {
@@ -350,10 +354,11 @@ impl LightwalletdImpl {
 
 /// Attempts to process the request (parse url, etc), build up the config and create new lightwalletd connection
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
 fn spawn_connect(
     url: &String,
     event_handlers: Vec<RpcTransportEventHandlerShared>,
-) -> Result<CompactTxStreamerClient, MmError<ZcoinClientInitError>> {
+) -> Result<LightwalletdConnection<Channel>, String> {
     let uri: Uri = try_s!(url.parse());
     uri.host().ok_or(ERRL!("Couldn't retrieve host from addr {}", url))?;
 
@@ -362,43 +367,35 @@ fn spawn_connect(
 
 /// Builds up the lightwalletd connection, spawns endless loop that attempts to reconnect to the server
 /// in case of connection errors
+#[allow(dead_code)]
 fn lightwalletd_connect(
     addr: String,
     event_handlers: Vec<RpcTransportEventHandlerShared>,
-) -> Result<CompactTxStreamerClient, MmError<ZcoinClientInitError>> {
+) -> LightwalletdConnection<Channel> {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     // todo probably doesnt work with proto format
     let responses = Arc::new(AsyncMutex::new(JsonRpcPendingRequests::default()));
-    let tx = Arc::new(AsyncMutex::new(None));
+    let rpc_client = Arc::new(AsyncMutex::new(None));
 
-    let connect_loop = connect_loop(addr.clone(), responses.clone(), tx.clone(), event_handlers);
+    let connect_loop = connect_loop(addr.clone(), responses.clone(), rpc_client.clone(), event_handlers);
 
     let connect_loop = select_func(connect_loop.boxed(), shutdown_rx.compat());
     spawn(connect_loop.map(|_| ()));
-    // todo maybe replace with tonic client or add tonic client as arg
     LightwalletdConnection {
         addr,
-        tx,
+        rpc_client,
         shutdown_tx: Some(shutdown_tx),
         responses,
         protocol_version: AsyncMutex::new(None),
-    };
-
-    let uri = Uri::from_str(addr.as_str())?;
-    let tonic_channel = Channel::builder(uri)
-        .tls_config(ClientTlsConfig::new())
-        .map_to_mm(ZcoinClientInitError::TlsConfigFailure)?
-        .connect()
-        .await
-        .map_to_mm(ZcoinClientInitError::ConnectionFailure)?;
-    CompactTxStreamerClient::new(tonic_channel)
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn connect_loop(
+#[allow(dead_code)]
+async fn connect_loop<T>(
     addr: String,
-    responses: JsonRpcPendingRequestsShared,
-    connection_tx: Arc<AsyncMutex<Option<mpsc::Sender<Vec<u8>>>>>,
+    _responses: JsonRpcPendingRequestsShared,
+    connection_rpc_client: Arc<AsyncMutex<Option<mpsc::Sender<CompactTxStreamerClient<T>>>>>,
     event_handlers: Vec<RpcTransportEventHandlerShared>,
 ) -> Result<(), ()> {
     let delay = Arc::new(AtomicU64::new(0));
@@ -413,27 +410,22 @@ async fn connect_loop(
         let tonic_channel = try_loop!(
             Channel::builder(uri)
                 .tls_config(ClientTlsConfig::new())
-                .map_to_mm(ZcoinClientInitError::TlsConfigFailure)?
+                .unwrap()
                 .connect()
                 .await,
             addr,
             delay
         );
-        let client = CompactTxStreamerClient::new(tonic_channel);
+        let _client = CompactTxStreamerClient::new(tonic_channel);
         info!("Light client connected to {}", addr);
         try_loop!(event_handlers.on_connected(addr.clone()), addr, delay);
         let last_chunk = Arc::new(AtomicU64::new(now_ms()));
-        let mut last_chunk_f = light_last_chunk_loop(last_chunk.clone()).boxed().fuse();
+        let _last_chunk_f = light_last_chunk_loop(last_chunk.clone()).boxed().fuse();
 
-        let (tx, rx) = mpsc::channel(0);
-        // TODO where sender sends info & change event_handler
-        *connection_tx.lock().await = Some(tx);
-        let rx = rx_to_stream(rx).inspect(|data| {
-            // measure the length of each sent packet
-            event_handlers.on_outgoing_request(data);
-        });
-
-        let (read, mut write) = tokio::io::split(client);
+        let (tx, _rx) = mpsc::channel(0);
+        // TODO change event_handlers
+        *connection_rpc_client.lock().await = Some(tx);
+        unimplemented!()
     }
 }
 
@@ -563,8 +555,8 @@ async fn create_wallet_db(
 }
 
 pub(super) async fn init_light_client(
-    args: LightwalletdBuilderArgs,
-    mut lightwalletd_urls: &Vec<String>,
+    mut lightwalletd_urls: Vec<String>,
+    lightwalletd_url: Uri,
     cache_db_path: PathBuf,
     wallet_db_path: PathBuf,
     consensus_params: ZcoinConsensusParams,
@@ -594,19 +586,20 @@ pub(super) async fn init_light_client(
     let mut rng = small_rng();
     lightwalletd_urls.as_mut_slice().shuffle(&mut rng);
 
-    let lightwalletd_impl = LightwalletdImpl::new();
+    let _lightwalletd_impl = LightwalletdImpl::new();
 
     // Create lightwalletd connection and spawn
-    for lightwalletd_server in lightwalletd_urls.iter() {
-        match lightwalletd_impl.add_server(lightwalletd_server).await {
-            Ok(_) => (),
-            Err(e) => error!(
-                "Error {:?} connecting to {:?}. Address won't be used",
-                e, lightwalletd_server
-            ),
-        }
+    for _lightwalletd_server in lightwalletd_urls.iter() {
+        // match lightwalletd_impl.add_server(lightwalletd_server).await {
+        //     Ok(_) => (),
+        //     Err(e) => error!(
+        //         "Error {:?} connecting to {:?}. Address won't be used",
+        //         e, lightwalletd_server
+        //     ),
+        // }
+        unimplemented!()
     }
-    let mut attempts = 0i32;
+    let _attempts = 0i32;
     // todo while lightwalletd !is_connected()
 
     let tonic_channel = Channel::builder(lightwalletd_url)
@@ -616,7 +609,7 @@ pub(super) async fn init_light_client(
         .await
         .map_to_mm(ZcoinClientInitError::ConnectionFailure)?;
     let rpc_copy = CompactTxStreamerClient::new(tonic_channel);
-    // todo maybe add argument lightwalletd in light_wallet_db_sync_loop
+    // todo extract rpc_client from connections in lightwalletd_impl for light_wallet_db_sync_loop
     let abort_handle = spawn_abortable(light_wallet_db_sync_loop(sync_handle, Box::new(rpc_copy)));
 
     Ok((
@@ -959,6 +952,7 @@ pub(super) struct SaplingSyncGuard<'a> {
 
 const LIGHT_TIMEOUT: u64 = 60;
 
+#[allow(dead_code)]
 async fn light_last_chunk_loop(last_chunk: Arc<AtomicU64>) {
     loop {
         Timer::sleep(LIGHT_TIMEOUT as f64).await;
@@ -971,9 +965,4 @@ async fn light_last_chunk_loop(last_chunk: Arc<AtomicU64>) {
             break;
         }
     }
-}
-
-/// Helper function casting mpsc::Receiver as Stream.
-fn rx_to_stream(rx: mpsc::Receiver<Vec<u8>>) -> impl Stream<Item = Vec<u8>, Error = Error> {
-    rx.map_err(|_| panic!("errors not possible on rx"))
 }

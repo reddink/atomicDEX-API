@@ -73,7 +73,6 @@ pub use z_rpc::SyncStatus;
 use z_rpc::{init_light_client, init_native_client, SaplingSyncConnector, SaplingSyncGuard, WalletDbShared};
 
 mod z_coin_errors;
-use crate::z_coin::z_rpc::LightwalletdBuilderArgs;
 pub use z_coin_errors::*;
 
 #[cfg(all(test, feature = "zhtlc-native-tests"))]
@@ -795,8 +794,8 @@ impl<'a> UtxoCoinWithIguanaPrivKeyBuilder for ZCoinBuilder<'a> {
                 )?;
 
                 init_light_client(
-                    LightwalletdBuilderArgs::default(),
-                    light_wallet_d_servers,
+                    light_wallet_d_servers.clone(),
+                    uri,
                     cache_db_path,
                     wallet_db_path,
                     self.protocol_info.consensus_params.clone(),
