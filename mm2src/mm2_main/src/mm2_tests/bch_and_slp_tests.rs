@@ -417,6 +417,7 @@ async fn wait_till_history_has_records(
     }
 }
 
+//
 async fn test_bch_and_slp_testnet_history_impl() {
     const PASSPHRASE: &str = "BCH SLP test";
     const TIMEOUT_S: u64 = 45;
