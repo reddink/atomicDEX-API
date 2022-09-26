@@ -35,7 +35,6 @@ schedules:
 stages:
   - stage: WASM
     displayName: WASM build and test
-    condition: succeeded('Lint')
     jobs:
       - template: azure-pipelines-wasm-stage-job.yml  # Template reference
         parameters:
