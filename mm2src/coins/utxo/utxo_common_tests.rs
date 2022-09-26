@@ -153,6 +153,7 @@ where
     Coin: CoinWithTxHistoryV2 + MmCoin,
 {
     let started_at = now_ms() / 1000;
+    common::log::info!("wait_for_tx_history_finished] Started at {started_at}");
     let wait_until = started_at + timeout_s;
 
     let req = MyTxHistoryRequestV2 {
@@ -167,6 +168,11 @@ where
 
         let response = my_tx_history_v2_impl(ctx.clone(), coin, req.clone()).await.unwrap();
         if response.transactions.len() >= expected_txs {
+            let finished_at = now_ms() / 1000;
+            common::log::info!(
+                "wait_for_tx_history_finished] Finished, it took {}s",
+                finished_at - started_at
+            );
             return response;
         }
     }

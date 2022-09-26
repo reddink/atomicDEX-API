@@ -391,11 +391,17 @@ async fn wait_till_history_has_records(
     timeout_s: u64,
 ) -> StandardHistoryV2Res {
     let started_at = now_ms() / 1000;
+    common::log::info!("wait_till_history_has_records] Started at {started_at}");
     let wait_until = started_at + timeout_s;
     loop {
         let history_json = my_tx_history_v2(mm, for_coin, expected_len, paging.clone()).await;
         let history: RpcV2Response<StandardHistoryV2Res> = json::from_value(history_json).unwrap();
         if history.result.transactions.len() >= expected_len {
+            let finished_at = now_ms() / 1000;
+            common::log::info!(
+                "wait_till_history_has_records] Finished. It took {}s",
+                finished_at - started_at
+            );
             break history.result;
         }
 
