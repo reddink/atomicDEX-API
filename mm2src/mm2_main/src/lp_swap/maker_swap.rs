@@ -1785,7 +1785,7 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
             &[&"swap", &("uuid", uuid_str.as_str())]
         };
     }
-    //
+    // xyz
     let running_swap = Arc::new(swap);
     let weak_ref = Arc::downgrade(&running_swap);
     let swap_ctx = SwapsContext::from_ctx(&ctx).unwrap();
