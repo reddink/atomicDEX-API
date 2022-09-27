@@ -1822,6 +1822,7 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
                             event.clone().into(),
                         )
                     }
+                    info!("--- [swap uuid={}] {:?}", uuid_str, event);
                     status.status(swap_tags!(), &event.status_str());
                     running_swap.apply_event(event);
                 }
