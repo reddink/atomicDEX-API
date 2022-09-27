@@ -1845,7 +1845,7 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
         .fuse(),
     );
     let mut shutdown_fut = Box::pin(shutdown_rx.recv().fuse());
-    let do_nothing = (); // to fix https://rust-lang.github.io/rust-clippy/master/index.html#unused_unit
+    let do_nothing = (); // t fix https://rust-lang.github.io/rust-clippy/master/index.html#unused_unit
     select! {
         _swap = swap_fut => do_nothing, // swap finished - normally
         _shutdown = shutdown_fut => info!("swap {} stopped!", swap_for_log.uuid),
