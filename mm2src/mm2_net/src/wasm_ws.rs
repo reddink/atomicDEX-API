@@ -269,7 +269,7 @@ fn outgoing_channel(capacity: usize) -> (WsOutgoingSender, WsOutgoingReceiver, i
         shutdown_tx,
     };
 
-    // convert the `mpsc::Receiver<()>` into `impl Future<Output=()> `
+    // convert the `mpsc::Receiver<()>` into  `impl Future<Output=()> `
     let shutdown_rx = shutdown_rx.collect::<Vec<_>>().map(|_| ());
     (outgoing_tx, outgoing_rx, shutdown_rx)
 }
