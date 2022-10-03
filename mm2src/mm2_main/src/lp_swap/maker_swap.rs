@@ -1814,7 +1814,7 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
                     drop(dispatcher);
                     save_my_maker_swap_event(&ctx, &running_swap, to_save)
                         .await
-                        .expect("!save_my_maker_swap_event");
+                        .expect("! save_my_maker_swap_event");
                     if event.should_ban_taker() {
                         ban_pubkey_on_failed_swap(
                             &ctx,
