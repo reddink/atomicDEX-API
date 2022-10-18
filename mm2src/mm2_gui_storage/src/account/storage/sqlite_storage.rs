@@ -209,15 +209,18 @@ impl SqliteAccountStorage {
         create_sql.create().map_to_mm(AccountStorageError::from)
     }
 
-    /// Loads `AccountId` of an enabled account or returns an error if there is no enabled account yet.
-    fn load_enabled_account_id_or_err(conn: &Connection) -> AccountStorageResult<EnabledAccountId> {
+    /// Loads `AccountId` of an enabled account.
+    fn load_enabled_account_id(conn: &Connection) -> AccountStorageResult<Option<EnabledAccountId>> {
         let mut query = SqlQuery::select_from(conn, enabled_account_table::TABLE_NAME)?;
         query
             .field(enabled_account_table::ACCOUNT_TYPE)?
             .field(enabled_account_table::ACCOUNT_IDX)?;
-        query
-            .query_single_row(enabled_account_id_from_row)?
-            .or_mm_err(|| AccountStorageError::NoEnabledAccount)
+        Ok(query.query_single_row(enabled_account_id_from_row)?)
+    }
+
+    /// Loads `AccountId` of an enabled account or returns an error if there is no enabled account yet.
+    fn load_enabled_account_id_or_err(conn: &Connection) -> AccountStorageResult<EnabledAccountId> {
+        Self::load_enabled_account_id(conn)?.or_mm_err(|| AccountStorageError::NoEnabledAccount)
     }
 
     /// Loads the given `accoint_id` activated coins.
@@ -405,31 +408,31 @@ impl AccountStorage for SqliteAccountStorage {
         &self,
     ) -> AccountStorageResult<BTreeMap<AccountId, AccountWithEnabledFlag>> {
         let conn = self.lock_conn_mutex()?;
-        let enabled_account_id = AccountId::from(Self::load_enabled_account_id_or_err(&conn)?);
+        let enabled_account_id = Self::load_enabled_account_id(&conn)?.map(AccountId::from);
 
         let mut found_enabled = false;
         let accounts = Self::load_accounts(&conn)?
             .into_iter()
             .map(|(account_id, account_info)| {
-                let enabled = account_id == enabled_account_id;
+                let enabled = Some(&account_id) == enabled_account_id.as_ref();
                 found_enabled |= enabled;
                 Ok((account_id, AccountWithEnabledFlag { account_info, enabled }))
             })
             .collect::<AccountStorageResult<BTreeMap<_, _>>>()?;
 
-        // If `AccountStorage::load_enabled_account_id_or_err` returns an `AccountId`,
-        // then corresponding account must be in `AccountTable`.
-        if !found_enabled {
-            return MmError::err(AccountStorageError::unknown_account_in_enabled_table(
-                enabled_account_id,
-            ));
+        match enabled_account_id {
+            // If `AccountStorage::load_enabled_account_id` returns an `AccountId`,
+            // then corresponding account must be in `AccountTable`.
+            Some(enabled_account_id) if !found_enabled => MmError::err(
+                AccountStorageError::unknown_account_in_enabled_table(enabled_account_id),
+            ),
+            _ => Ok(accounts),
         }
-        Ok(accounts)
     }
 
-    async fn load_enabled_account_id(&self) -> AccountStorageResult<EnabledAccountId> {
+    async fn load_enabled_account_id(&self) -> AccountStorageResult<Option<EnabledAccountId>> {
         let conn = self.lock_conn_mutex()?;
-        Self::load_enabled_account_id_or_err(&conn)
+        Self::load_enabled_account_id(&conn)
     }
 
     async fn load_enabled_account_with_coins(&self) -> AccountStorageResult<AccountWithCoins> {

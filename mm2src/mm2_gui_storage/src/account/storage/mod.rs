@@ -156,8 +156,8 @@ pub(crate) trait AccountStorage: Send + Sync {
         &self,
     ) -> AccountStorageResult<BTreeMap<AccountId, AccountWithEnabledFlag>>;
 
-    /// Loads an enabled account ID, or returns an error if there is no enabled account yet.
-    async fn load_enabled_account_id(&self) -> AccountStorageResult<EnabledAccountId>;
+    /// Loads an enabled account ID.
+    async fn load_enabled_account_id(&self) -> AccountStorageResult<Option<EnabledAccountId>>;
 
     /// Loads an enabled account with activated coins, or returns an error if there is no enabled account yet.
     async fn load_enabled_account_with_coins(&self) -> AccountStorageResult<AccountWithCoins>;

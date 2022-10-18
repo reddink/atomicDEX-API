@@ -213,33 +213,33 @@ impl AccountStorage for WasmAccountStorage {
         let locked_db = self.lock_db_mutex().await?;
         let transaction = locked_db.inner.transaction().await?;
 
-        let enabled_account_id = AccountId::from(Self::load_enabled_account_id_or_err(&transaction).await?);
+        let enabled_account_id = Self::load_enabled_account_id(&transaction).await?.map(AccountId::from);
 
         let mut found_enabled = false;
         let accounts = Self::load_accounts(&transaction)
             .await?
             .into_iter()
             .map(|(account_id, account_info)| {
-                let enabled = account_id == enabled_account_id;
+                let enabled = Some(&account_id) == enabled_account_id.as_ref();
                 found_enabled |= enabled;
                 Ok((account_id, AccountWithEnabledFlag { account_info, enabled }))
             })
             .collect::<AccountStorageResult<BTreeMap<_, _>>>()?;
 
-        // If `AccountStorage::load_enabled_account_id` returns an `AccountId`,
-        // then corresponding account must be in `AccountTable`.
-        if !found_enabled {
-            return MmError::err(AccountStorageError::unknown_account_in_enabled_table(
-                enabled_account_id,
-            ));
+        match enabled_account_id {
+            // If `AccountStorage::load_enabled_account_id` returns an `AccountId`,
+            // then corresponding account must be in `AccountTable`.
+            Some(enabled_account_id) if !found_enabled => MmError::err(
+                AccountStorageError::unknown_account_in_enabled_table(enabled_account_id),
+            ),
+            _ => Ok(accounts),
         }
-        Ok(accounts)
     }
 
-    async fn load_enabled_account_id(&self) -> AccountStorageResult<EnabledAccountId> {
+    async fn load_enabled_account_id(&self) -> AccountStorageResult<Option<EnabledAccountId>> {
         let locked_db = self.lock_db_mutex().await?;
         let transaction = locked_db.inner.transaction().await?;
-        Self::load_enabled_account_id_or_err(&transaction).await
+        Self::load_enabled_account_id(&transaction).await
     }
 
     async fn load_enabled_account_with_coins(&self) -> AccountStorageResult<AccountWithCoins> {

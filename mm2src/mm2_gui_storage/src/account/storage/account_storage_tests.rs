@@ -48,14 +48,14 @@ fn accounts_to_map(accounts: Vec<AccountInfo>) -> BTreeMap<AccountId, AccountInf
 
 fn tag_with_enabled_flag(
     accounts: BTreeMap<AccountId, AccountInfo>,
-    enabled: AccountId,
+    enabled: Option<AccountId>,
 ) -> BTreeMap<AccountId, AccountWithEnabledFlag> {
     accounts
         .into_iter()
         .map(|(account_id, account_info)| {
             (account_id.clone(), AccountWithEnabledFlag {
                 account_info,
-                enabled: account_id == enabled,
+                enabled: Some(&account_id) == enabled.as_ref(),
             })
         })
         .collect()
@@ -127,7 +127,7 @@ async fn test_enable_account_impl() {
         other => panic!("Expected 'NoSuchAccount(HD)', found {:?}", other),
     }
     let actual_enabled = storage.load_enabled_account_id().await.unwrap();
-    assert_eq!(actual_enabled, EnabledAccountId::Iguana);
+    assert_eq!(actual_enabled, Some(EnabledAccountId::Iguana));
 
     // Upload new accounts.
     let account_hd_1 = accounts.get(&HD_0_ACCOUNT).unwrap().clone();
@@ -138,7 +138,7 @@ async fn test_enable_account_impl() {
 
     // Check if Iguana account is still enabled.
     let actual_enabled = storage.load_enabled_account_id().await.unwrap();
-    assert_eq!(actual_enabled, EnabledAccountId::Iguana);
+    assert_eq!(actual_enabled, Some(EnabledAccountId::Iguana));
 
     // Enable HD-1 account
     storage
@@ -146,7 +146,7 @@ async fn test_enable_account_impl() {
         .await
         .unwrap();
     let actual_enabled = storage.load_enabled_account_id().await.unwrap();
-    assert_eq!(actual_enabled, EnabledAccountId::HD { account_idx: 1 });
+    assert_eq!(actual_enabled, Some(EnabledAccountId::HD { account_idx: 1 }));
 }
 
 async fn test_set_name_desc_balance_impl() {
@@ -365,20 +365,16 @@ async fn test_load_accounts_with_enabled_flag_impl() {
 
     fill_storage(storage.as_ref(), accounts.clone()).await.unwrap();
 
-    let error = storage.load_accounts_with_enabled_flag().await.expect_err(
-        "'AccountStorage::load_accounts_with_enabled_flag' should have failed since no account was enabled",
-    );
-    match error.into_inner() {
-        AccountStorageError::NoEnabledAccount => (),
-        other => panic!("Expected 'NoEnabledAccount' error, found: {}", other),
-    }
+    let actual = storage.load_accounts_with_enabled_flag().await.unwrap();
+    let expected = tag_with_enabled_flag(accounts_map.clone(), None);
+    assert_eq!(actual, expected);
 
     storage
         .enable_account(EnabledAccountId::HD { account_idx: 0 })
         .await
         .unwrap();
     let actual = storage.load_accounts_with_enabled_flag().await.unwrap();
-    let expected = tag_with_enabled_flag(accounts_map.clone(), HD_0_ACCOUNT);
+    let expected = tag_with_enabled_flag(accounts_map.clone(), Some(HD_0_ACCOUNT));
     assert_eq!(actual, expected);
 
     storage
@@ -386,7 +382,7 @@ async fn test_load_accounts_with_enabled_flag_impl() {
         .await
         .unwrap();
     let actual = storage.load_accounts_with_enabled_flag().await.unwrap();
-    let expected = tag_with_enabled_flag(accounts_map.clone(), HD_1_ACCOUNT);
+    let expected = tag_with_enabled_flag(accounts_map.clone(), Some(HD_1_ACCOUNT));
     assert_eq!(actual, expected);
 
     // Try to re-enable the same `HD{1}` account.
@@ -395,12 +391,12 @@ async fn test_load_accounts_with_enabled_flag_impl() {
         .await
         .unwrap();
     let actual = storage.load_accounts_with_enabled_flag().await.unwrap();
-    let expected = tag_with_enabled_flag(accounts_map.clone(), HD_1_ACCOUNT);
+    let expected = tag_with_enabled_flag(accounts_map.clone(), Some(HD_1_ACCOUNT));
     assert_eq!(actual, expected);
 
     storage.enable_account(EnabledAccountId::Iguana).await.unwrap();
     let actual = storage.load_accounts_with_enabled_flag().await.unwrap();
-    let expected = tag_with_enabled_flag(accounts_map.clone(), AccountId::Iguana);
+    let expected = tag_with_enabled_flag(accounts_map.clone(), Some(AccountId::Iguana));
     assert_eq!(actual, expected);
 }
 
