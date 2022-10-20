@@ -100,17 +100,7 @@ where
 
         let result_coin = (self.constructor)(utxo_arc.clone());
         if let Some(sync_status_loop_handle) = sync_status_loop_handle {
-            let current_block_height = result_coin
-                .current_block()
-                .compat()
-                .await
-                .map_to_mm(UtxoCoinBuildError::GetCurrentBlockHeightError)?;
-            self.spawn_block_header_utxo_loop(
-                &utxo_arc,
-                self.constructor.clone(),
-                sync_status_loop_handle,
-                current_block_height,
-            );
+            self.spawn_block_header_utxo_loop(&utxo_arc, self.constructor.clone(), sync_status_loop_handle);
         }
 
         Ok(result_coin)
@@ -224,7 +214,6 @@ async fn block_header_utxo_loop<T: UtxoCommonOps>(
     weak: UtxoWeak,
     constructor: impl Fn(UtxoArc) -> T,
     mut sync_status_loop_handle: UtxoSyncStatusLoopHandle,
-    mut last_block_height: u64,
 ) {
     let mut chunk_size = ELECTRUM_MAX_CHUNK_SIZE;
     while let Some(arc) = weak.upgrade() {
@@ -245,25 +234,31 @@ async fn block_header_utxo_loop<T: UtxoCommonOps>(
             },
         };
 
+        let total_block_height = match coin.as_ref().rpc_client.get_block_count().compat().await {
+            Ok(h) => h,
+            Err(e) => {
+                error!("Error {} on getting the height of the latest block from rpc!", e);
+                sync_status_loop_handle.notify_on_temp_error(e.to_string());
+                Timer::sleep(10.0).await;
+                continue;
+            },
+        };
+
+        let to_block_height = from_block_height + chunk_size;
+        let to_block_height = if to_block_height > total_block_height {
+            to_block_height - (to_block_height - total_block_height)
+        } else {
+            to_block_height
+        };
+
         // Todo: Add code for the case if a chain reorganization happens
-        if from_block_height == last_block_height {
-            sync_status_loop_handle.notify_sync_finished(last_block_height);
-            last_block_height = match coin.as_ref().rpc_client.get_block_count().compat().await {
-                Ok(h) => h,
-                Err(e) => {
-                    error!("Error {} on getting the height of the latest block from rpc!", e);
-                    sync_status_loop_handle.notify_on_temp_error(e.to_string());
-                    Timer::sleep(10.0).await;
-                    continue;
-                },
-            };
+        if from_block_height == total_block_height {
+            sync_status_loop_handle.notify_sync_finished(to_block_height);
             Timer::sleep(BLOCK_HEADERS_LOOP_INTERVAL).await;
             continue;
         }
 
-        let to_block_height = from_block_height + chunk_size;
         sync_status_loop_handle.notify_blocks_headers_sync_status(from_block_height + 1, to_block_height);
-
         let mut fetch_blocker_headers_attempts = FETCH_BLOCK_HEADERS_ATTEMPTS;
         let (block_registry, block_headers) = match client
             .retrieve_headers(from_block_height + 1, to_block_height)
@@ -272,6 +267,7 @@ async fn block_header_utxo_loop<T: UtxoCommonOps>(
         {
             Ok(res) => res,
             Err(error) => {
+                println!("ERRRRRROR :{error:?}");
                 if error.get_inner().is_network_error() {
                     log!("Network Error: Will try fetching block headers again after 10 secs");
                     sync_status_loop_handle.notify_on_temp_error(error.to_string());
@@ -328,7 +324,6 @@ pub trait BlockHeaderUtxoArcOps<T>: UtxoCoinBuilderCommonOps {
         utxo_arc: &UtxoArc,
         constructor: F,
         sync_status_loop_handle: UtxoSyncStatusLoopHandle,
-        current_block_height: u64,
     ) where
         F: Fn(UtxoArc) -> T + Send + Sync + 'static,
         T: UtxoCommonOps,
@@ -337,7 +332,7 @@ pub trait BlockHeaderUtxoArcOps<T>: UtxoCoinBuilderCommonOps {
         info!("Starting UTXO block header loop for coin {ticker}");
 
         let utxo_weak = utxo_arc.downgrade();
-        let fut = block_header_utxo_loop(utxo_weak, constructor, sync_status_loop_handle, current_block_height);
+        let fut = block_header_utxo_loop(utxo_weak, constructor, sync_status_loop_handle);
 
         let settings = AbortSettings::info_on_abort(format!("spawn_block_header_utxo_loop stopped for {ticker}"));
         utxo_arc
