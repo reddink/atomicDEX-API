@@ -246,7 +246,7 @@ async fn block_header_utxo_loop<T: UtxoCommonOps>(
 
         let to_block_height = from_block_height + chunk_size;
         let to_block_height = if to_block_height > total_block_height {
-            to_block_height - (to_block_height - total_block_height)
+            total_block_height
         } else {
             to_block_height
         };
@@ -267,7 +267,6 @@ async fn block_header_utxo_loop<T: UtxoCommonOps>(
         {
             Ok(res) => res,
             Err(error) => {
-                println!("ERRRRRROR :{error:?}");
                 if error.get_inner().is_network_error() {
                     log!("Network Error: Will try fetching block headers again after 10 secs");
                     sync_status_loop_handle.notify_on_temp_error(error.to_string());
