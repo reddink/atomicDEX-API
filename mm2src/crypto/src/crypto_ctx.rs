@@ -1,8 +1,10 @@
+use crate::hd_ctx::HDAccountArc;
 use crate::hw_client::{HwDeviceInfo, HwProcessingError, HwPubkey, TrezorConnectProcessor};
 use crate::hw_ctx::{HardwareWalletArc, HardwareWalletCtx};
 use crate::hw_error::HwError;
-use crate::key_pair_ctx::IguanaArc;
+use crate::iguana_ctx::IguanaArc;
 use crate::privkey::{key_pair_from_seed, PrivKeyError};
+use crate::Bip32Error;
 use derive_more::Display;
 use keys::Public as PublicKey;
 use mm2_core::mm_ctx::MmArc;
@@ -22,6 +24,11 @@ pub enum CryptoInitError {
     NullStringPassphrase,
     #[display(fmt = "Invalid passphrase: '{}'", _0)]
     InvalidPassphrase(PrivKeyError),
+    #[display(fmt = "Invalid hd_account = {}: {}", hd_account, error)]
+    InvalidHdAccount {
+        hd_account: u32,
+        error: Bip32Error,
+    },
     Internal(String),
 }
 
@@ -53,7 +60,7 @@ impl<ProcessorError> From<HwProcessingError<ProcessorError>> for HwCtxInitError<
 impl<E> NotEqual for HwCtxInitError<E> {}
 
 pub struct CryptoCtx {
-    iguana_ctx: IguanaArc,
+    key_pair_ctx: KeyPairArc,
     /// Can be initialized on [`CryptoCtx::init_hw_ctx_with_trezor`].
     hw_ctx: RwLock<HardwareWalletCtxState>,
 }
@@ -73,9 +80,9 @@ impl CryptoCtx {
             .map_err(|_| MmError::new(CryptoInitError::Internal("Error casting the context field".to_owned())))
     }
 
-    pub fn iguana_ctx(&self) -> &IguanaArc { &self.iguana_ctx }
+    pub fn iguana_ctx(&self) -> &IguanaArc { todo!() }
 
-    pub fn secp256k1_pubkey(&self) -> PublicKey { self.iguana_ctx.secp256k1_pubkey() }
+    pub fn secp256k1_pubkey(&self) -> PublicKey { todo!() }
 
     pub fn secp256k1_pubkey_hex(&self) -> String { hex::encode(&*self.secp256k1_pubkey()) }
 
@@ -103,12 +110,13 @@ impl CryptoCtx {
 
         let rmd160 = secp256k1_key_pair.public().address_hash();
         let crypto_ctx = CryptoCtx {
-            iguana_ctx: IguanaArc::from(secp256k1_key_pair),
+            key_pair_ctx: KeyPairArc::Iguana(IguanaArc::from(secp256k1_key_pair)),
             hw_ctx: RwLock::new(HardwareWalletCtxState::NotInitialized),
         };
         *ctx_field = Some(Arc::new(crypto_ctx));
+        drop(ctx_field);
 
-        // TODO remove initializing legacy fields when lp_swap and lp_ordermatch support CryptoCtx.
+        // TODO remove initializing legacy fields when no-login mode covers all cases.
         ctx.secp256k1_key_pair
             .pin(secp256k1_key_pair_for_legacy)
             .map_to_mm(CryptoInitError::Internal)?;
@@ -116,6 +124,8 @@ impl CryptoCtx {
 
         Ok(())
     }
+
+    pub fn init_with_bip39_passphrase(_ctx: MmArc, _passphrase: &str) -> CryptoInitResult<()> { todo!() }
 
     pub async fn init_hw_ctx_with_trezor<Processor>(
         &self,
@@ -172,6 +182,11 @@ where
         });
     }
     Ok((hw_device_info, hw_ctx))
+}
+
+enum KeyPairArc {
+    Iguana(IguanaArc),
+    Bip39(HDAccountArc),
 }
 
 enum HardwareWalletCtxState {

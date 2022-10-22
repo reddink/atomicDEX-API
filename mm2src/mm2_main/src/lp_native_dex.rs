@@ -118,6 +118,11 @@ pub enum MmInitError {
     FieldNotFoundInConfig {
         field: String,
     },
+    #[display(fmt = "The '{}' field has wrong value in the config: {}", field, error)]
+    FieldWrongValueInConfig {
+        field: String,
+        error: String,
+    },
     #[display(fmt = "P2P initializing error: '{}'", _0)]
     P2PError(P2PInitError),
     #[display(fmt = "Error creating DB director '{:?}': {}", path, error)]
@@ -199,6 +204,10 @@ impl From<CryptoInitError> for MmInitError {
             },
             CryptoInitError::NullStringPassphrase => MmInitError::NullStringPassphrase,
             CryptoInitError::InvalidPassphrase(pass) => MmInitError::InvalidPassphrase(pass.to_string()),
+            CryptoInitError::InvalidHdAccount { error, .. } => MmInitError::FieldWrongValueInConfig {
+                field: "hd_account".to_string(),
+                error: error.to_string(),
+            },
             CryptoInitError::Internal(internal) => MmInitError::Internal(internal),
         }
     }

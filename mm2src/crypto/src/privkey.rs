@@ -19,6 +19,7 @@
 //  marketmaker
 //
 
+use bip32::ExtendedPrivateKey;
 use bitcrypto::{sha256, ChecksumType};
 use derive_more::Display;
 use keys::{Error as KeysError, KeyPair, Private};
@@ -36,7 +37,7 @@ pub enum PrivKeyError {
     #[display(fmt = "Error parsing passphrase: {}", _0)]
     ErrorParsingPassphrase(String),
     #[display(fmt = "Invalid private key: {}", _0)]
-    InvalidPrivKey(KeysError),
+    InvalidPrivKey(String),
     #[display(fmt = "We only support compressed keys at the moment")]
     ExpectedCompressedKeys,
 }
@@ -46,7 +47,7 @@ impl From<FromHexError> for PrivKeyError {
 }
 
 impl From<KeysError> for PrivKeyError {
-    fn from(e: KeysError) -> Self { PrivKeyError::InvalidPrivKey(e) }
+    fn from(e: KeysError) -> Self { PrivKeyError::InvalidPrivKey(e.to_string()) }
 }
 
 fn private_from_seed(seed: &str) -> PrivKeyResult<Private> {
@@ -103,7 +104,7 @@ pub fn key_pair_from_seed(seed: &str) -> PrivKeyResult<KeyPair> {
 
 pub fn key_pair_from_secret(secret: &[u8]) -> PrivKeyResult<KeyPair> {
     if secret.len() != 32 {
-        return MmError::err(PrivKeyError::InvalidPrivKey(KeysError::InvalidPrivate));
+        return MmError::err(PrivKeyError::InvalidPrivKey(KeysError::InvalidPrivate.to_string()));
     }
 
     let private = Private {
@@ -113,6 +114,15 @@ pub fn key_pair_from_secret(secret: &[u8]) -> PrivKeyResult<KeyPair> {
         checksum_type: Default::default(),
     };
     Ok(KeyPair::from_private(private)?)
+}
+
+pub fn bip39_priv_key_from_seed(seed: &str) -> PrivKeyResult<ExtendedPrivateKey<secp256k1::SecretKey>> {
+    let mnemonic = bip39::Mnemonic::from_phrase(seed, bip39::Language::English)
+        .map_to_mm(|e| PrivKeyError::ErrorParsingPassphrase(e.to_string()))?;
+    let seed = bip39::Seed::new(&mnemonic, "");
+    let seed_bytes: &[u8] = seed.as_bytes();
+
+    ExtendedPrivateKey::new(seed_bytes).map_to_mm(|e| PrivKeyError::ErrorParsingPassphrase(e.to_string()))
 }
 
 #[derive(Clone, Copy, Debug)]
