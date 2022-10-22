@@ -145,10 +145,11 @@ pub async fn orderbook_rpc(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, S
 
     try_s!(subscribe_to_orderbook_topic(&ctx, &base_ticker, &rel_ticker, request_orderbook).await);
     let orderbook = ordermatch_ctx.orderbook.lock();
+    // TODO don't check `ctx.secp256k1_key_pair_as_option`, but check `no_login`.
     let my_pubsecp = ctx.secp256k1_key_pair_as_option().map(|_| {
         CryptoCtx::from_ctx(&ctx)
             .expect("ctx is available")
-            .secp256k1_pubkey_hex()
+            .mm2_internal_pubkey_hex()
     });
 
     let mut asks = match orderbook.unordered.get(&(base_ticker.clone(), rel_ticker.clone())) {
@@ -314,7 +315,7 @@ pub async fn orderbook_rpc_v2(
     let my_pubsecp = ctx.secp256k1_key_pair_as_option().map(|_| {
         CryptoCtx::from_ctx(&ctx)
             .expect("ctx is available")
-            .secp256k1_pubkey_hex()
+            .mm2_internal_pubkey_hex()
     });
 
     let mut asks = match orderbook.unordered.get(&(base_ticker.clone(), rel_ticker.clone())) {

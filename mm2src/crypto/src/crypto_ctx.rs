@@ -80,11 +80,13 @@ impl CryptoCtx {
             .map_err(|_| MmError::new(CryptoInitError::Internal("Error casting the context field".to_owned())))
     }
 
+    pub fn key_pair_ctx(&self) -> KeyPairArc { self.key_pair_ctx.clone() }
+
     pub fn iguana_ctx(&self) -> &IguanaArc { todo!() }
 
-    pub fn secp256k1_pubkey(&self) -> PublicKey { todo!() }
+    pub fn mm2_internal_pubkey(&self) -> PublicKey { todo!() }
 
-    pub fn secp256k1_pubkey_hex(&self) -> String { hex::encode(&*self.secp256k1_pubkey()) }
+    pub fn mm2_internal_pubkey_hex(&self) -> String { hex::encode(&*self.mm2_internal_pubkey()) }
 
     pub fn hw_ctx(&self) -> Option<HardwareWalletArc> { self.hw_ctx.read().to_option().cloned() }
 
@@ -160,6 +162,12 @@ impl CryptoCtx {
     }
 }
 
+#[derive(Clone)]
+pub enum KeyPairArc {
+    Iguana(IguanaArc),
+    Bip39(HDAccountArc),
+}
+
 async fn init_check_hw_ctx_with_trezor<Processor>(
     processor: &Processor,
     expected_pubkey: Option<HwPubkey>,
@@ -182,11 +190,6 @@ where
         });
     }
     Ok((hw_device_info, hw_ctx))
-}
-
-enum KeyPairArc {
-    Iguana(IguanaArc),
-    Bip39(HDAccountArc),
 }
 
 enum HardwareWalletCtxState {
