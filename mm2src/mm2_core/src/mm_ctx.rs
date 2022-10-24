@@ -239,15 +239,6 @@ impl MmCtx {
     /// True if the MarketMaker instance needs to stop.
     pub fn is_stopping(&self) -> bool { self.stop.copy_or(false) }
 
-    /// Get a reference to the secp256k1 key pair.
-    /// Panics if the key pair is not available.
-    pub fn secp256k1_key_pair(&self) -> &KeyPair {
-        match self.secp256k1_key_pair.as_option() {
-            Some(pair) => pair,
-            None => panic!("secp256k1_key_pair not available"),
-        }
-    }
-
     /// Get a reference to the secp256k1 key pair as option.
     /// Can be used in no-login functions to check if the passphrase is set
     pub fn secp256k1_key_pair_as_option(&self) -> Option<&KeyPair> { self.secp256k1_key_pair.as_option() }

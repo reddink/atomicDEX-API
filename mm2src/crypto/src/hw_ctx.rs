@@ -6,7 +6,7 @@ use bip32::ChildNumber;
 use bitcrypto::dhash160;
 use common::log::warn;
 use futures::lock::Mutex as AsyncMutex;
-use hw_common::primitives::{DerivationPath, EcdsaCurve, Secp256k1ExtendedPublicKey};
+use hw_common::primitives::{EcdsaCurve, Secp256k1ExtendedPublicKey};
 use keys::Public as PublicKey;
 use mm2_err_handle::prelude::*;
 use primitives::hash::{H160, H264};

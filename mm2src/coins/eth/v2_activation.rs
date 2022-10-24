@@ -15,6 +15,7 @@ pub enum EthActivationV2Error {
     UnreachableNodes(String),
     #[display(fmt = "Enable request for ETH coin must have at least 1 node")]
     AtLeastOneNodeRequired,
+    PrivKeyPolicyNotAllowed(String),
     InternalError(String),
 }
 
@@ -131,8 +132,8 @@ pub async fn eth_coin_from_conf_and_request_v2(
     ticker: &str,
     conf: &Json,
     req: EthActivationV2Request,
-    priv_key: &[u8],
-) -> Result<EthCoin, MmError<EthActivationV2Error>> {
+    priv_key_policy: PrivKeyBuildPolicy<'_>,
+) -> MmResult<EthCoin, EthActivationV2Error> {
     if req.nodes.is_empty() {
         return Err(EthActivationV2Error::AtLeastOneNodeRequired.into());
     }
@@ -171,6 +172,15 @@ pub async fn eth_coin_from_conf_and_request_v2(
             .into());
         }
     }
+
+    let priv_key = match priv_key_policy {
+        PrivKeyBuildPolicy::IguanaPrivKey(iguana) => iguana,
+        PrivKeyBuildPolicy::Trezor => {
+            return MmError::err(EthActivationV2Error::PrivKeyPolicyNotAllowed(
+                PrivKeyNotAllowed::HardwareWalletNotSupported.to_string(),
+            ));
+        },
+    };
 
     let key_pair: KeyPair =
         KeyPair::from_secret_slice(priv_key).map_err(|e| EthActivationV2Error::InternalError(e.to_string()))?;

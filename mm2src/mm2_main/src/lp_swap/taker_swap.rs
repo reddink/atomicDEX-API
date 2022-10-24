@@ -21,6 +21,7 @@ use common::executor::Timer;
 use common::log::{debug, error, info, warn};
 use common::{bits256, now_ms, DEX_FEE_ADDR_RAW_PUBKEY};
 use crypto::privkey::SerializableSecp256k1Keypair;
+use crypto::CryptoCtx;
 use futures::{compat::Future01CompatExt, select, FutureExt};
 use http::Response;
 use keys::KeyPair;
@@ -1593,9 +1594,12 @@ impl TakerSwap {
             data.taker_coin_swap_contract_address = taker_coin.swap_contract_address();
         }
 
+        let crypto_ctx = try_s!(CryptoCtx::from_ctx(&ctx));
+        // TODO consider removing
+        let my_persistent_pub = H264::from(&**crypto_ctx.mm2_internal_key_pair().public());
+
         let mut maker = bits256::from([0; 32]);
         maker.bytes = data.maker.0;
-        let my_persistent_pub = H264::from(&**ctx.secp256k1_key_pair().public());
         let conf_settings = SwapConfirmationsSettings {
             maker_coin_confs: data.maker_payment_confirmations,
             maker_coin_nota: data

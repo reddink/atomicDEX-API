@@ -20,6 +20,7 @@ use coins::{CanRefundHtlc, FeeApproxStage, FoundSwapTxSpend, MmCoinEnum, SearchF
 use common::log::{debug, error, info, warn};
 use common::{bits256, executor::Timer, now_ms, DEX_FEE_ADDR_RAW_PUBKEY};
 use crypto::privkey::SerializableSecp256k1Keypair;
+use crypto::CryptoCtx;
 use futures::{compat::Future01CompatExt, select, FutureExt};
 use keys::KeyPair;
 use mm2_core::mm_ctx::MmArc;
@@ -1099,7 +1100,11 @@ impl MakerSwap {
 
         let mut taker = bits256::from([0; 32]);
         taker.bytes = data.taker.0;
-        let my_persistent_pub = H264::from(&**ctx.secp256k1_key_pair().public());
+
+        let crypto_ctx = try_s!(CryptoCtx::from_ctx(&ctx));
+        // TODO consider removing
+        let my_persistent_pub = H264::from(&**crypto_ctx.mm2_internal_key_pair().public());
+
         let conf_settings = SwapConfirmationsSettings {
             maker_coin_confs: data.maker_payment_confirmations,
             maker_coin_nota: data

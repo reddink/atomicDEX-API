@@ -7,11 +7,12 @@ use crate::tendermint::htlc::MsgClaimHtlc;
 use crate::utxo::sat_from_big_decimal;
 use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal, CoinBalance, CoinFutSpawner,
             FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr,
-            RawTransactionFut, RawTransactionRequest, SearchForSwapTxSpendInput, SignatureResult, SwapOps, TradeFee,
-            TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum,
-            TransactionFut, TransactionType, TxFeeDetails, TxMarshalingErr, UnexpectedDerivationMethod,
-            ValidateAddressResult, ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput,
-            VerificationResult, WatcherValidatePaymentInput, WithdrawError, WithdrawFut, WithdrawRequest};
+            PrivKeyBuildPolicy, PrivKeyNotAllowed, RawTransactionFut, RawTransactionRequest,
+            SearchForSwapTxSpendInput, SignatureResult, SwapOps, TradeFee, TradePreimageFut, TradePreimageResult,
+            TradePreimageValue, TransactionDetails, TransactionEnum, TransactionFut, TransactionType, TxFeeDetails,
+            TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateOtherPubKeyErr,
+            ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherValidatePaymentInput, WithdrawError,
+            WithdrawFut, WithdrawRequest};
 use async_trait::async_trait;
 use bitcrypto::sha256;
 use common::executor::{abortable_queue::AbortableQueue, AbortableSystem};
@@ -103,6 +104,7 @@ pub enum TendermintInitErrorKind {
     RpcClientInitError(String),
     InvalidChainId(String),
     InvalidDenom(String),
+    PrivKeyPolicyNotAllowed(PrivKeyNotAllowed),
     RpcError(String),
 }
 
@@ -163,7 +165,7 @@ impl TendermintCoin {
         ticker: String,
         protocol_info: TendermintProtocolInfo,
         activation_params: TendermintActivationParams,
-        priv_key: &[u8],
+        priv_key_policy: PrivKeyBuildPolicy<'_>,
     ) -> MmResult<Self, TendermintInitError> {
         if activation_params.rpc_urls.is_empty() {
             return MmError::err(TendermintInitError {
@@ -171,6 +173,15 @@ impl TendermintCoin {
                 kind: TendermintInitErrorKind::EmptyRpcUrls,
             });
         }
+
+        let priv_key = match priv_key_policy {
+            PrivKeyBuildPolicy::IguanaPrivKey(iguana) => iguana,
+            PrivKeyBuildPolicy::Trezor => {
+                let kind =
+                    TendermintInitErrorKind::PrivKeyPolicyNotAllowed(PrivKeyNotAllowed::HardwareWalletNotSupported);
+                return MmError::err(TendermintInitError { ticker, kind });
+            },
+        };
 
         let account_id =
             account_id_from_privkey(priv_key, &protocol_info.account_prefix).mm_err(|kind| TendermintInitError {
@@ -825,18 +836,19 @@ mod tendermint_coin_tests {
 
         let protocol_conf = get_iris_usdc_ibc_protocol();
 
-        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default()
-            .with_secp256k1_key_pair(crypto::privkey::key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap())
-            .into_mm_arc();
+        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
-        let priv_key = &*ctx.secp256k1_key_pair().private().secret;
-
+        let priv_key = &crypto::privkey::key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED)
+            .unwrap()
+            .private()
+            .secret;
+        let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(priv_key);
         let coin = common::block_on(TendermintCoin::init(
             &ctx,
             "USDC-IBC".to_string(),
             protocol_conf,
             activation_request,
-            priv_key,
+            priv_key_policy,
         ))
         .unwrap();
 

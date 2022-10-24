@@ -11,7 +11,7 @@ pub use std::thread;
 
 use bitcrypto::{dhash160, ChecksumType};
 use coins::qrc20::rpc_clients::for_tests::Qrc20NativeWalletOps;
-use coins::qrc20::{qrc20_coin_from_conf_and_params, Qrc20ActivationParams, Qrc20Coin};
+use coins::qrc20::{qrc20_coin_with_priv_key, Qrc20ActivationParams, Qrc20Coin};
 use coins::utxo::qtum::{qtum_coin_with_priv_key, QtumBasedCoin, QtumCoin};
 use coins::utxo::rpc_clients::{NativeClient, UtxoRpcClientEnum, UtxoRpcClientOps};
 use coins::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
@@ -206,7 +206,7 @@ pub fn qrc20_coin_from_privkey(ticker: &str, priv_key: &[u8]) -> (MmArc, Qrc20Co
     });
     let params = Qrc20ActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(qrc20_coin_from_conf_and_params(
+    let coin = block_on(qrc20_coin_with_priv_key(
         &ctx,
         ticker,
         platform,

@@ -1,6 +1,6 @@
 use crate::utxo::rpc_clients::UtxoRpcClientEnum;
 use crate::utxo::utxo_builder::{UtxoCoinBuildError, UtxoCoinBuilder, UtxoCoinBuilderCommonOps,
-                                UtxoFieldsWithHardwareWalletBuilder, UtxoFieldsWithIguanaPrivKeyBuilder};
+                                UtxoFieldsWithHardwareWalletBuilder, UtxoFieldsWithPrivKeyBuilder};
 use crate::utxo::{generate_and_send_tx, FeePolicy, GetUtxoListOps, UtxoArc, UtxoCommonOps, UtxoSyncStatusLoopHandle,
                   UtxoWeak};
 use crate::{DerivationMethod, MarketCoinOps, PrivKeyBuildPolicy, UtxoActivationParams};
@@ -70,7 +70,7 @@ where
     fn ticker(&self) -> &str { self.ticker }
 }
 
-impl<'a, F, T> UtxoFieldsWithIguanaPrivKeyBuilder for UtxoArcBuilder<'a, F, T> where
+impl<'a, F, T> UtxoFieldsWithPrivKeyBuilder for UtxoArcBuilder<'a, F, T> where
     F: Fn(UtxoArc) -> T + Send + Sync + 'static
 {
 }

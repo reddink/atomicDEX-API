@@ -19,7 +19,7 @@ use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_builder::{BlockHeaderUtxoArcOps, MergeUtxoArcOps, UtxoCoinBuildError, UtxoCoinBuilder,
                                 UtxoCoinBuilderCommonOps, UtxoFieldsWithHardwareWalletBuilder,
-                                UtxoFieldsWithIguanaPrivKeyBuilder};
+                                UtxoFieldsWithPrivKeyBuilder};
 use crate::utxo::utxo_tx_history_v2::{UtxoMyAddressesHistoryError, UtxoTxDetailsError, UtxoTxDetailsParams,
                                       UtxoTxHistoryOps};
 use crate::{eth, CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, DelegationError, DelegationFut,
@@ -211,7 +211,7 @@ impl<'a> UtxoCoinBuilderCommonOps for QtumCoinBuilder<'a> {
     fn check_utxo_maturity(&self) -> bool { self.activation_params().check_utxo_maturity.unwrap_or(true) }
 }
 
-impl<'a> UtxoFieldsWithIguanaPrivKeyBuilder for QtumCoinBuilder<'a> {}
+impl<'a> UtxoFieldsWithPrivKeyBuilder for QtumCoinBuilder<'a> {}
 
 impl<'a> UtxoFieldsWithHardwareWalletBuilder for QtumCoinBuilder<'a> {}
 
@@ -270,6 +270,21 @@ impl From<QtumCoin> for UtxoArc {
     fn from(coin: QtumCoin) -> Self { coin.utxo_arc }
 }
 
+pub async fn qtum_coin_with_policy(
+    ctx: &MmArc,
+    ticker: &str,
+    conf: &Json,
+    activation_params: &UtxoActivationParams,
+    priv_key_policy: PrivKeyBuildPolicy<'_>,
+) -> Result<QtumCoin, String> {
+    let coin = try_s!(
+        QtumCoinBuilder::new(ctx, ticker, conf, activation_params, priv_key_policy)
+            .build()
+            .await
+    );
+    Ok(coin)
+}
+
 pub async fn qtum_coin_with_priv_key(
     ctx: &MmArc,
     ticker: &str,
@@ -278,12 +293,7 @@ pub async fn qtum_coin_with_priv_key(
     priv_key: &[u8],
 ) -> Result<QtumCoin, String> {
     let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(priv_key);
-    let coin = try_s!(
-        QtumCoinBuilder::new(ctx, ticker, conf, activation_params, priv_key_policy)
-            .build()
-            .await
-    );
-    Ok(coin)
+    qtum_coin_with_policy(ctx, ticker, conf, activation_params, priv_key_policy).await
 }
 
 impl QtumBasedCoin for QtumCoin {}

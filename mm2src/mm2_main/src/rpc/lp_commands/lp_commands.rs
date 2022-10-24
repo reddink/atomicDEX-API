@@ -1,5 +1,5 @@
 use common::HttpStatusCode;
-use crypto::{CryptoCtx, CryptoInitError};
+use crypto::{CryptoCtx, CryptoCtxError};
 use derive_more::Display;
 use http::StatusCode;
 use mm2_core::mm_ctx::MmArc;
@@ -15,8 +15,8 @@ pub enum GetPublicKeyError {
     Internal(String),
 }
 
-impl From<CryptoInitError> for GetPublicKeyError {
-    fn from(_: CryptoInitError) -> Self { GetPublicKeyError::Internal("public_key not available".to_string()) }
+impl From<CryptoCtxError> for GetPublicKeyError {
+    fn from(_: CryptoCtxError) -> Self { GetPublicKeyError::Internal("public_key not available".to_string()) }
 }
 
 #[derive(Serialize)]

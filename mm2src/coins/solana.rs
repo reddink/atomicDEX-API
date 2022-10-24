@@ -3,11 +3,12 @@ use crate::coin_errors::{MyAddressError, ValidatePaymentError};
 use crate::solana::solana_common::{lamports_to_sol, PrepareTransferData, SufficientBalanceError};
 use crate::solana::spl::SplTokenInfo;
 use crate::{BalanceError, BalanceFut, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, NegotiateSwapContractAddrErr,
-            RawTransactionFut, RawTransactionRequest, SearchForSwapTxSpendInput, SignatureResult, TradePreimageFut,
-            TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionFut, TransactionType,
-            TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateOtherPubKeyErr,
-            ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherValidatePaymentInput, WithdrawError,
-            WithdrawFut, WithdrawRequest, WithdrawResult};
+            PrivKeyBuildPolicy, PrivKeyNotAllowed, RawTransactionFut, RawTransactionRequest,
+            SearchForSwapTxSpendInput, SignatureResult, TradePreimageFut, TradePreimageResult, TradePreimageValue,
+            TransactionDetails, TransactionFut, TransactionType, TxMarshalingErr, UnexpectedDerivationMethod,
+            ValidateAddressResult, ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput,
+            VerificationResult, WatcherValidatePaymentInput, WithdrawError, WithdrawFut, WithdrawRequest,
+            WithdrawResult};
 use async_trait::async_trait;
 use base58::ToBase58;
 use bincode::{deserialize, serialize};
@@ -163,17 +164,23 @@ fn generate_keypair_from_slice(priv_key: &[u8]) -> Result<Keypair, MmError<KeyPa
         .map_to_mm(|e| KeyPairCreationError::KeyPairFromSeed(e.to_string()))
 }
 
-pub async fn solana_coin_from_conf_and_params(
+pub async fn solana_coin_with_policy(
     ctx: &MmArc,
     ticker: &str,
     conf: &Json,
     params: SolanaActivationParams,
-    priv_key: &[u8],
+    priv_key_policy: PrivKeyBuildPolicy<'_>,
 ) -> Result<SolanaCoin, String> {
     let client = RpcClient::new_with_commitment(params.client_url.clone(), CommitmentConfig {
         commitment: params.confirmation_commitment,
     });
     let decimals = conf["decimals"].as_u64().unwrap_or(SOLANA_DEFAULT_DECIMALS) as u8;
+
+    let priv_key = match priv_key_policy {
+        PrivKeyBuildPolicy::IguanaPrivKey(iguana) => iguana,
+        PrivKeyBuildPolicy::Trezor => return ERR!("{}", PrivKeyNotAllowed::HardwareWalletNotSupported),
+    };
+
     let key_pair = try_s!(generate_keypair_from_slice(priv_key));
     let my_address = key_pair.pubkey().to_string();
     let spl_tokens_infos = Arc::new(Mutex::new(HashMap::new()));

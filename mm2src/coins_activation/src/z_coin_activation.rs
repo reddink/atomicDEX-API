@@ -11,7 +11,7 @@ use coins::z_coin::{z_coin_from_conf_and_params, BlockchainScanStopped, SyncStat
                     ZcoinActivationParams, ZcoinProtocolInfo};
 use coins::{BalanceError, CoinProtocol, MarketCoinOps, RegisterCoinError};
 use crypto::hw_rpc_task::{HwRpcTaskAwaitingStatus, HwRpcTaskUserAction};
-use crypto::CryptoInitError;
+use crypto::CryptoCtxError;
 use derive_more::Display;
 use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
@@ -127,8 +127,8 @@ impl From<RpcTaskError> for ZcoinInitError {
     }
 }
 
-impl From<CryptoInitError> for ZcoinInitError {
-    fn from(err: CryptoInitError) -> Self { ZcoinInitError::Internal(err.to_string()) }
+impl From<CryptoCtxError> for ZcoinInitError {
+    fn from(err: CryptoCtxError) -> Self { ZcoinInitError::Internal(err.to_string()) }
 }
 
 impl From<BlockchainScanStopped> for ZcoinInitError {
@@ -198,14 +198,15 @@ impl InitStandaloneCoinActivationOps for ZCoin {
         protocol_info: ZcoinProtocolInfo,
         task_handle: &ZcoinRpcTaskHandle,
     ) -> MmResult<Self, ZcoinInitError> {
-        let secp_privkey = ctx.secp256k1_key_pair().private().secret;
+        let priv_key_policy = todo!();
+
         let coin = z_coin_from_conf_and_params(
             &ctx,
             &ticker,
             &coin_conf,
             activation_request,
             protocol_info,
-            secp_privkey.as_slice(),
+            priv_key_policy,
         )
         .await
         .mm_err(|e| ZcoinInitError::from_build_err(e, ticker))?;

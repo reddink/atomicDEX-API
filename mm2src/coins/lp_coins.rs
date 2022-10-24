@@ -206,7 +206,7 @@ pub mod hd_wallet_storage;
 pub mod my_tx_history_v2;
 
 pub mod qrc20;
-use qrc20::{qrc20_coin_from_conf_and_params, Qrc20ActivationParams, Qrc20Coin, Qrc20FeeDetails};
+use qrc20::{qrc20_coin_with_policy, Qrc20ActivationParams, Qrc20Coin, Qrc20FeeDetails};
 
 pub mod rpc_command;
 use rpc_command::{init_account_balance::{AccountBalanceTaskManager, AccountBalanceTaskManagerShared},
@@ -231,17 +231,17 @@ pub mod solana;
 #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
 pub use solana::spl::SplToken;
 #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
-pub use solana::{solana_coin_from_conf_and_params, SolanaActivationParams, SolanaCoin, SolanaFeeDetails};
+pub use solana::{SolanaActivationParams, SolanaCoin, SolanaFeeDetails};
 
 pub mod utxo;
-use utxo::bch::{bch_coin_from_conf_and_params, BchActivationRequest, BchCoin};
-use utxo::qtum::{self, qtum_coin_with_priv_key, Qrc20AddressError, QtumCoin, QtumDelegationOps, QtumDelegationRequest,
+use utxo::bch::{bch_coin_with_policy, BchActivationRequest, BchCoin};
+use utxo::qtum::{self, qtum_coin_with_policy, Qrc20AddressError, QtumCoin, QtumDelegationOps, QtumDelegationRequest,
                  QtumStakingInfosDetails, ScriptHashTypeNotSupported};
 use utxo::rpc_clients::UtxoRpcError;
 use utxo::slp::SlpToken;
 use utxo::slp::{slp_addr_from_pubkey_str, SlpFeeDetails};
 use utxo::utxo_common::big_decimal_from_sat_unsigned;
-use utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
+use utxo::utxo_standard::{utxo_standard_coin_with_policy, UtxoStandardCoin};
 use utxo::UtxoActivationParams;
 use utxo::{BlockchainNetwork, GenerateTxError, UtxoFeeDetails, UtxoTx};
 
@@ -333,6 +333,7 @@ pub enum TxHistoryError {
     InternalError(String),
 }
 
+// TODO consider renaming this error enum to `PrivKeyPolicyNotAllowed`.
 #[derive(Debug, Display)]
 pub enum PrivKeyNotAllowed {
     #[display(fmt = "Hardware Wallet is not supported")]
@@ -2103,6 +2104,7 @@ impl<T> PrivKeyPolicy<T> {
     }
 }
 
+/// TODO add HDAccountPrivKey
 #[derive(Clone)]
 pub enum PrivKeyBuildPolicy<'a> {
     IguanaPrivKey(&'a [u8]),
@@ -2110,9 +2112,8 @@ pub enum PrivKeyBuildPolicy<'a> {
 }
 
 impl<'a> PrivKeyBuildPolicy<'a> {
-    pub fn iguana_priv_key(crypto_ctx: &'a CryptoCtx) -> Self {
-        PrivKeyBuildPolicy::IguanaPrivKey(crypto_ctx.iguana_ctx().secp256k1_privkey_bytes())
-    }
+    // TODO
+    pub fn default_with_priv_key(_crypto_ctx: &'a CryptoCtx) -> Self { todo!() }
 }
 
 #[derive(Debug)]
@@ -2386,10 +2387,18 @@ pub async fn lp_coininit(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoin
             "assuming that coin is not supported"
         ));
     }
-    let secret = try_s!(CryptoCtx::from_ctx(ctx))
-        .iguana_ctx()
-        .secp256k1_privkey_bytes()
-        .to_vec();
+    // let secret = try_s!(CryptoCtx::from_ctx(ctx))
+    //     .iguana_ctx()
+    //     .secp256k1_privkey_bytes()
+    //     .to_vec();
+
+    // let crypto_ctx = CryptoCtx::from_ctx(&ctx)?;
+    // match crypto_ctx.key_pair_ctx() {
+    //
+    // };
+
+    // TODO
+    let priv_key_policy = todo!();
 
     if coins_en["protocol"].is_null() {
         return ERR!(
@@ -2401,14 +2410,14 @@ pub async fn lp_coininit(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoin
     let coin: MmCoinEnum = match &protocol {
         CoinProtocol::UTXO => {
             let params = try_s!(UtxoActivationParams::from_legacy_req(req));
-            try_s!(utxo_standard_coin_with_priv_key(ctx, ticker, &coins_en, &params, &secret).await).into()
+            try_s!(utxo_standard_coin_with_policy(ctx, ticker, &coins_en, &params, priv_key_policy).await).into()
         },
         CoinProtocol::QTUM => {
             let params = try_s!(UtxoActivationParams::from_legacy_req(req));
-            try_s!(qtum_coin_with_priv_key(ctx, ticker, &coins_en, &params, &secret).await).into()
+            try_s!(qtum_coin_with_policy(ctx, ticker, &coins_en, &params, priv_key_policy).await).into()
         },
         CoinProtocol::ETH | CoinProtocol::ERC20 { .. } => {
-            try_s!(eth_coin_from_conf_and_request(ctx, ticker, &coins_en, req, &secret, protocol).await).into()
+            try_s!(eth_coin_from_conf_and_request(ctx, ticker, &coins_en, req, protocol, priv_key_policy).await).into()
         },
         CoinProtocol::QRC20 {
             platform,
@@ -2418,8 +2427,16 @@ pub async fn lp_coininit(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoin
             let contract_address = try_s!(qtum::contract_addr_from_str(contract_address));
 
             try_s!(
-                qrc20_coin_from_conf_and_params(ctx, ticker, platform, &coins_en, &params, &secret, contract_address)
-                    .await
+                qrc20_coin_with_policy(
+                    ctx,
+                    ticker,
+                    platform,
+                    &coins_en,
+                    &params,
+                    priv_key_policy,
+                    contract_address
+                )
+                .await
             )
             .into()
         },
@@ -2427,7 +2444,7 @@ pub async fn lp_coininit(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoin
             let prefix = try_s!(CashAddrPrefix::from_str(slp_prefix));
             let params = try_s!(BchActivationRequest::from_legacy_req(req));
 
-            let bch = try_s!(bch_coin_from_conf_and_params(ctx, ticker, &coins_en, params, prefix, &secret).await);
+            let bch = try_s!(bch_coin_with_policy(ctx, ticker, &coins_en, params, prefix, priv_key_policy).await);
             bch.into()
         },
         CoinProtocol::SLPTOKEN {

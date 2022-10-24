@@ -15,7 +15,7 @@ use chain::TxHashAlgo;
 use common::executor::{abortable_queue::AbortableQueue, AbortSettings, AbortableSystem, SpawnAbortable, Timer};
 use common::log::{error, info};
 use common::small_rng;
-use crypto::{Bip32DerPathError, Bip44DerPathError, Bip44PathToCoin, CryptoCtx, CryptoInitError, HwWalletType};
+use crypto::{Bip32DerPathError, Bip44DerPathError, Bip44PathToCoin, CryptoCtx, CryptoCtxError, HwWalletType};
 use derive_more::Display;
 use futures::channel::mpsc::{unbounded, Receiver as AsyncReceiver, UnboundedReceiver};
 use futures::compat::Future01CompatExt;
@@ -81,9 +81,9 @@ impl From<UtxoConfError> for UtxoCoinBuildError {
     fn from(e: UtxoConfError) -> Self { UtxoCoinBuildError::ConfError(e) }
 }
 
-impl From<CryptoInitError> for UtxoCoinBuildError {
+impl From<CryptoCtxError> for UtxoCoinBuildError {
     /// `CryptoCtx` is expected to be initialized already.
-    fn from(crypto_err: CryptoInitError) -> Self { UtxoCoinBuildError::Internal(crypto_err.to_string()) }
+    fn from(crypto_err: CryptoCtxError) -> Self { UtxoCoinBuildError::Internal(crypto_err.to_string()) }
 }
 
 impl From<Bip32DerPathError> for UtxoCoinBuildError {
@@ -99,7 +99,7 @@ impl From<BlockHeaderStorageError> for UtxoCoinBuildError {
 }
 
 #[async_trait]
-pub trait UtxoCoinBuilder: UtxoFieldsWithIguanaPrivKeyBuilder + UtxoFieldsWithHardwareWalletBuilder {
+pub trait UtxoCoinBuilder: UtxoFieldsWithPrivKeyBuilder + UtxoFieldsWithHardwareWalletBuilder {
     type ResultCoin;
     type Error: NotMmError;
 
@@ -116,7 +116,7 @@ pub trait UtxoCoinBuilder: UtxoFieldsWithIguanaPrivKeyBuilder + UtxoFieldsWithHa
 }
 
 #[async_trait]
-pub trait UtxoCoinWithIguanaPrivKeyBuilder: UtxoFieldsWithIguanaPrivKeyBuilder {
+pub trait UtxoCoinWithPrivKeyBuilder: UtxoFieldsWithPrivKeyBuilder {
     type ResultCoin;
     type Error: NotMmError;
 
@@ -126,7 +126,7 @@ pub trait UtxoCoinWithIguanaPrivKeyBuilder: UtxoFieldsWithIguanaPrivKeyBuilder {
 }
 
 #[async_trait]
-pub trait UtxoFieldsWithIguanaPrivKeyBuilder: UtxoCoinBuilderCommonOps {
+pub trait UtxoFieldsWithPrivKeyBuilder: UtxoCoinBuilderCommonOps {
     async fn build_utxo_fields_with_iguana_priv_key(&self, priv_key: &[u8]) -> UtxoCoinBuildResult<UtxoCoinFields> {
         let conf = UtxoConfBuilder::new(self.conf(), self.activation_params(), self.ticker()).build()?;
 

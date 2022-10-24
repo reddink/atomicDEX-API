@@ -62,14 +62,14 @@ use web3_transport::{EthFeeHistoryNamespace, Web3Transport, Web3TransportNode};
 use super::{coin_conf, AsyncMutex, BalanceError, BalanceFut, CoinBalance, CoinFutSpawner, CoinProtocol,
             CoinTransportMetrics, CoinsContext, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps,
             MmCoin, MyAddressError, NegotiateSwapContractAddrErr, NumConversError, NumConversResult,
-            RawTransactionError, RawTransactionFut, RawTransactionRequest, RawTransactionRes, RawTransactionResult,
-            RpcClientType, RpcTransportEventHandler, RpcTransportEventHandlerShared, SearchForSwapTxSpendInput,
-            SignatureError, SignatureResult, SwapOps, TradeFee, TradePreimageError, TradePreimageFut,
-            TradePreimageResult, TradePreimageValue, Transaction, TransactionDetails, TransactionEnum, TransactionErr,
-            TransactionFut, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult,
-            ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput, VerificationError,
-            VerificationResult, WatcherValidatePaymentInput, WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest,
-            WithdrawResult};
+            PrivKeyBuildPolicy, PrivKeyNotAllowed, RawTransactionError, RawTransactionFut, RawTransactionRequest,
+            RawTransactionRes, RawTransactionResult, RpcClientType, RpcTransportEventHandler,
+            RpcTransportEventHandlerShared, SearchForSwapTxSpendInput, SignatureError, SignatureResult, SwapOps,
+            TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue, Transaction,
+            TransactionDetails, TransactionEnum, TransactionErr, TransactionFut, TxMarshalingErr,
+            UnexpectedDerivationMethod, ValidateAddressResult, ValidateOtherPubKeyErr, ValidatePaymentError,
+            ValidatePaymentFut, ValidatePaymentInput, VerificationError, VerificationResult,
+            WatcherValidatePaymentInput, WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult};
 
 pub use rlp;
 
@@ -3534,8 +3534,8 @@ pub async fn eth_coin_from_conf_and_request(
     ticker: &str,
     conf: &Json,
     req: &Json,
-    priv_key: &[u8],
     protocol: CoinProtocol,
+    priv_key_policy: PrivKeyBuildPolicy<'_>,
 ) -> Result<EthCoin, String> {
     let mut urls: Vec<String> = try_s!(json::from_value(req["urls"].clone()));
     if urls.is_empty() {
@@ -3564,6 +3564,11 @@ pub async fn eth_coin_from_conf_and_request(
             return ERR!("fallback_swap_contract can't be zero address");
         }
     }
+
+    let priv_key = match priv_key_policy {
+        PrivKeyBuildPolicy::IguanaPrivKey(iguana) => iguana,
+        PrivKeyBuildPolicy::Trezor => return ERR!("{}", PrivKeyNotAllowed::HardwareWalletNotSupported),
+    };
 
     let key_pair: KeyPair = try_s!(KeyPair::from_secret_slice(priv_key));
     let my_address = key_pair.address();

@@ -48,14 +48,13 @@ impl From<UtxoStandardCoin> for UtxoArc {
     fn from(coin: UtxoStandardCoin) -> Self { coin.utxo_arc }
 }
 
-pub async fn utxo_standard_coin_with_priv_key(
+pub async fn utxo_standard_coin_with_policy(
     ctx: &MmArc,
     ticker: &str,
     conf: &Json,
     activation_params: &UtxoActivationParams,
-    priv_key: &[u8],
+    priv_key_policy: PrivKeyBuildPolicy<'_>,
 ) -> Result<UtxoStandardCoin, String> {
-    let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(priv_key);
     let coin = try_s!(
         UtxoArcBuilder::new(
             ctx,
@@ -69,6 +68,17 @@ pub async fn utxo_standard_coin_with_priv_key(
         .await
     );
     Ok(coin)
+}
+
+pub async fn utxo_standard_coin_with_priv_key(
+    ctx: &MmArc,
+    ticker: &str,
+    conf: &Json,
+    activation_params: &UtxoActivationParams,
+    priv_key: &[u8],
+) -> Result<UtxoStandardCoin, String> {
+    let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(priv_key);
+    utxo_standard_coin_with_policy(ctx, ticker, conf, activation_params, priv_key_policy).await
 }
 
 // if mockable is placed before async_trait there is `munmap_chunk(): invalid pointer` error on async fn mocking attempt

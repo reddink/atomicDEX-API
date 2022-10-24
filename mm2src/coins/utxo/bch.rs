@@ -597,13 +597,13 @@ impl AsRef<UtxoCoinFields> for BchCoin {
     fn as_ref(&self) -> &UtxoCoinFields { &self.utxo_arc }
 }
 
-pub async fn bch_coin_from_conf_and_params(
+pub async fn bch_coin_with_policy(
     ctx: &MmArc,
     ticker: &str,
     conf: &Json,
     params: BchActivationRequest,
     slp_addr_prefix: CashAddrPrefix,
-    priv_key: &[u8],
+    priv_key_policy: PrivKeyBuildPolicy<'_>,
 ) -> Result<BchCoin, String> {
     if params.bchd_urls.is_empty() && !params.allow_slp_unsafe_conf {
         return Err("Using empty bchd_urls is unsafe for SLP users!".into());
@@ -620,13 +620,24 @@ pub async fn bch_coin_from_conf_and_params(
         }
     };
 
-    let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(priv_key);
     let coin = try_s!(
         UtxoArcBuilder::new(ctx, ticker, conf, &params.utxo_params, priv_key_policy, constructor)
             .build()
             .await
     );
     Ok(coin)
+}
+
+pub async fn bch_coin_with_priv_key(
+    ctx: &MmArc,
+    ticker: &str,
+    conf: &Json,
+    params: BchActivationRequest,
+    slp_addr_prefix: CashAddrPrefix,
+    priv_key: &[u8],
+) -> Result<BchCoin, String> {
+    let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(priv_key);
+    bch_coin_with_policy(ctx, ticker, conf, params, slp_addr_prefix, priv_key_policy).await
 }
 
 #[derive(Debug)]
@@ -1326,7 +1337,7 @@ pub fn tbch_coin_for_test() -> (MmArc, BchCoin) {
     });
 
     let params = BchActivationRequest::from_legacy_req(&req).unwrap();
-    let coin = block_on(bch_coin_from_conf_and_params(
+    let coin = block_on(bch_coin_with_priv_key(
         &ctx,
         "BCH",
         &conf,
@@ -1359,7 +1370,7 @@ pub fn bch_coin_for_test() -> BchCoin {
     });
 
     let params = BchActivationRequest::from_legacy_req(&req).unwrap();
-    block_on(bch_coin_from_conf_and_params(
+    block_on(bch_coin_with_priv_key(
         &ctx,
         "BCH",
         &conf,

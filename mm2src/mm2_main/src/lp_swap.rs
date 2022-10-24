@@ -68,7 +68,7 @@ use derive_more::Display;
 use http::Response;
 use mm2_core::mm_ctx::{from_ctx, MmArc};
 use mm2_err_handle::prelude::*;
-use mm2_libp2p::{decode_signed, encode_and_sign, pub_sub_topic, TopicPrefix};
+use mm2_libp2p::{decode_signed, encode_and_sign, pub_sub_topic, PeerId, TopicPrefix};
 use mm2_number::{BigDecimal, BigRational, MmNumber};
 use parking_lot::Mutex as PaMutex;
 use primitives::hash::{H160, H264};
@@ -101,6 +101,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 mod swap_wasm_db;
 
 pub use check_balance::{check_other_coin_balance_for_swap, CheckBalanceError};
+use crypto::CryptoCtx;
 use keys::KeyPair;
 use maker_swap::MakerSwapEvent;
 pub use maker_swap::{calc_max_maker_vol, check_balance_for_maker_swap, maker_swap_trade_preimage, run_maker_swap,
@@ -159,6 +160,38 @@ impl SwapMsgStore {
     }
 }
 
+/// Returns key-pair for signing P2P messages and an optional `PeerId` if it should be used forcibly
+/// instead of local peer ID.
+///
+/// # Panic
+///
+/// This function panics if `CryptoCtx` hasn't been initialized yet.
+pub fn p2p_keypair_and_peer_id_to_broadcast(ctx: &MmArc, p2p_privkey: Option<&KeyPair>) -> (KeyPair, Option<PeerId>) {
+    match p2p_privkey {
+        Some(keypair) => (*keypair, Some(keypair.libp2p_peer_id())),
+        None => {
+            let crypto_ctx = CryptoCtx::from_ctx(ctx).expect("CryptoCtx must be initialized already");
+            (*crypto_ctx.mm2_internal_key_pair(), None)
+        },
+    }
+}
+
+/// Returns private key for signing P2P messages and an optional `PeerId` if it should be used forcibly
+/// instead of local peer ID.
+///
+/// # Panic
+///
+/// This function panics if `CryptoCtx` hasn't been initialized yet.
+pub fn p2p_private_and_peer_id_to_broadcast(ctx: &MmArc, p2p_privkey: Option<&KeyPair>) -> ([u8; 32], Option<PeerId>) {
+    match p2p_privkey {
+        Some(keypair) => (keypair.private_bytes(), Some(keypair.libp2p_peer_id())),
+        None => {
+            let crypto_ctx = CryptoCtx::from_ctx(ctx).expect("CryptoCtx must be initialized already");
+            (crypto_ctx.mm2_internal_privkey_bytes().take(), None)
+        },
+    }
+}
+
 /// Spawns the loop that broadcasts message every `interval` seconds returning the AbortOnDropHandle
 /// to stop it
 pub fn broadcast_swap_message_every<T: 'static + Serialize + Clone + Send>(
@@ -179,21 +212,14 @@ pub fn broadcast_swap_message_every<T: 'static + Serialize + Clone + Send>(
 
 /// Broadcast the swap message once
 pub fn broadcast_swap_message<T: Serialize>(ctx: &MmArc, topic: String, msg: T, p2p_privkey: &Option<KeyPair>) {
-    let (p2p_private, from) = match p2p_privkey {
-        Some(keypair) => (keypair.private_bytes(), Some(keypair.libp2p_peer_id())),
-        None => (ctx.secp256k1_key_pair().private().secret.take(), None),
-    };
+    let (p2p_private, from) = p2p_private_and_peer_id_to_broadcast(ctx, p2p_privkey.as_ref());
     let encoded_msg = encode_and_sign(&msg, &p2p_private).unwrap();
     broadcast_p2p_msg(ctx, vec![topic], encoded_msg, from);
 }
 
 /// Broadcast the tx message once
 pub fn broadcast_p2p_tx_msg(ctx: &MmArc, topic: String, msg: &TransactionEnum, p2p_privkey: &Option<KeyPair>) {
-    let (p2p_private, from) = match p2p_privkey {
-        Some(keypair) => (keypair.private_bytes(), Some(keypair.libp2p_peer_id())),
-        None => (ctx.secp256k1_key_pair().private().secret.take(), None),
-    };
-
+    let (p2p_private, from) = p2p_private_and_peer_id_to_broadcast(ctx, p2p_privkey.as_ref());
     let encoded_msg = encode_and_sign(&msg.tx_hex(), &p2p_private).unwrap();
     broadcast_p2p_msg(ctx, vec![topic], encoded_msg, from);
 }

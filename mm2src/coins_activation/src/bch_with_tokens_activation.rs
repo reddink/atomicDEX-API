@@ -3,12 +3,13 @@ use crate::prelude::*;
 use crate::slp_token_activation::SlpActivationRequest;
 use async_trait::async_trait;
 use coins::my_tx_history_v2::TxHistoryStorage;
-use coins::utxo::bch::{bch_coin_from_conf_and_params, BchActivationRequest, BchCoin, CashAddrPrefix};
+use coins::utxo::bch::{bch_coin_with_policy, BchActivationRequest, BchCoin, CashAddrPrefix};
 use coins::utxo::rpc_clients::UtxoRpcError;
 use coins::utxo::slp::{SlpProtocolConf, SlpToken};
 use coins::utxo::utxo_tx_history_v2::bch_and_slp_history_loop;
 use coins::utxo::UtxoCommonOps;
-use coins::{CoinBalance, CoinProtocol, MarketCoinOps, MmCoin, PrivKeyNotAllowed, UnexpectedDerivationMethod};
+use coins::{CoinBalance, CoinProtocol, MarketCoinOps, MmCoin, PrivKeyBuildPolicy, PrivKeyNotAllowed,
+            UnexpectedDerivationMethod};
 use common::executor::{AbortSettings, SpawnAbortable};
 use common::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
@@ -192,7 +193,7 @@ impl PlatformWithTokensActivationOps for BchCoin {
         platform_conf: Json,
         activation_request: Self::ActivationRequest,
         protocol_conf: Self::PlatformProtocolInfo,
-        priv_key: &[u8],
+        priv_key_policy: PrivKeyBuildPolicy<'_>,
     ) -> Result<Self, MmError<Self::ActivationError>> {
         let slp_prefix = CashAddrPrefix::from_str(&protocol_conf.slp_prefix).map_to_mm(|error| {
             BchWithTokensActivationError::InvalidSlpPrefix {
@@ -202,13 +203,13 @@ impl PlatformWithTokensActivationOps for BchCoin {
             }
         })?;
 
-        let platform_coin = bch_coin_from_conf_and_params(
+        let platform_coin = bch_coin_with_policy(
             &ctx,
             &ticker,
             &platform_conf,
             activation_request.platform_request,
             slp_prefix,
-            priv_key,
+            priv_key_policy,
         )
         .await
         .map_to_mm(|error| BchWithTokensActivationError::PlatformCoinCreationError { ticker, error })?;

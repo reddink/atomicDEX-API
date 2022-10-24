@@ -1,9 +1,9 @@
 use crate::privkey::{bip39_priv_key_from_seed, key_pair_from_secret, PrivKeyError};
 use crate::{mm2_internal_der_path, Bip32DerPathOps, Bip32Error, Bip44PathToCoin, CryptoInitError, CryptoInitResult};
-use bip32::{ChildNumber, DerivationPath, ExtendedPrivateKey};
+use bip32::{ChildNumber, ExtendedPrivateKey};
 use keys::{hash::H256, KeyPair, Private, Public as PublicKey};
 use mm2_err_handle::prelude::*;
-use std::str::FromStr;
+use std::ops::Deref;
 use std::sync::Arc;
 
 const HARDENED: bool = true;
@@ -11,6 +11,12 @@ const NON_HARDENED: bool = false;
 
 #[derive(Clone)]
 pub struct HDAccountArc(Arc<HDAccountCtx>);
+
+impl Deref for HDAccountArc {
+    type Target = HDAccountCtx;
+
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
 
 pub struct HDAccountCtx {
     bip39_priv_key: ExtendedPrivateKey<secp256k1::SecretKey>,
@@ -46,9 +52,15 @@ impl HDAccountCtx {
         })
     }
 
+    pub fn mm2_internal_key_pair(&self) -> &KeyPair { &self.mm2_internal_key_pair }
+
     pub fn mm2_internal_pubkey(&self) -> PublicKey { *self.mm2_internal_key_pair.public() }
 
     pub fn mm2_internal_privkey(&self) -> &Private { self.mm2_internal_key_pair.private() }
+
+    pub fn mm2_internal_privkey_bytes(&self) -> H256 { self.mm2_internal_privkey().secret }
+
+    pub fn mm2_internal_privkey_slice(&self) -> &[u8] { self.mm2_internal_privkey().secret.as_slice() }
 
     /// Derives a `secp256k1::SecretKey` from [`HDAccountCtx::bip39_priv_key`]
     /// at the given `m/purpose'/coin_type'/account_id'/chain/address_id` derivation path,

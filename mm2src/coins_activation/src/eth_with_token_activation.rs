@@ -8,7 +8,7 @@ use coins::{eth::{v2_activation::{eth_coin_from_conf_and_request_v2, Erc20Protoc
                                   Erc20TokenActivationRequest, EthActivationV2Error, EthActivationV2Request},
                   Erc20TokenInfo, EthCoin, EthCoinType},
             my_tx_history_v2::TxHistoryStorage,
-            CoinBalance, CoinProtocol, MarketCoinOps, MmCoin};
+            CoinBalance, CoinProtocol, MarketCoinOps, MmCoin, PrivKeyBuildPolicy};
 use common::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
@@ -35,6 +35,7 @@ impl From<EthActivationV2Error> for EnablePlatformCoinWithTokensError {
             EthActivationV2Error::CouldNotFetchBalance(e) | EthActivationV2Error::UnreachableNodes(e) => {
                 EnablePlatformCoinWithTokensError::Transport(e)
             },
+            EthActivationV2Error::PrivKeyPolicyNotAllowed(e) => EnablePlatformCoinWithTokensError::PrivKeyNotAllowed(e),
             EthActivationV2Error::InternalError(e) => EnablePlatformCoinWithTokensError::Internal(e),
         }
     }
@@ -155,14 +156,14 @@ impl PlatformWithTokensActivationOps for EthCoin {
         platform_conf: Json,
         activation_request: Self::ActivationRequest,
         _protocol: Self::PlatformProtocolInfo,
-        priv_key: &[u8],
+        priv_key_policy: PrivKeyBuildPolicy<'_>,
     ) -> Result<Self, MmError<Self::ActivationError>> {
         let platform_coin = eth_coin_from_conf_and_request_v2(
             &ctx,
             &ticker,
             &platform_conf,
             activation_request.platform_request,
-            priv_key,
+            priv_key_policy,
         )
         .await?;
 

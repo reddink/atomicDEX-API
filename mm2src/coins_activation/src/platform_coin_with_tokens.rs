@@ -2,7 +2,7 @@ use crate::prelude::*;
 use async_trait::async_trait;
 use coins::my_tx_history_v2::TxHistoryStorage;
 use coins::tx_history_storage::{CreateTxHistoryStorageError, TxHistoryStorageBuilder};
-use coins::{lp_coinfind, CoinProtocol, CoinsContext, MmCoinEnum};
+use coins::{lp_coinfind, CoinProtocol, CoinsContext, MmCoinEnum, PrivKeyBuildPolicy};
 use common::{log, HttpStatusCode, StatusCode};
 use derive_more::Display;
 use mm2_core::mm_ctx::MmArc;
@@ -150,7 +150,7 @@ pub trait PlatformWithTokensActivationOps: Into<MmCoinEnum> {
         coin_conf: Json,
         activation_request: Self::ActivationRequest,
         protocol_conf: Self::PlatformProtocolInfo,
-        priv_key: &[u8],
+        priv_key_policy: PrivKeyBuildPolicy<'_>,
     ) -> Result<Self, MmError<Self::ActivationError>>;
 
     fn token_initializers(
@@ -302,7 +302,13 @@ where
 
     let (platform_conf, platform_protocol) = coin_conf_with_protocol(&ctx, &req.ticker)?;
 
-    let priv_key = &*ctx.secp256k1_key_pair().private().secret;
+    // let crypto_ctx = CryptoCtx::from_ctx(&ctx)?;
+    // match crypto_ctx.key_pair_ctx() {
+    //
+    // };
+
+    // TODO
+    let priv_key_policy = todo!(); // &*ctx.secp256k1_key_pair().private().secret;
 
     let platform_coin = Platform::enable_platform_coin(
         ctx.clone(),
@@ -310,7 +316,7 @@ where
         platform_conf,
         req.request.clone(),
         platform_protocol,
-        priv_key,
+        priv_key_policy,
     )
     .await?;
     let mut mm_tokens = Vec::new();

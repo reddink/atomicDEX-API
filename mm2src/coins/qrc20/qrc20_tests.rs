@@ -37,7 +37,7 @@ pub fn qrc20_coin_for_test(priv_key: &[u8], fallback_swap: Option<&str>) -> (MmA
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = Qrc20ActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(qrc20_coin_from_conf_and_params(
+    let coin = block_on(qrc20_coin_with_priv_key(
         &ctx,
         "QRC20",
         "QTUM",
@@ -767,7 +767,7 @@ fn test_get_sender_trade_fee_preimage_for_correct_ticker() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = Qrc20ActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(qrc20_coin_from_conf_and_params(
+    let coin = block_on(qrc20_coin_with_priv_key(
         &ctx,
         "QRC20",
         "tQTUM",
@@ -875,7 +875,7 @@ fn test_coin_from_conf_without_decimals() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = Qrc20ActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(qrc20_coin_from_conf_and_params(
+    let coin = block_on(qrc20_coin_with_priv_key(
         &ctx,
         "QRC20",
         "QTUM",

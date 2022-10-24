@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use coins::my_tx_history_v2::TxHistoryStorage;
 use coins::tendermint::{TendermintActivationParams, TendermintCoin, TendermintInitError, TendermintInitErrorKind,
                         TendermintProtocolInfo};
-use coins::{CoinBalance, CoinProtocol, MarketCoinOps};
+use coins::{CoinBalance, CoinProtocol, MarketCoinOps, PrivKeyBuildPolicy};
 use common::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
@@ -66,9 +66,9 @@ impl PlatformWithTokensActivationOps for TendermintCoin {
         _coin_conf: Json,
         activation_request: Self::ActivationRequest,
         protocol_conf: Self::PlatformProtocolInfo,
-        priv_key: &[u8],
+        priv_key_policy: PrivKeyBuildPolicy<'_>,
     ) -> Result<Self, MmError<Self::ActivationError>> {
-        TendermintCoin::init(&ctx, ticker, protocol_conf, activation_request, priv_key).await
+        TendermintCoin::init(&ctx, ticker, protocol_conf, activation_request, priv_key_policy).await
     }
 
     fn token_initializers(

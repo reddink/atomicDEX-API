@@ -41,6 +41,8 @@ pub enum EnableLightningError {
     InvalidAddress(String),
     #[display(fmt = "Invalid path: {}", _0)]
     InvalidPath(String),
+    #[display(fmt = "Private key policy is not allowed: {}", _0)]
+    PrivKeyPolicyNotAllowed(String),
     #[display(fmt = "System time error {}", _0)]
     SystemTimeError(String),
     #[display(fmt = "RPC error {}", _0)]
@@ -53,7 +55,9 @@ pub enum EnableLightningError {
 impl HttpStatusCode for EnableLightningError {
     fn status_code(&self) -> StatusCode {
         match self {
-            EnableLightningError::InvalidRequest(_) | EnableLightningError::RpcError(_) => StatusCode::BAD_REQUEST,
+            EnableLightningError::InvalidRequest(_)
+            | EnableLightningError::RpcError(_)
+            | EnableLightningError::PrivKeyPolicyNotAllowed(_) => StatusCode::BAD_REQUEST,
             EnableLightningError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
             EnableLightningError::InvalidAddress(_)
             | EnableLightningError::InvalidPath(_)
@@ -76,6 +80,10 @@ impl From<SqlError> for EnableLightningError {
 
 impl From<UtxoRpcError> for EnableLightningError {
     fn from(e: UtxoRpcError) -> Self { EnableLightningError::RpcError(e.to_string()) }
+}
+
+impl From<PrivKeyNotAllowed> for EnableLightningError {
+    fn from(e: PrivKeyNotAllowed) -> Self { EnableLightningError::PrivKeyPolicyNotAllowed(e.to_string()) }
 }
 
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]

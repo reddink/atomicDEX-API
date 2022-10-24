@@ -1620,11 +1620,10 @@ fn test_choose_taker_confs_settings_sell_action() {
 fn make_ctx_for_tests() -> (MmArc, String, [u8; 32]) {
     let ctx = MmArc::new(MmCtx::default());
     ctx.init_metrics().unwrap();
-    ctx.secp256k1_key_pair
-        .pin(key_pair_from_seed("passphrase").unwrap())
-        .unwrap();
-    let secret = *(&*ctx.secp256k1_key_pair().private().secret);
-    let pubkey = hex::encode(&**ctx.secp256k1_key_pair().public());
+    let crypto_ctx = CryptoCtx::init_with_iguana_passphrase(ctx.clone(), "passphrase").unwrap();
+
+    let secret = crypto_ctx.mm2_internal_privkey_bytes().take();
+    let pubkey = crypto_ctx.mm2_internal_pubkey_hex();
     (ctx, pubkey, secret)
 }
 

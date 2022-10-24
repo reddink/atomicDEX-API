@@ -102,15 +102,15 @@ mod docker_tests {
     use bitcrypto::ChecksumType;
     use chain::{OutPoint, TransactionOutput};
     use coins::eth::{eth_coin_from_conf_and_request, EthCoin};
-    use coins::utxo::bch::{bch_coin_from_conf_and_params, BchActivationRequest, BchCoin};
+    use coins::utxo::bch::{bch_coin_from_conf_and_params, bch_coin_with_priv_key, BchActivationRequest, BchCoin};
     use coins::utxo::rpc_clients::{UnspentInfo, UtxoRpcClientEnum};
     use coins::utxo::slp::SlpToken;
     use coins::utxo::slp::{slp_genesis_output, SlpOutput};
     use coins::utxo::utxo_common::send_outputs_from_my_address;
     use coins::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
     use coins::utxo::{dhash160, GetUtxoListOps, UtxoActivationParams, UtxoCommonOps};
-    use coins::{CoinProtocol, FoundSwapTxSpend, MarketCoinOps, MmCoin, SearchForSwapTxSpendInput, SwapOps,
-                Transaction, TransactionEnum, WithdrawRequest};
+    use coins::{CoinProtocol, FoundSwapTxSpend, MarketCoinOps, MmCoin, PrivKeyBuildPolicy, SearchForSwapTxSpendInput,
+                SwapOps, Transaction, TransactionEnum, WithdrawRequest};
     use common::{block_on, now_ms};
     use crypto::privkey::{key_pair_from_secret, key_pair_from_seed};
     use futures01::Future;
@@ -265,16 +265,19 @@ mod docker_tests {
             "urls": ["http://195.201.0.6:8565"],
             "swap_contract_address": "0xa09ad3cd7e96586ebd05a2607ee56b56fb2db8fd",
         });
+
         let keypair =
             key_pair_from_seed("spice describe gravity federal blast come thank unfair canal monkey style afraid")
                 .unwrap();
+        let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(&*keypair.private().secret);
+
         block_on(eth_coin_from_conf_and_request(
             &MM_CTX,
             "ETH",
             &conf,
             &req,
-            &*keypair.private().secret,
             CoinProtocol::ETH,
+            priv_key_policy,
         ))
         .unwrap()
     }
@@ -301,7 +304,7 @@ mod docker_tests {
             let ctx = MmCtxBuilder::new().into_mm_arc();
             let params = BchActivationRequest::from_legacy_req(&req).unwrap();
 
-            let coin = block_on(bch_coin_from_conf_and_params(
+            let coin = block_on(bch_coin_with_priv_key(
                 &ctx,
                 ticker,
                 &conf,

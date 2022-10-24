@@ -1,4 +1,4 @@
-use keys::{KeyPair, Private, Public as PublicKey};
+use keys::{hash::H256, KeyPair, Private, Public as PublicKey};
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -26,9 +26,13 @@ pub struct IguanaCtx {
 }
 
 impl IguanaCtx {
+    pub fn secp256k1_key_pair(&self) -> &KeyPair { &self.secp256k1_key_pair }
+
     pub fn secp256k1_pubkey(&self) -> PublicKey { *self.secp256k1_key_pair.public() }
 
     pub fn secp256k1_privkey(&self) -> &Private { self.secp256k1_key_pair.private() }
 
-    pub fn secp256k1_privkey_bytes(&self) -> &[u8] { self.secp256k1_privkey().secret.as_slice() }
+    pub fn secp256k1_privkey_bytes(&self) -> H256 { self.secp256k1_privkey().secret }
+
+    pub fn secp256k1_privkey_slice(&self) -> &[u8] { self.secp256k1_privkey().secret.as_slice() }
 }

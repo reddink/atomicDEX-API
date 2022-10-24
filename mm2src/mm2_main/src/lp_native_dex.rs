@@ -463,7 +463,8 @@ pub async fn init_p2p(ctx: MmArc) -> P2PResult<()> {
 
     let ctx_on_poll = ctx.clone();
     let force_p2p_key = if i_am_seed {
-        let key = sha256(&*ctx.secp256k1_key_pair().private().secret);
+        let crypto_ctx = CryptoCtx::from_ctx(&ctx).mm_err(|e| P2PInitError::Internal(e.to_string()))?;
+        let key = sha256(crypto_ctx.mm2_internal_privkey_slice());
         Some(key.take())
     } else {
         None
