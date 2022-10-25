@@ -38,7 +38,7 @@ use base58::FromBase58Error;
 use common::executor::{abortable_queue::{AbortableQueue, WeakSpawner},
                        AbortSettings, SpawnAbortable, SpawnFuture};
 use common::{calc_total_pages, now_ms, ten, HttpStatusCode};
-use crypto::{Bip32Error, CryptoCtx, DerivationPath, HwRpcError, WithHwRpcError};
+use crypto::{Bip32Error, CryptoCtx, DerivationPath, HwRpcError, KeyPairPolicy, WithHwRpcError};
 use derive_more::Display;
 use enum_from::EnumFromTrait;
 use futures::compat::Future01CompatExt;
@@ -2112,8 +2112,14 @@ pub enum PrivKeyBuildPolicy<'a> {
 }
 
 impl<'a> PrivKeyBuildPolicy<'a> {
-    // TODO
-    pub fn default_with_priv_key(_crypto_ctx: &'a CryptoCtx) -> Self { todo!() }
+    /// Detects the `PrivKeyBuildPolicy` with which the given `CryptoCtx` is initialized.
+    pub fn detect_priv_key_policy(crypto_ctx: &'a CryptoCtx) -> Self {
+        match crypto_ctx.key_pair_policy() {
+            KeyPairPolicy::Iguana(iguana) => PrivKeyBuildPolicy::IguanaPrivKey(iguana.secp256k1_privkey_slice()),
+            // TODO
+            KeyPairPolicy::HDAccount(_) => todo!(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -2387,18 +2393,10 @@ pub async fn lp_coininit(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoin
             "assuming that coin is not supported"
         ));
     }
-    // let secret = try_s!(CryptoCtx::from_ctx(ctx))
-    //     .iguana_ctx()
-    //     .secp256k1_privkey_bytes()
-    //     .to_vec();
 
-    // let crypto_ctx = CryptoCtx::from_ctx(&ctx)?;
-    // match crypto_ctx.key_pair_ctx() {
-    //
-    // };
-
-    // TODO
-    let priv_key_policy = todo!();
+    let crypto_ctx = try_s!(CryptoCtx::from_ctx(ctx));
+    // The legacy electrum/enable RPCs don't support Hardware Wallet policy.
+    let priv_key_policy = PrivKeyBuildPolicy::detect_priv_key_policy(&crypto_ctx);
 
     if coins_en["protocol"].is_null() {
         return ERR!(

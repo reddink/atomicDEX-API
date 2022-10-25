@@ -76,7 +76,7 @@ pub async fn init_db(ctx: &MmArc, ticker: String) -> EnableLightningResult<Sqlit
     Ok(db)
 }
 
-pub fn init_keys_manager(ctx: &MmArc, platform: &Platform) -> EnableLightningResult<Arc<KeysManager>> {
+pub fn init_keys_manager(platform: &Platform) -> EnableLightningResult<Arc<KeysManager>> {
     // The current time is used to derive random numbers from the seed where required, to ensure all random generation is unique across restarts.
     // TODO validate that this is right
     let seed: [u8; 32] = platform

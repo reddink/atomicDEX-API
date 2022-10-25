@@ -3,7 +3,8 @@ use crate::my_tx_history_v2::{MyTxHistoryErrorV2, MyTxHistoryRequestV2, MyTxHist
 use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawInProgressStatus, WithdrawTaskHandle};
 use crate::utxo::rpc_clients::{ElectrumRpcRequest, UnspentInfo, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcFut,
                                UtxoRpcResult};
-use crate::utxo::utxo_builder::{UtxoCoinBuilderCommonOps, UtxoCoinWithPrivKeyBuilder, UtxoFieldsWithPrivKeyBuilder};
+use crate::utxo::utxo_builder::{UtxoCoinBuildError, UtxoCoinBuilderCommonOps, UtxoCoinWithPrivKeyBuilder,
+                                UtxoFieldsWithPrivKeyBuilder};
 use crate::utxo::utxo_common::{addresses_from_script, big_decimal_from_sat, big_decimal_from_sat_unsigned,
                                payment_script};
 use crate::utxo::{sat_from_big_decimal, utxo_common, ActualTxFee, AdditionalTxData, AddrFromStrError, Address,
@@ -13,12 +14,12 @@ use crate::utxo::{sat_from_big_decimal, utxo_common, ActualTxFee, AdditionalTxDa
                   VerboseTransactionFrom};
 use crate::{BalanceError, BalanceFut, CoinBalance, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, HistorySyncState,
             MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, NumConversError, PrivKeyActivationPolicy,
-            PrivKeyBuildPolicy, RawTransactionFut, RawTransactionRequest, SearchForSwapTxSpendInput, SignatureError,
-            SignatureResult, SwapOps, TradeFee, TradePreimageFut, TradePreimageResult, TradePreimageValue,
-            TransactionDetails, TransactionEnum, TransactionFut, TxFeeDetails, TxMarshalingErr,
-            UnexpectedDerivationMethod, ValidateAddressResult, ValidateOtherPubKeyErr, ValidatePaymentFut,
-            ValidatePaymentInput, VerificationError, VerificationResult, WatcherValidatePaymentInput, WithdrawFut,
-            WithdrawRequest};
+            PrivKeyBuildPolicy, PrivKeyNotAllowed, RawTransactionFut, RawTransactionRequest,
+            SearchForSwapTxSpendInput, SignatureError, SignatureResult, SwapOps, TradeFee, TradePreimageFut,
+            TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum, TransactionFut,
+            TxFeeDetails, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateOtherPubKeyErr,
+            ValidatePaymentFut, ValidatePaymentInput, VerificationError, VerificationResult,
+            WatcherValidatePaymentInput, WithdrawFut, WithdrawRequest};
 use crate::{Transaction, WithdrawError};
 use async_trait::async_trait;
 use bitcrypto::{dhash160, dhash256};
@@ -706,8 +707,17 @@ pub async fn z_coin_from_conf_and_params(
     protocol_info: ZcoinProtocolInfo,
     priv_key_policy: PrivKeyBuildPolicy<'_>,
 ) -> Result<ZCoin, MmError<ZCoinBuildError>> {
-    // TODO
-    let secp_priv_key = todo!(); // let secp_privkey = ctx.secp256k1_key_pair().private().secret;
+    let secp_priv_key = match priv_key_policy {
+        PrivKeyBuildPolicy::IguanaPrivKey(iguana) => iguana,
+        PrivKeyBuildPolicy::Trezor => {
+            // TODO consider adding `UtxoCoinBuildError::PrivKeyPolicyNotAllowed`.
+            return MmError::err(ZCoinBuildError::UtxoBuilderError(
+                UtxoCoinBuildError::UnexpectedDerivationMethod(
+                    PrivKeyNotAllowed::HardwareWalletNotSupported.to_string(),
+                ),
+            ));
+        },
+    };
 
     let z_key = ExtendedSpendingKey::master(secp_priv_key);
     let db_dir = ctx.dbdir();

@@ -68,7 +68,7 @@ impl<ProcessorError> From<HwProcessingError<ProcessorError>> for HwCtxInitError<
 impl<E> NotEqual for HwCtxInitError<E> {}
 
 pub struct CryptoCtx {
-    key_pair_ctx: KeyPairArc,
+    key_pair_policy: KeyPairPolicy,
     /// Can be initialized on [`CryptoCtx::init_hw_ctx_with_trezor`].
     hw_ctx: RwLock<HardwareWalletCtxState>,
 }
@@ -88,18 +88,7 @@ impl CryptoCtx {
             .map_err(|_| MmError::new(CryptoCtxError::Internal("Error casting the context field".to_owned())))
     }
 
-    pub fn key_pair_ctx(&self) -> KeyPairArc { self.key_pair_ctx.clone() }
-
-    // TODO remove
-    pub fn iguana_ctx(&self) -> &IguanaArc { todo!() }
-
-    // TODO rename or remove
-    pub fn iguana_ctx2(&self) -> Option<IguanaArc> {
-        match self.key_pair_ctx {
-            KeyPairArc::Iguana(ref iguana) => Some(iguana.clone()),
-            KeyPairArc::HDAccount(_) => None,
-        }
-    }
+    pub fn key_pair_policy(&self) -> &KeyPairPolicy { &self.key_pair_policy }
 
     /// Returns `secp256k1` public key hex.
     /// It can be used for mm2 internal purposes such as P2P peer ID.
@@ -111,9 +100,9 @@ impl CryptoCtx {
     /// If [`CryptoCtx::key_pair_ctx`] is `Iguana`, then the returning key-pair is used to activate coins.
     /// Please use this method carefully.
     pub fn mm2_internal_key_pair(&self) -> &KeyPair {
-        match self.key_pair_ctx {
-            KeyPairArc::Iguana(ref iguana) => iguana.secp256k1_key_pair(),
-            KeyPairArc::HDAccount(ref hd) => hd.mm2_internal_key_pair(),
+        match self.key_pair_policy {
+            KeyPairPolicy::Iguana(ref iguana) => iguana.secp256k1_key_pair(),
+            KeyPairPolicy::HDAccount(ref hd) => hd.mm2_internal_key_pair(),
         }
     }
 
@@ -128,9 +117,9 @@ impl CryptoCtx {
     /// at the activated coins.
     /// Please use this method carefully.
     pub fn mm2_internal_pubkey(&self) -> PublicKey {
-        match self.key_pair_ctx {
-            KeyPairArc::Iguana(ref iguana) => iguana.secp256k1_pubkey(),
-            KeyPairArc::HDAccount(ref hd) => hd.mm2_internal_pubkey(),
+        match self.key_pair_policy {
+            KeyPairPolicy::Iguana(ref iguana) => iguana.secp256k1_pubkey(),
+            KeyPairPolicy::HDAccount(ref hd) => hd.mm2_internal_pubkey(),
         }
     }
 
@@ -156,9 +145,9 @@ impl CryptoCtx {
     /// If [`CryptoCtx::key_pair_ctx`] is `Iguana`, then the returning private is used to activate coins.
     /// Please use this method carefully.
     pub fn mm2_internal_privkey_bytes(&self) -> H256 {
-        match self.key_pair_ctx {
-            KeyPairArc::Iguana(ref iguana) => iguana.secp256k1_privkey_bytes(),
-            KeyPairArc::HDAccount(ref hd) => hd.mm2_internal_privkey_bytes(),
+        match self.key_pair_policy {
+            KeyPairPolicy::Iguana(ref iguana) => iguana.secp256k1_privkey_bytes(),
+            KeyPairPolicy::HDAccount(ref hd) => hd.mm2_internal_privkey_bytes(),
         }
     }
 
@@ -174,9 +163,9 @@ impl CryptoCtx {
     /// If [`CryptoCtx::key_pair_ctx`] is `Iguana`, then the returning private is used to activate coins.
     /// Please use this method carefully.
     pub fn mm2_internal_privkey_slice(&self) -> &[u8] {
-        match self.key_pair_ctx {
-            KeyPairArc::Iguana(ref iguana) => iguana.secp256k1_privkey_slice(),
-            KeyPairArc::HDAccount(ref hd) => hd.mm2_internal_privkey_slice(),
+        match self.key_pair_policy {
+            KeyPairPolicy::Iguana(ref iguana) => iguana.secp256k1_privkey_slice(),
+            KeyPairPolicy::HDAccount(ref hd) => hd.mm2_internal_privkey_slice(),
         }
     }
 
@@ -204,7 +193,7 @@ impl CryptoCtx {
 
         let rmd160 = secp256k1_key_pair.public().address_hash();
         let crypto_ctx = CryptoCtx {
-            key_pair_ctx: KeyPairArc::Iguana(IguanaArc::from(secp256k1_key_pair)),
+            key_pair_policy: KeyPairPolicy::Iguana(IguanaArc::from(secp256k1_key_pair)),
             hw_ctx: RwLock::new(HardwareWalletCtxState::NotInitialized),
         };
         let result = Arc::new(crypto_ctx);
@@ -256,7 +245,7 @@ impl CryptoCtx {
 }
 
 #[derive(Clone)]
-pub enum KeyPairArc {
+pub enum KeyPairPolicy {
     Iguana(IguanaArc),
     HDAccount(HDAccountArc),
 }

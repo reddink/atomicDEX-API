@@ -838,11 +838,11 @@ mod tendermint_coin_tests {
 
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
-        let priv_key = &crypto::privkey::key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED)
+        let priv_key = crypto::privkey::key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED)
             .unwrap()
             .private()
             .secret;
-        let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(priv_key);
+        let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(priv_key.as_slice());
         let coin = common::block_on(TendermintCoin::init(
             &ctx,
             "USDC-IBC".to_string(),

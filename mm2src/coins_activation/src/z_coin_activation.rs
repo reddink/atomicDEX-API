@@ -9,9 +9,9 @@ use coins::my_tx_history_v2::TxHistoryStorage;
 use coins::tx_history_storage::CreateTxHistoryStorageError;
 use coins::z_coin::{z_coin_from_conf_and_params, BlockchainScanStopped, SyncStatus, ZCoin, ZCoinBuildError,
                     ZcoinActivationParams, ZcoinProtocolInfo};
-use coins::{BalanceError, CoinProtocol, MarketCoinOps, RegisterCoinError};
+use coins::{BalanceError, CoinProtocol, MarketCoinOps, PrivKeyBuildPolicy, RegisterCoinError};
 use crypto::hw_rpc_task::{HwRpcTaskAwaitingStatus, HwRpcTaskUserAction};
-use crypto::CryptoCtxError;
+use crypto::{CryptoCtx, CryptoCtxError};
 use derive_more::Display;
 use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
@@ -164,6 +164,10 @@ impl From<ZcoinInitError> for InitStandaloneCoinError {
     }
 }
 
+impl From<CryptoCtxError> for InitStandaloneCoinError {
+    fn from(e: CryptoCtxError) -> Self { InitStandaloneCoinError::Internal(e.to_string()) }
+}
+
 impl TryFromCoinProtocol for ZcoinProtocolInfo {
     fn try_from_coin_protocol(proto: CoinProtocol) -> Result<Self, MmError<CoinProtocol>>
     where
@@ -198,7 +202,10 @@ impl InitStandaloneCoinActivationOps for ZCoin {
         protocol_info: ZcoinProtocolInfo,
         task_handle: &ZcoinRpcTaskHandle,
     ) -> MmResult<Self, ZcoinInitError> {
-        let priv_key_policy = todo!();
+        let crypto_ctx = CryptoCtx::from_ctx(&ctx)?;
+        // When `ZCoin` supports Trezor, we'll need to check [`ZcoinActivationParams::priv_key_policy`]
+        // instead of using [`PrivKeyBuildPolicy::detect_priv_key_policy`].
+        let priv_key_policy = PrivKeyBuildPolicy::detect_priv_key_policy(&crypto_ctx);
 
         let coin = z_coin_from_conf_and_params(
             &ctx,

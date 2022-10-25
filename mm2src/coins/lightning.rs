@@ -690,7 +690,7 @@ pub async fn start_lightning(
     let persister = ln_utils::init_persister(ctx, conf.ticker.clone(), params.backup_path).await?;
 
     // Initialize the KeysManager
-    let keys_manager = ln_utils::init_keys_manager(ctx, &platform)?;
+    let keys_manager = ln_utils::init_keys_manager(&platform)?;
 
     // Initialize the P2PGossipSync. This is used for providing routes to send payments over
     let network_graph = Arc::new(

@@ -102,7 +102,7 @@ mod docker_tests {
     use bitcrypto::ChecksumType;
     use chain::{OutPoint, TransactionOutput};
     use coins::eth::{eth_coin_from_conf_and_request, EthCoin};
-    use coins::utxo::bch::{bch_coin_from_conf_and_params, bch_coin_with_priv_key, BchActivationRequest, BchCoin};
+    use coins::utxo::bch::{bch_coin_with_priv_key, BchActivationRequest, BchCoin};
     use coins::utxo::rpc_clients::{UnspentInfo, UtxoRpcClientEnum};
     use coins::utxo::slp::SlpToken;
     use coins::utxo::slp::{slp_genesis_output, SlpOutput};

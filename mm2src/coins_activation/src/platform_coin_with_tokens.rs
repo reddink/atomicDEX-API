@@ -4,6 +4,7 @@ use coins::my_tx_history_v2::TxHistoryStorage;
 use coins::tx_history_storage::{CreateTxHistoryStorageError, TxHistoryStorageBuilder};
 use coins::{lp_coinfind, CoinProtocol, CoinsContext, MmCoinEnum, PrivKeyBuildPolicy};
 use common::{log, HttpStatusCode, StatusCode};
+use crypto::{CryptoCtx, CryptoCtxError};
 use derive_more::Display;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
@@ -264,6 +265,10 @@ impl From<CreateTxHistoryStorageError> for EnablePlatformCoinWithTokensError {
     }
 }
 
+impl From<CryptoCtxError> for EnablePlatformCoinWithTokensError {
+    fn from(e: CryptoCtxError) -> Self { EnablePlatformCoinWithTokensError::Internal(e.to_string()) }
+}
+
 impl HttpStatusCode for EnablePlatformCoinWithTokensError {
     fn status_code(&self) -> StatusCode {
         match self {
@@ -302,13 +307,9 @@ where
 
     let (platform_conf, platform_protocol) = coin_conf_with_protocol(&ctx, &req.ticker)?;
 
-    // let crypto_ctx = CryptoCtx::from_ctx(&ctx)?;
-    // match crypto_ctx.key_pair_ctx() {
-    //
-    // };
-
-    // TODO
-    let priv_key_policy = todo!(); // &*ctx.secp256k1_key_pair().private().secret;
+    let crypto_ctx = CryptoCtx::from_ctx(&ctx)?;
+    // The `enable_*` RPC doesn't support Hardware Wallet policy.
+    let priv_key_policy = PrivKeyBuildPolicy::detect_priv_key_policy(&crypto_ctx);
 
     let platform_coin = Platform::enable_platform_coin(
         ctx.clone(),
