@@ -72,7 +72,7 @@ pub enum UtxoCoinBuildError {
     HDWalletStorageError(HDWalletStorageError),
     CoinDoesntSupportTrezor,
     BlockHeaderStorageError(BlockHeaderStorageError),
-    #[display(fmt = "Internal error: {}", _0)]
+    #[display(fmt = "CantGetBlockCount error: {}", _0)]
     CantGetBlockCount(String),
     #[display(fmt = "Internal error: {}", _0)]
     Internal(String),
