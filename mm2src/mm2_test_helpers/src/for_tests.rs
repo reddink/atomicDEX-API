@@ -121,14 +121,6 @@ const DEFAULT_RPC_PASSWORD: &str = "pass";
 
 pub const ETH_MAINNET_NODE: &str = "https://mainnet.infura.io/v3/c01c1b4cf66642528547624e1d6d9d6b";
 pub const ETH_MAINNET_SWAP_CONTRACT: &str = "0x24abe4c71fc658c91313b6552cd40cd808b3ea80";
-pub const KMD_ELECTRUM_ADDRS: &[&str] = &[
-    "electrum1.cipig.net:10001",
-    "electrum2.cipig.net:10001",
-    "electrum3.cipig.net:10001",
-    "electrum1.cipig.net:20001",
-    "electrum2.cipig.net:20001",
-    "electrum3.cipig.net:20001",
-];
 
 pub struct Mm2TestConf {
     pub conf: Json,

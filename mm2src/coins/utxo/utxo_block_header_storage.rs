@@ -65,7 +65,6 @@ impl BlockHeaderStorageOps for BlockHeaderStorage {
         &self,
         headers: HashMap<u64, BlockHeader>,
     ) -> Result<(), BlockHeaderStorageError> {
-        // println!("{:?}", &headers);
         self.inner.add_block_headers_to_storage(headers).await
     }
 
