@@ -247,12 +247,25 @@ async fn block_header_utxo_loop<T: UtxoCommonOps>(
             },
         };
 
-        let to_block_height = from_block_height + chunk_size;
-        let to_block_height = if to_block_height > block_count {
-            block_count
-        } else {
-            to_block_height
-        };
+        let mut to_block_height = from_block_height + chunk_size;
+        if to_block_height > block_count {
+            block_count = match coin.as_ref().rpc_client.get_block_count().compat().await {
+                Ok(h) => h,
+                Err(e) => {
+                    error!("Error {} on getting the height of the latest block from rpc!", e);
+                    sync_status_loop_handle.notify_on_temp_error(e.to_string());
+                    Timer::sleep(BLOCK_HEADERS_LOOP_SLEEP_TIMER).await;
+                    continue;
+                },
+            };
+
+            // More than `chunk_size` blocks could have appeared since the last `get_block_count` RPC.
+            // So reset `to_block_height` if only `from_block_height + chunk_size > actual_block_count`.
+            if to_block_height > block_count {
+                to_block_height = block_count;
+            }
+        }
+        drop_mutability!(to_block_height);
 
         // Todo: Add code for the case if a chain reorganization happens
         if from_block_height == block_count {
@@ -268,20 +281,7 @@ async fn block_header_utxo_loop<T: UtxoCommonOps>(
             .compat()
             .await
         {
-            Ok(res) => {
-                if to_block_height < block_count {
-                    block_count = match coin.as_ref().rpc_client.get_block_count().compat().await {
-                        Ok(h) => h,
-                        Err(e) => {
-                            error!("Error {} on getting the height of the latest block from rpc!", e);
-                            sync_status_loop_handle.notify_on_temp_error(e.to_string());
-                            Timer::sleep(BLOCK_HEADERS_LOOP_SLEEP_TIMER).await;
-                            continue;
-                        },
-                    };
-                }
-                res
-            },
+            Ok(res) => res,
             Err(error) => {
                 if error.get_inner().is_network_error() {
                     log!("Network Error: Will try fetching block headers again after 10 secs");
