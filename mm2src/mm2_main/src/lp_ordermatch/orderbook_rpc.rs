@@ -3,7 +3,7 @@ use crate::mm2::lp_ordermatch::{addr_format_from_protocol_info, RpcOrderbookEntr
 use coins::{address_by_coin_conf_and_pubkey_str, coin_conf, is_wallet_only_conf};
 use common::log::warn;
 use common::{now_ms, HttpStatusCode};
-use crypto::CryptoCtx;
+use crypto::{CryptoCtx, CryptoCtxError};
 use derive_more::Display;
 use http::{Response, StatusCode};
 use mm2_core::mm_ctx::MmArc;
@@ -144,14 +144,14 @@ pub async fn orderbook_rpc(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, S
     }
 
     try_s!(subscribe_to_orderbook_topic(&ctx, &base_ticker, &rel_ticker, request_orderbook).await);
-    let orderbook = ordermatch_ctx.orderbook.lock();
-    // TODO don't check `ctx.secp256k1_key_pair_as_option`, but check `no_login`.
-    let my_pubsecp = ctx.secp256k1_key_pair_as_option().map(|_| {
-        CryptoCtx::from_ctx(&ctx)
-            .expect("ctx is available")
-            .mm2_internal_pubkey_hex()
-    });
 
+    let my_pubsecp = match CryptoCtx::from_ctx(&ctx).discard_mm() {
+        Ok(crypto_ctx) => Some(crypto_ctx.mm2_internal_pubkey_hex()),
+        Err(CryptoCtxError::NotInitialized) => None,
+        Err(other) => return ERR!("{}", other),
+    };
+
+    let orderbook = ordermatch_ctx.orderbook.lock();
     let mut asks = match orderbook.unordered.get(&(base_ticker.clone(), rel_ticker.clone())) {
         Some(uuids) => {
             let mut orderbook_entries = Vec::new();
@@ -233,6 +233,7 @@ pub enum OrderbookRpcError {
     CoinConfigNotFound(String),
     CoinIsWalletOnly(String),
     P2PSubscribeError(String),
+    Internal(String),
 }
 
 impl HttpStatusCode for OrderbookRpcError {
@@ -242,7 +243,9 @@ impl HttpStatusCode for OrderbookRpcError {
             | OrderbookRpcError::BaseRelSameOrderbookTickersAndProtocols
             | OrderbookRpcError::CoinConfigNotFound(_)
             | OrderbookRpcError::CoinIsWalletOnly(_) => StatusCode::BAD_REQUEST,
-            OrderbookRpcError::P2PSubscribeError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            OrderbookRpcError::P2PSubscribeError(_) | OrderbookRpcError::Internal(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            },
         }
     }
 }
@@ -312,11 +315,14 @@ pub async fn orderbook_rpc_v2(
         .map_to_mm(OrderbookRpcError::P2PSubscribeError)?;
 
     let orderbook = ordermatch_ctx.orderbook.lock();
-    let my_pubsecp = ctx.secp256k1_key_pair_as_option().map(|_| {
-        CryptoCtx::from_ctx(&ctx)
-            .expect("ctx is available")
-            .mm2_internal_pubkey_hex()
-    });
+
+    let my_pubsecp = match CryptoCtx::from_ctx(&ctx).split_mm() {
+        Ok(crypto_ctx) => Some(crypto_ctx.mm2_internal_pubkey_hex()),
+        Err((CryptoCtxError::NotInitialized, _trace)) => None,
+        Err((CryptoCtxError::Internal(e), trace)) => {
+            return MmError::err_with_trace(OrderbookRpcError::Internal(e), trace)
+        },
+    };
 
     let mut asks = match orderbook.unordered.get(&(base_ticker.clone(), rel_ticker.clone())) {
         Some(uuids) => {

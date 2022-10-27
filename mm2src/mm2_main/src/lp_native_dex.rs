@@ -26,6 +26,7 @@ use crypto::{from_hw_error, CryptoCtx, CryptoInitError, HwError, HwProcessingErr
 use derive_more::Display;
 use enum_from::EnumFromTrait;
 use mm2_core::mm_ctx::{MmArc, MmCtx};
+use mm2_err_handle::common_errors::InternalError;
 use mm2_err_handle::prelude::*;
 use mm2_libp2p::{spawn_gossipsub, AdexBehaviourError, NodeType, RelayAddress, RelayAddressError, SwarmRuntime,
                  WssCerts};
@@ -240,6 +241,10 @@ impl From<HwProcessingError<RpcTaskError>> for MmInitError {
     }
 }
 
+impl From<InternalError> for MmInitError {
+    fn from(e: InternalError) -> Self { MmInitError::Internal(e.take()) }
+}
+
 impl MmInitError {
     pub fn db_directory_is_not_writable(path: &str) -> MmInitError {
         MmInitError::DbDirectoryIsNotWritable { path: path.to_owned() }
@@ -363,7 +368,7 @@ pub async fn lp_init_continue(ctx: MmArc) -> MmInitResult<()> {
     init_ordermatch_context(&ctx)?;
     init_p2p(ctx.clone()).await?;
 
-    if ctx.secp256k1_key_pair_as_option().is_none() {
+    if !CryptoCtx::is_init(&ctx)? {
         return Ok(());
     }
 

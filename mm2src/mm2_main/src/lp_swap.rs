@@ -1330,7 +1330,6 @@ mod lp_swap_tests {
     use coins::MarketCoinOps;
     use coins::PrivKeyActivationPolicy;
     use common::block_on;
-    use crypto::privkey::key_pair_from_seed;
     use mm2_core::mm_ctx::MmCtxBuilder;
     use mm2_test_helpers::for_tests::{morty_conf, rick_conf, MORTY_ELECTRUM_ADDRS, RICK_ELECTRUM_ADDRS};
 
@@ -1731,11 +1730,11 @@ mod lp_swap_tests {
             "i_am_seed": true,
         });
 
-        let maker_key_pair = key_pair_from_seed(&maker_passphrase).unwrap();
-        let maker_ctx = MmCtxBuilder::default()
-            .with_secp256k1_key_pair(maker_key_pair.clone())
-            .with_conf(maker_ctx_conf)
-            .into_mm_arc();
+        let maker_ctx = MmCtxBuilder::default().with_conf(maker_ctx_conf).into_mm_arc();
+        let maker_key_pair = *CryptoCtx::init_with_iguana_passphrase(maker_ctx.clone(), &maker_passphrase)
+            .unwrap()
+            .mm2_internal_key_pair();
+
         fix_directories(&maker_ctx).unwrap();
         block_on(init_p2p(maker_ctx.clone())).unwrap();
 
@@ -1762,17 +1761,17 @@ mod lp_swap_tests {
         ))
         .unwrap();
 
-        let taker_key_pair = key_pair_from_seed(&taker_passphrase).unwrap();
-
         let taker_ctx_conf = json!({
             "netid": 1234,
             "p2p_in_memory": true,
             "seednodes": vec!["/memory/777"]
         });
-        let taker_ctx = MmCtxBuilder::default()
-            .with_secp256k1_key_pair(taker_key_pair.clone())
-            .with_conf(taker_ctx_conf)
-            .into_mm_arc();
+
+        let taker_ctx = MmCtxBuilder::default().with_conf(taker_ctx_conf).into_mm_arc();
+        let taker_key_pair = *CryptoCtx::init_with_iguana_passphrase(taker_ctx.clone(), &taker_passphrase)
+            .unwrap()
+            .mm2_internal_key_pair();
+
         fix_directories(&taker_ctx).unwrap();
         block_on(init_p2p(taker_ctx.clone())).unwrap();
 

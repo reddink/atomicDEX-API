@@ -5,9 +5,12 @@ use crate::hw_error::HwError;
 use crate::iguana_ctx::IguanaArc;
 use crate::privkey::{key_pair_from_seed, PrivKeyError};
 use crate::Bip32Error;
+use arrayref::array_ref;
+use common::bits256;
 use derive_more::Display;
 use keys::{KeyPair, Public as PublicKey, Secret as Secp256k1Secret};
 use mm2_core::mm_ctx::MmArc;
+use mm2_err_handle::common_errors::InternalError;
 use mm2_err_handle::prelude::*;
 use parking_lot::RwLock;
 use primitives::hash::H160;
@@ -74,6 +77,14 @@ pub struct CryptoCtx {
 }
 
 impl CryptoCtx {
+    pub fn is_init(ctx: &MmArc) -> MmResult<bool, InternalError> {
+        match CryptoCtx::from_ctx(ctx).split_mm() {
+            Ok(_) => Ok(true),
+            Err((CryptoCtxError::NotInitialized, _trace)) => Ok(false),
+            Err((other, trace)) => MmError::err_with_trace(InternalError(other.to_string()), trace),
+        }
+    }
+
     pub fn from_ctx(ctx: &MmArc) -> MmResult<Arc<CryptoCtx>, CryptoCtxError> {
         let ctx_field = ctx
             .crypto_ctx
@@ -89,6 +100,17 @@ impl CryptoCtx {
     }
 
     pub fn key_pair_policy(&self) -> &KeyPairPolicy { &self.key_pair_policy }
+
+    /// This is our public ID, allowing us to be different from other peers.
+    /// This should also be our public key which we'd use for P2P message verification.
+    pub fn mm2_internal_public_id(&self) -> bits256 {
+        // Compressed public key is going to be 33 bytes.
+        let public = self.mm2_internal_pubkey();
+        // First byte is a prefix, https://davidederosa.com/basic-blockchain-programming/elliptic-curve-keys/.
+        bits256 {
+            bytes: *array_ref!(public, 1, 32),
+        }
+    }
 
     /// Returns `secp256k1` public key hex.
     /// It can be used for mm2 internal purposes such as P2P peer ID.
@@ -188,9 +210,6 @@ impl CryptoCtx {
         }
 
         let secp256k1_key_pair = key_pair_from_seed(passphrase)?;
-        // We can't clone `secp256k1_key_pair`, but it's used later to initialize legacy `MmCtx` fields.
-        let secp256k1_key_pair_for_legacy = key_pair_from_seed(passphrase)?;
-
         let rmd160 = secp256k1_key_pair.public().address_hash();
         let crypto_ctx = CryptoCtx {
             key_pair_policy: KeyPairPolicy::Iguana(IguanaArc::from(secp256k1_key_pair)),
@@ -201,9 +220,6 @@ impl CryptoCtx {
         drop(ctx_field);
 
         // TODO remove initializing legacy fields when no-login mode covers all cases.
-        ctx.secp256k1_key_pair
-            .pin(secp256k1_key_pair_for_legacy)
-            .map_to_mm(CryptoInitError::Internal)?;
         ctx.rmd160.pin(rmd160).map_to_mm(CryptoInitError::Internal)?;
 
         Ok(result)

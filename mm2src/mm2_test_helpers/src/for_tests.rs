@@ -17,6 +17,7 @@ use uuid::Uuid;
 use common::executor::Timer;
 use common::log;
 use common::{cfg_native, now_float, now_ms, PagingOptionsEnum};
+use crypto::CryptoCtx;
 use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
 use mm2_metrics::{MetricType, MetricsJson};
 
@@ -417,6 +418,14 @@ pub fn tbnb_conf() -> Json {
             "type": "ETH"
         }
     })
+}
+
+pub fn mm_ctx_with_iguana(passphrase: Option<&str>) -> MmArc {
+    const DEFAULT_IGUANA_PASSPHRASE: &str = "123";
+
+    let ctx = MmCtxBuilder::default().into_mm_arc();
+    CryptoCtx::init_with_iguana_passphrase(ctx.clone(), passphrase.unwrap_or(DEFAULT_IGUANA_PASSPHRASE)).unwrap();
+    ctx
 }
 
 #[cfg(target_arch = "wasm32")]

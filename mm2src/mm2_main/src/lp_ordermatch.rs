@@ -33,7 +33,7 @@ use common::log::{error, warn, LogOnError};
 use common::time_cache::TimeCache;
 use common::{bits256, log, new_uuid, now_ms};
 use crypto::privkey::SerializableSecp256k1Keypair;
-use crypto::CryptoCtx;
+use crypto::{CryptoCtx, CryptoCtxError};
 use derive_more::Display;
 use futures::{compat::Future01CompatExt, lock::Mutex as AsyncMutex, TryFutureExt};
 use hash256_std_hasher::Hash256StdHasher;
@@ -343,7 +343,12 @@ async fn request_and_fill_orderbook(ctx: &MmArc, base: &str, rel: &str) -> Resul
     let ordermatch_ctx = OrdermatchContext::from_ctx(ctx).unwrap();
     let mut orderbook = ordermatch_ctx.orderbook.lock();
 
-    let keypair = ctx.secp256k1_key_pair_as_option();
+    let my_pubkey = match CryptoCtx::from_ctx(ctx).discard_mm() {
+        Ok(crypto_ctx) => Some(crypto_ctx.mm2_internal_pubkey()),
+        Err(CryptoCtxError::NotInitialized) => None,
+        Err(other) => return ERR!("{}", other),
+    };
+
     let alb_pair = alb_ordered_pair(base, rel);
     for (pubkey, GetOrderbookPubkeyItem { orders, .. }) in pubkey_orders {
         let pubkey_bytes = match hex::decode(&pubkey) {
@@ -353,8 +358,10 @@ async fn request_and_fill_orderbook(ctx: &MmArc, base: &str, rel: &str) -> Resul
                 continue;
             },
         };
-        if let Some(keypair) = keypair {
-            if pubkey_bytes.as_slice() == keypair.public().as_ref() {
+
+        // TODO consider using `is_my_order` instead to cover ZCoin orders.
+        if let Some(ref pubkey) = my_pubkey {
+            if pubkey_bytes.as_slice() == pubkey.as_ref() {
                 continue;
             }
         }
@@ -3258,7 +3265,9 @@ async fn process_maker_reserved(ctx: MmArc, from_pubkey: H256Json, reserved_msg:
         }
     }
 
-    let our_public_id = ctx.public_id().unwrap();
+    let our_public_id = CryptoCtx::from_ctx(&ctx)
+        .expect("'CryptoCtx' must be initialized already")
+        .mm2_internal_public_id();
     if our_public_id.bytes == from_pubkey.0 {
         log::warn!("Skip maker reserved from our pubkey");
         return;
@@ -3332,7 +3341,10 @@ async fn process_maker_reserved(ctx: MmArc, from_pubkey: H256Json, reserved_msg:
 async fn process_maker_connected(ctx: MmArc, from_pubkey: H256Json, connected: MakerConnected) {
     log::debug!("Processing MakerConnected {:?}", connected);
     let ordermatch_ctx = OrdermatchContext::from_ctx(&ctx).unwrap();
-    let our_public_id = ctx.public_id().unwrap();
+
+    let our_public_id = CryptoCtx::from_ctx(&ctx)
+        .expect("'CryptoCtx' must be initialized already")
+        .mm2_internal_public_id();
     if our_public_id.bytes == from_pubkey.0 {
         log::warn!("Skip maker connected from our pubkey");
         return;
@@ -3369,7 +3381,12 @@ async fn process_maker_connected(ctx: MmArc, from_pubkey: H256Json, connected: M
 }
 
 async fn process_taker_request(ctx: MmArc, from_pubkey: H256Json, taker_request: TakerRequest) {
-    let our_public_id: H256Json = ctx.public_id().unwrap().bytes.into();
+    let our_public_id: H256Json = CryptoCtx::from_ctx(&ctx)
+        .expect("'CryptoCtx' must be initialized already")
+        .mm2_internal_public_id()
+        .bytes
+        .into();
+
     if our_public_id == from_pubkey {
         log::warn!("Skip the request originating from our pubkey");
         return;
@@ -3443,7 +3460,11 @@ async fn process_taker_request(ctx: MmArc, from_pubkey: H256Json, taker_request:
 async fn process_taker_connect(ctx: MmArc, sender_pubkey: H256Json, connect_msg: TakerConnect) {
     log::debug!("Processing TakerConnect {:?}", connect_msg);
     let ordermatch_ctx = OrdermatchContext::from_ctx(&ctx).unwrap();
-    let our_public_id = ctx.public_id().unwrap();
+
+    let our_public_id = CryptoCtx::from_ctx(&ctx)
+        .expect("'CryptoCtx' must be initialized already")
+        .mm2_internal_public_id();
+
     if our_public_id.bytes == sender_pubkey.0 {
         log::warn!("Skip taker connect from our pubkey");
         return;
@@ -3686,7 +3707,7 @@ pub async fn lp_auto_buy(
     };
     let ordermatch_ctx = try_s!(OrdermatchContext::from_ctx(ctx));
     let mut my_taker_orders = ordermatch_ctx.my_taker_orders.lock().await;
-    let our_public_id = try_s!(ctx.public_id());
+    let our_public_id = try_s!(CryptoCtx::from_ctx(&ctx)).mm2_internal_public_id();
     let rel_volume = &input.volume * &input.price;
     let conf_settings = OrderConfirmationsSettings {
         base_confs: input.base_confs.unwrap_or_else(|| base_coin.required_confirmations()),
