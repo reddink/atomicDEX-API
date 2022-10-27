@@ -632,6 +632,7 @@ pub struct CoinActivationResult {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UtxoStandardActivationResult {
+    pub ticker: String,
     pub current_block: u64,
     pub wallet_balance: EnableCoinBalance,
 }
@@ -652,7 +653,8 @@ pub enum MmRpcResult<T> {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, tag = "status", content = "details")]
 pub enum InitZcoinStatus {
-    Ok(MmRpcResult<CoinActivationResult>),
+    Ok(CoinActivationResult),
+    Error(Json),
     InProgress(Json),
     UserActionRequired(Json),
 }
@@ -660,7 +662,8 @@ pub enum InitZcoinStatus {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, tag = "status", content = "details")]
 pub enum InitUtxoStatus {
-    Ready(MmRpcResult<UtxoStandardActivationResult>),
+    Ok(UtxoStandardActivationResult),
+    Error(Json),
     InProgress(Json),
     UserActionRequired(Json),
 }
@@ -668,7 +671,8 @@ pub enum InitUtxoStatus {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, tag = "status", content = "details")]
 pub enum WithdrawStatus {
-    Ready(MmRpcResult<TransactionDetails>),
+    Ok(TransactionDetails),
+    Error(Json),
     InProgress(Json),
     UserActionRequired(Json),
 }
@@ -885,7 +889,7 @@ pub struct MmVersion {
     pub datetime: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields, tag = "address_type", content = "address_data")]
 pub enum OrderbookAddress {
     Transparent(String),
@@ -971,6 +975,7 @@ pub struct TendermintActivationResult {
     pub address: String,
     pub current_block: u64,
     pub balance: CoinBalance,
+    pub tokens_balances: HashMap<String, CoinBalance>,
     pub ticker: String,
 }
 

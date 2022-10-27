@@ -251,12 +251,14 @@ fn send_and_refund_erc20_payment() {
 
     let payment = coin
         .send_maker_payment(
+            0,
             (now_ms() / 1000) as u32 - 200,
             &DEX_FEE_ADDR_RAW_PUBKEY,
             &[1; 20],
             "0.001".parse().unwrap(),
             &coin.swap_contract_address(),
             &[],
+            &None,
         )
         .wait()
         .unwrap();
@@ -320,12 +322,14 @@ fn send_and_refund_eth_payment() {
 
     let payment = coin
         .send_maker_payment(
+            0,
             (now_ms() / 1000) as u32 - 200,
             &DEX_FEE_ADDR_RAW_PUBKEY,
             &[1; 20],
             "0.001".parse().unwrap(),
             &coin.swap_contract_address(),
             &[],
+            &None,
         )
         .wait()
         .unwrap();
@@ -473,7 +477,7 @@ fn test_wait_for_payment_spend_timeout() {
     ];
 
     assert!(coin
-        .wait_for_tx_spend(&tx_bytes, wait_until, from_block, &coin.swap_contract_address())
+        .wait_for_htlc_tx_spend(&tx_bytes, &[], wait_until, from_block, &coin.swap_contract_address())
         .wait()
         .is_err());
 }
@@ -545,7 +549,7 @@ fn test_search_for_swap_tx_spend_was_spent() {
     ];
     let spend_tx = FoundSwapTxSpend::Spent(signed_eth_tx_from_bytes(&spend_tx).unwrap().into());
 
-    let found_tx = block_on(coin.search_for_swap_tx_spend(&payment_tx, swap_contract_address, 15643275))
+    let found_tx = block_on(coin.search_for_swap_tx_spend(&payment_tx, swap_contract_address, &[0; 20], 15643279))
         .unwrap()
         .unwrap();
     assert_eq!(spend_tx, found_tx);
@@ -657,7 +661,7 @@ fn test_search_for_swap_tx_spend_was_refunded() {
     ];
     let refund_tx = FoundSwapTxSpend::Refunded(signed_eth_tx_from_bytes(&refund_tx).unwrap().into());
 
-    let found_tx = block_on(coin.search_for_swap_tx_spend(&payment_tx, swap_contract_address, 13638713))
+    let found_tx = block_on(coin.search_for_swap_tx_spend(&payment_tx, swap_contract_address, &[0; 20], 13638713))
         .unwrap()
         .unwrap();
     assert_eq!(refund_tx, found_tx);
@@ -683,6 +687,7 @@ fn test_withdraw_impl_manual_fee() {
             gas: 150000,
             gas_price: 1.into(),
         }),
+        memo: None,
     };
     coin.my_balance().wait().unwrap();
 
@@ -726,6 +731,7 @@ fn test_withdraw_impl_fee_details() {
             gas: 150000,
             gas_price: 1.into(),
         }),
+        memo: None,
     };
     coin.my_balance().wait().unwrap();
 
@@ -1259,6 +1265,7 @@ fn polygon_check_if_my_payment_sent() {
             22185109,
             &Some(swap_contract_address),
             &[],
+            &BigDecimal::default(),
         )
         .wait()
         .unwrap()
@@ -1412,7 +1419,7 @@ fn test_eth_extract_secret() {
         100, 189, 72, 74, 221, 144, 66, 170, 68, 121, 29, 105, 19, 194, 35, 245, 196, 131, 236, 29, 105, 101, 30,
     ];
 
-    let secret = coin.extract_secret(&[0u8; 20], tx_hex.as_slice());
+    let secret = block_on(coin.extract_secret(&[0u8; 20], tx_hex.as_slice()));
     assert!(secret.is_ok());
     let expect_secret = &[
         168, 151, 11, 232, 224, 253, 63, 180, 26, 114, 23, 184, 27, 10, 161, 80, 178, 251, 73, 204, 80, 174, 97, 118,

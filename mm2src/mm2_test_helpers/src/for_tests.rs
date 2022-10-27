@@ -299,6 +299,7 @@ pub fn morty_conf() -> Json {
 pub fn atom_testnet_conf() -> Json {
     json!({
         "coin":"ATOM",
+        "avg_block_time": 5,
         "protocol":{
             "type":"TENDERMINT",
             "protocol_data": {
@@ -357,6 +358,63 @@ pub fn tbtc_with_spv_conf() -> Json {
             "constant_difficulty": false,
             "difficulty_algorithm": "Bitcoin Testnet",
             "genesis_block_header": "0100000043497fd7f826957108f4a30fd9cec3aeba79972084e90ead01ea330900000000bac8b0fa927c0ac8234287e33c5f74d38d354820e24756ad709d7038fc5f31f020e7494dffff001d03e4b672"
+        }
+    })
+}
+
+pub fn iris_testnet_conf() -> Json {
+    json!({
+        "coin":"IRIS-TEST",
+        "avg_block_time": 5,
+        "protocol":{
+            "type":"TENDERMINT",
+            "protocol_data": {
+                "decimals": 6,
+                "denom": "unyan",
+                "account_prefix": "iaa",
+                "chain_id": "nyancat-9",
+            },
+        }
+    })
+}
+
+pub fn iris_nimda_testnet_conf() -> Json {
+    json!({"coin":"IRIS-NIMDA",
+        "protocol":{
+            "type":"TENDERMINTTOKEN",
+            "protocol_data": {
+                "platform": "IRIS-TEST",
+                "decimals": 6,
+                "denom": "nim",
+            },
+        }
+    })
+}
+
+pub fn usdc_ibc_iris_testnet_conf() -> Json {
+    json!({
+        "coin":"USDC-IBC-IRIS",
+        "protocol":{
+            "type":"TENDERMINTTOKEN",
+            "protocol_data": {
+                "platform": "IRIS-TEST",
+                "decimals": 6,
+                "denom": "ibc/5C465997B4F582F602CD64E12031C6A6E18CAF1E6EDC9B5D808822DC0B5F850C",
+            },
+        }
+    })
+}
+
+pub fn tbnb_conf() -> Json {
+    json!({
+        "coin": "tBNB",
+        "name": "binancesmartchaintest",
+        "avg_blocktime": 0.25,
+        "chain_id": 97,
+        "mm2": 1,
+        "required_confirmations": 0,
+        "protocol": {
+            "type": "ETH"
         }
     })
 }
@@ -1154,6 +1212,22 @@ pub async fn enable_native(mm: &MarketMakerIt, coin: &str, urls: &[&str]) -> Jso
     json::from_str(&native.1).unwrap()
 }
 
+pub async fn enable_eth_coin(mm: &MarketMakerIt, coin: &str, urls: &[&str], swap_contract_address: &str) -> Json {
+    let enable = mm
+        .rpc(&json! ({
+            "userpass": mm.userpass,
+            "method": "enable",
+            "coin": coin,
+            "urls": urls,
+            "swap_contract_address": swap_contract_address,
+            "mm2": 1,
+        }))
+        .await
+        .unwrap();
+    assert_eq!(enable.0, StatusCode::OK, "'enable' failed: {}", enable.1);
+    json::from_str(&enable.1).unwrap()
+}
+
 pub async fn enable_spl(mm: &MarketMakerIt, coin: &str) -> Json {
     let req = json!({
         "userpass": mm.userpass,
@@ -1576,6 +1650,20 @@ pub async fn wait_till_history_has_records(mm: &MarketMakerIt, coin: &str, expec
     }
 }
 
+pub async fn orderbook(mm: &MarketMakerIt, base: &str, rel: &str) -> Json {
+    let request = mm
+        .rpc(&json!({
+            "userpass": mm.userpass,
+            "method": "orderbook",
+            "base": base,
+            "rel": rel,
+        }))
+        .await
+        .unwrap();
+    assert_eq!(request.0, StatusCode::OK, "'orderbook' failed: {}", request.1);
+    json::from_str(&request.1).unwrap()
+}
+
 pub async fn orderbook_v2(mm: &MarketMakerIt, base: &str, rel: &str) -> Json {
     let request = mm
         .rpc(&json! ({
@@ -1615,7 +1703,7 @@ pub async fn init_withdraw(mm: &MarketMakerIt, coin: &str, to: &str, amount: &st
     let request = mm
         .rpc(&json! ({
             "userpass": mm.userpass,
-            "method": "init_withdraw",
+            "method": "task::withdraw::init",
             "mmrpc": "2.0",
             "params": {
                 "coin": coin,
@@ -1625,7 +1713,12 @@ pub async fn init_withdraw(mm: &MarketMakerIt, coin: &str, to: &str, amount: &st
         }))
         .await
         .unwrap();
-    assert_eq!(request.0, StatusCode::OK, "'init_withdraw' failed: {}", request.1);
+    assert_eq!(
+        request.0,
+        StatusCode::OK,
+        "'task::withdraw::init' failed: {}",
+        request.1
+    );
     json::from_str(&request.1).unwrap()
 }
 
@@ -1648,7 +1741,7 @@ pub async fn withdraw_status(mm: &MarketMakerIt, task_id: u64) -> Json {
     let request = mm
         .rpc(&json! ({
             "userpass": mm.userpass,
-            "method": "withdraw_status",
+            "method": "task::withdraw::status",
             "mmrpc": "2.0",
             "params": {
                 "task_id": task_id,
@@ -1656,7 +1749,12 @@ pub async fn withdraw_status(mm: &MarketMakerIt, task_id: u64) -> Json {
         }))
         .await
         .unwrap();
-    assert_eq!(request.0, StatusCode::OK, "'withdraw_status' failed: {}", request.1);
+    assert_eq!(
+        request.0,
+        StatusCode::OK,
+        "'task::withdraw::status' failed: {}",
+        request.1
+    );
     json::from_str(&request.1).unwrap()
 }
 
@@ -1664,7 +1762,7 @@ pub async fn init_z_coin_native(mm: &MarketMakerIt, coin: &str) -> Json {
     let request = mm
         .rpc(&json! ({
             "userpass": mm.userpass,
-            "method": "init_z_coin",
+            "method": "task::enable_z_coin::init",
             "mmrpc": "2.0",
             "params": {
                 "ticker": coin,
@@ -1677,7 +1775,12 @@ pub async fn init_z_coin_native(mm: &MarketMakerIt, coin: &str) -> Json {
         }))
         .await
         .unwrap();
-    assert_eq!(request.0, StatusCode::OK, "'init_z_coin' failed: {}", request.1);
+    assert_eq!(
+        request.0,
+        StatusCode::OK,
+        "'task::enable_z_coin::init' failed: {}",
+        request.1
+    );
     json::from_str(&request.1).unwrap()
 }
 
@@ -1702,7 +1805,12 @@ pub async fn init_z_coin_light(mm: &MarketMakerIt, coin: &str, electrums: &[&str
         }))
         .await
         .unwrap();
-    assert_eq!(request.0, StatusCode::OK, "'init_z_coin' failed: {}", request.1);
+    assert_eq!(
+        request.0,
+        StatusCode::OK,
+        "'task::enable_z_coin::init' failed: {}",
+        request.1
+    );
     json::from_str(&request.1).unwrap()
 }
 
@@ -1718,7 +1826,12 @@ pub async fn init_z_coin_status(mm: &MarketMakerIt, task_id: u64) -> Json {
         }))
         .await
         .unwrap();
-    assert_eq!(request.0, StatusCode::OK, "'init_z_coin_status' failed: {}", request.1);
+    assert_eq!(
+        request.0,
+        StatusCode::OK,
+        "'task::enable_z_coin::status' failed: {}",
+        request.1
+    );
     json::from_str(&request.1).unwrap()
 }
 
@@ -1793,25 +1906,55 @@ pub async fn my_balance(mm: &MarketMakerIt, coin: &str) -> Json {
     json::from_str(&request.1).unwrap()
 }
 
-pub async fn enable_tendermint(mm: &MarketMakerIt, coin: &str, rpc_urls: &[&str]) -> Json {
-    let request = mm
-        .rpc(&json! ({
-            "userpass": mm.userpass,
-            "method": "enable_tendermint_with_assets",
-            "mmrpc": "2.0",
-            "params": {
-                "ticker": coin,
-                "rpc_urls": rpc_urls,
-            }
-        }))
-        .await
-        .unwrap();
+pub async fn enable_tendermint(mm: &MarketMakerIt, coin: &str, ibc_assets: &[&str], rpc_urls: &[&str]) -> Json {
+    let ibc_requests: Vec<_> = ibc_assets.iter().map(|ticker| json!({ "ticker": ticker })).collect();
+
+    let request = json! ({
+        "userpass": mm.userpass,
+        "method": "enable_tendermint_with_assets",
+        "mmrpc": "2.0",
+        "params": {
+            "ticker": coin,
+            "tokens_params": ibc_requests,
+            "rpc_urls": rpc_urls,
+        }
+    });
+    println!(
+        "enable_tendermint_with_assets request {}",
+        json::to_string(&request).unwrap()
+    );
+
+    let request = mm.rpc(&request).await.unwrap();
     assert_eq!(
         request.0,
         StatusCode::OK,
         "'enable_tendermint_with_assets' failed: {}",
         request.1
     );
+    println!("enable_tendermint_with_assets response {}", request.1);
+    json::from_str(&request.1).unwrap()
+}
+
+pub async fn enable_tendermint_token(mm: &MarketMakerIt, coin: &str) -> Json {
+    let request = json! ({
+        "userpass": mm.userpass,
+        "method": "enable_tendermint_token",
+        "mmrpc": "2.0",
+        "params": {
+            "ticker": coin,
+            "activation_params": {}
+        }
+    });
+    println!("enable_tendermint_token request {}", json::to_string(&request).unwrap());
+
+    let request = mm.rpc(&request).await.unwrap();
+    assert_eq!(
+        request.0,
+        StatusCode::OK,
+        "'enable_tendermint_token' failed: {}",
+        request.1
+    );
+    println!("enable_tendermint_token response {}", request.1);
     json::from_str(&request.1).unwrap()
 }
 
@@ -1819,7 +1962,7 @@ pub async fn init_utxo_electrum(mm: &MarketMakerIt, coin: &str, servers: Vec<Jso
     let request = mm
         .rpc(&json! ({
             "userpass": mm.userpass,
-            "method": "init_utxo",
+            "method": "task::enable_utxo::init",
             "mmrpc": "2.0",
             "params": {
                 "ticker": coin,
@@ -1835,7 +1978,12 @@ pub async fn init_utxo_electrum(mm: &MarketMakerIt, coin: &str, servers: Vec<Jso
         }))
         .await
         .unwrap();
-    assert_eq!(request.0, StatusCode::OK, "'init_z_coin' failed: {}", request.1);
+    assert_eq!(
+        request.0,
+        StatusCode::OK,
+        "'task::enable_utxo::init' failed: {}",
+        request.1
+    );
     json::from_str(&request.1).unwrap()
 }
 
@@ -1843,7 +1991,7 @@ pub async fn init_utxo_status(mm: &MarketMakerIt, task_id: u64) -> Json {
     let request = mm
         .rpc(&json! ({
             "userpass": mm.userpass,
-            "method": "init_utxo_status",
+            "method": "task::enable_utxo::status",
             "mmrpc": "2.0",
             "params": {
                 "task_id": task_id,
@@ -1851,6 +1999,27 @@ pub async fn init_utxo_status(mm: &MarketMakerIt, task_id: u64) -> Json {
         }))
         .await
         .unwrap();
-    assert_eq!(request.0, StatusCode::OK, "'init_utxo_status' failed: {}", request.1);
+    assert_eq!(
+        request.0,
+        StatusCode::OK,
+        "'task::enable_utxo::status' failed: {}",
+        request.1
+    );
+    json::from_str(&request.1).unwrap()
+}
+
+pub async fn set_price(mm: &MarketMakerIt, base: &str, rel: &str, price: &str, vol: &str) -> Json {
+    let request = mm
+        .rpc(&json!({
+            "userpass": mm.userpass,
+            "method": "setprice",
+            "base": base,
+            "rel": rel,
+            "price": price,
+            "volume": vol,
+        }))
+        .await
+        .unwrap();
+    assert_eq!(request.0, StatusCode::OK, "'setprice' failed: {}", request.1);
     json::from_str(&request.1).unwrap()
 }
