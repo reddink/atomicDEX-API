@@ -38,7 +38,8 @@ use base58::FromBase58Error;
 use common::executor::{abortable_queue::{AbortableQueue, WeakSpawner},
                        AbortSettings, SpawnAbortable, SpawnFuture};
 use common::{calc_total_pages, now_ms, ten, HttpStatusCode};
-use crypto::{Bip32Error, CryptoCtx, DerivationPath, HwRpcError, KeyPairPolicy, WithHwRpcError};
+use crypto::{Bip32Error, CryptoCtx, DerivationPath, GlobalHDAccountArc, HwRpcError, KeyPairPolicy, Secp256k1Secret,
+             WithHwRpcError};
 use derive_more::Display;
 use enum_from::EnumFromTrait;
 use futures::compat::Future01CompatExt;
@@ -248,6 +249,9 @@ use utxo::{BlockchainNetwork, GenerateTxError, UtxoFeeDetails, UtxoTx};
 #[cfg(not(target_arch = "wasm32"))] pub mod z_coin;
 #[cfg(not(target_arch = "wasm32"))] use z_coin::ZCoin;
 
+pub type IguanaPrivKey = Secp256k1Secret;
+
+pub type TransactionFut = Box<dyn Future<Item = TransactionEnum, Error = TransactionErr> + Send>;
 pub type BalanceResult<T> = Result<T, MmError<BalanceError>>;
 pub type BalanceFut<T> = Box<dyn Future<Item = T, Error = MmError<BalanceError>> + Send>;
 pub type NonZeroBalanceFut<T> = Box<dyn Future<Item = T, Error = MmError<GetNonZeroBalance>> + Send>;
@@ -418,8 +422,6 @@ impl TransactionErr {
         }
     }
 }
-
-pub type TransactionFut = Box<dyn Future<Item = TransactionEnum, Error = TransactionErr> + Send>;
 
 #[derive(Debug, PartialEq)]
 pub enum FoundSwapTxSpend {
@@ -2070,14 +2072,14 @@ impl CoinsContext {
 /// This enum is used in coin activation requests.
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub enum PrivKeyActivationPolicy {
-    IguanaPrivKey,
+    ContextPrivKey,
     Trezor,
 }
 
 impl PrivKeyActivationPolicy {
     /// The function can be used as a default deserialization constructor:
-    /// `#[serde(default = "PrivKeyActivationPolicy::iguana_priv_key")]`
-    pub fn iguana_priv_key() -> PrivKeyActivationPolicy { PrivKeyActivationPolicy::IguanaPrivKey }
+    /// `#[serde(default = "PrivKeyActivationPolicy::context_priv_key")]`
+    pub fn context_priv_key() -> PrivKeyActivationPolicy { PrivKeyActivationPolicy::ContextPrivKey }
 
     /// The function can be used as a default deserialization constructor:
     /// `#[serde(default = "PrivKeyActivationPolicy::trezor")]`
@@ -2104,24 +2106,24 @@ impl<T> PrivKeyPolicy<T> {
     }
 }
 
-/// TODO add HDAccountPrivKey
 #[derive(Clone)]
-pub enum PrivKeyBuildPolicy<'a> {
-    IguanaPrivKey(&'a [u8]),
+pub enum PrivKeyBuildPolicy {
+    IguanaPrivKey(IguanaPrivKey),
+    GlobalHDAccount(GlobalHDAccountArc),
     Trezor,
 }
 
-impl<'a> PrivKeyBuildPolicy<'a> {
+impl PrivKeyBuildPolicy {
     /// Detects the `PrivKeyBuildPolicy` with which the given `CryptoCtx` is initialized.
-    pub fn detect_priv_key_policy(crypto_ctx: &'a CryptoCtx) -> Self {
+    pub fn detect_priv_key_policy(crypto_ctx: &CryptoCtx) -> Self {
         match crypto_ctx.key_pair_policy() {
-            KeyPairPolicy::Iguana(iguana) => PrivKeyBuildPolicy::IguanaPrivKey(iguana.secp256k1_privkey_slice()),
-            // TODO
-            KeyPairPolicy::HDAccount(_) => todo!(),
+            KeyPairPolicy::Iguana(iguana) => PrivKeyBuildPolicy::IguanaPrivKey(iguana.secp256k1_privkey_bytes()),
+            KeyPairPolicy::GlobalHDAccount(hd_ctx) => PrivKeyBuildPolicy::GlobalHDAccount(hd_ctx.clone()),
         }
     }
 }
 
+/// TODO rename `Iguana` to `SingleAddress`.
 #[derive(Debug)]
 pub enum DerivationMethod<Address, HDWallet> {
     Iguana(Address),

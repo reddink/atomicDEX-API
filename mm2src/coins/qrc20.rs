@@ -8,14 +8,15 @@ use crate::utxo::rpc_clients::{ElectrumClient, NativeClient, UnspentInfo, UtxoRp
 #[cfg(not(target_arch = "wasm32"))]
 use crate::utxo::tx_cache::{UtxoVerboseCacheOps, UtxoVerboseCacheShared};
 use crate::utxo::utxo_builder::{UtxoCoinBuildError, UtxoCoinBuildResult, UtxoCoinBuilder, UtxoCoinBuilderCommonOps,
-                                UtxoFieldsWithHardwareWalletBuilder, UtxoFieldsWithPrivKeyBuilder};
+                                UtxoFieldsWithGlobalHDBuilder, UtxoFieldsWithHardwareWalletBuilder,
+                                UtxoFieldsWithIguanaSecretBuilder};
 use crate::utxo::utxo_common::{self, big_decimal_from_sat, check_all_inputs_signed_by_pub, UtxoTxBuilder};
 use crate::utxo::{qtum, ActualTxFee, AdditionalTxData, AddrFromStrError, BroadcastTxErr, FeePolicy, GenerateTxError,
                   GetUtxoListOps, HistoryUtxoTx, HistoryUtxoTxMap, MatureUnspentList, RecentlySpentOutPointsGuard,
                   UtxoActivationParams, UtxoAddressFormat, UtxoCoinFields, UtxoCommonOps, UtxoFromLegacyReqErr,
                   UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps, VerboseTransactionFrom, UTXO_LOCK};
 use crate::{BalanceError, BalanceFut, CoinBalance, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, HistorySyncState,
-            MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, PrivKeyBuildPolicy, PrivKeyNotAllowed,
+            IguanaPrivKey, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, PrivKeyBuildPolicy, PrivKeyNotAllowed,
             RawTransactionFut, RawTransactionRequest, SearchForSwapTxSpendInput, SignatureResult, SwapOps, TradeFee,
             TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails,
             TransactionEnum, TransactionErr, TransactionFut, TransactionType, TxMarshalingErr,
@@ -154,7 +155,7 @@ struct Qrc20CoinBuilder<'a> {
     ticker: &'a str,
     conf: &'a Json,
     activation_params: &'a Qrc20ActivationParams,
-    priv_key_policy: PrivKeyBuildPolicy<'a>,
+    priv_key_policy: PrivKeyBuildPolicy,
     platform: String,
     token_contract_address: H160,
 }
@@ -165,7 +166,7 @@ impl<'a> Qrc20CoinBuilder<'a> {
         ticker: &'a str,
         conf: &'a Json,
         activation_params: &'a Qrc20ActivationParams,
-        priv_key_policy: PrivKeyBuildPolicy<'a>,
+        priv_key_policy: PrivKeyBuildPolicy,
         platform: String,
         token_contract_address: H160,
     ) -> Qrc20CoinBuilder<'a> {
@@ -256,7 +257,9 @@ impl<'a> UtxoCoinBuilderCommonOps for Qrc20CoinBuilder<'a> {
     }
 }
 
-impl<'a> UtxoFieldsWithPrivKeyBuilder for Qrc20CoinBuilder<'a> {}
+impl<'a> UtxoFieldsWithIguanaSecretBuilder for Qrc20CoinBuilder<'a> {}
+
+impl<'a> UtxoFieldsWithGlobalHDBuilder for Qrc20CoinBuilder<'a> {}
 
 /// Although, `Qrc20Coin` doesn't support [`PrivKeyBuildPolicy::Trezor`] yet,
 /// `UtxoCoinBuilder` trait requires `UtxoFieldsWithHardwareWalletBuilder` to be implemented.
@@ -267,11 +270,14 @@ impl<'a> UtxoCoinBuilder for Qrc20CoinBuilder<'a> {
     type ResultCoin = Qrc20Coin;
     type Error = UtxoCoinBuildError;
 
-    fn priv_key_policy(&self) -> PrivKeyBuildPolicy<'_> { self.priv_key_policy.clone() }
+    fn priv_key_policy(&self) -> PrivKeyBuildPolicy { self.priv_key_policy.clone() }
 
     async fn build(self) -> MmResult<Self::ResultCoin, Self::Error> {
-        let priv_key = match self.priv_key_policy() {
-            PrivKeyBuildPolicy::IguanaPrivKey(priv_key) => priv_key,
+        let utxo = match self.priv_key_policy() {
+            PrivKeyBuildPolicy::IguanaPrivKey(priv_key) => self.build_utxo_fields_with_iguana_secret(priv_key).await?,
+            PrivKeyBuildPolicy::GlobalHDAccount(global_hd_ctx) => {
+                self.build_utxo_fields_with_global_hd(global_hd_ctx).await?
+            },
             PrivKeyBuildPolicy::Trezor => {
                 // TODO consider adding `UtxoCoinBuildError::PrivKeyPolicyNotAllowed`.
                 return MmError::err(UtxoCoinBuildError::UnexpectedDerivationMethod(
@@ -280,7 +286,6 @@ impl<'a> UtxoCoinBuilder for Qrc20CoinBuilder<'a> {
             },
         };
 
-        let utxo = self.build_utxo_fields_with_iguana_priv_key(priv_key).await?;
         let inner = Qrc20CoinFields {
             utxo,
             platform: self.platform,
@@ -298,7 +303,7 @@ pub async fn qrc20_coin_with_policy(
     platform: &str,
     conf: &Json,
     params: &Qrc20ActivationParams,
-    priv_key_policy: PrivKeyBuildPolicy<'_>,
+    priv_key_policy: PrivKeyBuildPolicy,
     contract_address: H160,
 ) -> Result<Qrc20Coin, String> {
     let builder = Qrc20CoinBuilder::new(
@@ -319,7 +324,7 @@ pub async fn qrc20_coin_with_priv_key(
     platform: &str,
     conf: &Json,
     params: &Qrc20ActivationParams,
-    priv_key: &[u8],
+    priv_key: IguanaPrivKey,
     contract_address: H160,
 ) -> Result<Qrc20Coin, String> {
     let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(priv_key);

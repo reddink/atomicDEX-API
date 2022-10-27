@@ -1,4 +1,4 @@
-use crate::hd_ctx::HDAccountArc;
+use crate::global_hd_ctx::GlobalHDAccountArc;
 use crate::hw_client::{HwDeviceInfo, HwProcessingError, HwPubkey, TrezorConnectProcessor};
 use crate::hw_ctx::{HardwareWalletArc, HardwareWalletCtx};
 use crate::hw_error::HwError;
@@ -6,11 +6,11 @@ use crate::iguana_ctx::IguanaArc;
 use crate::privkey::{key_pair_from_seed, PrivKeyError};
 use crate::Bip32Error;
 use derive_more::Display;
-use keys::{KeyPair, Public as PublicKey};
+use keys::{KeyPair, Public as PublicKey, Secret as Secp256k1Secret};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use parking_lot::RwLock;
-use primitives::hash::{H160, H256};
+use primitives::hash::H160;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -102,7 +102,7 @@ impl CryptoCtx {
     pub fn mm2_internal_key_pair(&self) -> &KeyPair {
         match self.key_pair_policy {
             KeyPairPolicy::Iguana(ref iguana) => iguana.secp256k1_key_pair(),
-            KeyPairPolicy::HDAccount(ref hd) => hd.mm2_internal_key_pair(),
+            KeyPairPolicy::GlobalHDAccount(ref hd) => hd.mm2_internal_key_pair(),
         }
     }
 
@@ -119,7 +119,7 @@ impl CryptoCtx {
     pub fn mm2_internal_pubkey(&self) -> PublicKey {
         match self.key_pair_policy {
             KeyPairPolicy::Iguana(ref iguana) => iguana.secp256k1_pubkey(),
-            KeyPairPolicy::HDAccount(ref hd) => hd.mm2_internal_pubkey(),
+            KeyPairPolicy::GlobalHDAccount(ref hd) => hd.mm2_internal_pubkey(),
         }
     }
 
@@ -144,10 +144,10 @@ impl CryptoCtx {
     ///
     /// If [`CryptoCtx::key_pair_ctx`] is `Iguana`, then the returning private is used to activate coins.
     /// Please use this method carefully.
-    pub fn mm2_internal_privkey_bytes(&self) -> H256 {
+    pub fn mm2_internal_privkey_bytes(&self) -> Secp256k1Secret {
         match self.key_pair_policy {
             KeyPairPolicy::Iguana(ref iguana) => iguana.secp256k1_privkey_bytes(),
-            KeyPairPolicy::HDAccount(ref hd) => hd.mm2_internal_privkey_bytes(),
+            KeyPairPolicy::GlobalHDAccount(ref hd) => hd.mm2_internal_privkey_bytes(),
         }
     }
 
@@ -165,7 +165,7 @@ impl CryptoCtx {
     pub fn mm2_internal_privkey_slice(&self) -> &[u8] {
         match self.key_pair_policy {
             KeyPairPolicy::Iguana(ref iguana) => iguana.secp256k1_privkey_slice(),
-            KeyPairPolicy::HDAccount(ref hd) => hd.mm2_internal_privkey_slice(),
+            KeyPairPolicy::GlobalHDAccount(ref hd) => hd.mm2_internal_privkey_slice(),
         }
     }
 
@@ -247,7 +247,7 @@ impl CryptoCtx {
 #[derive(Clone)]
 pub enum KeyPairPolicy {
     Iguana(IguanaArc),
-    HDAccount(HDAccountArc),
+    GlobalHDAccount(GlobalHDAccountArc),
 }
 
 async fn init_check_hw_ctx_with_trezor<Processor>(

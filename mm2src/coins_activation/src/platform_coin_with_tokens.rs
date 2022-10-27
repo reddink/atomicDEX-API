@@ -151,7 +151,7 @@ pub trait PlatformWithTokensActivationOps: Into<MmCoinEnum> {
         coin_conf: Json,
         activation_request: Self::ActivationRequest,
         protocol_conf: Self::PlatformProtocolInfo,
-        priv_key_policy: PrivKeyBuildPolicy<'_>,
+        priv_key_policy: PrivKeyBuildPolicy,
     ) -> Result<Self, MmError<Self::ActivationError>>;
 
     fn token_initializers(

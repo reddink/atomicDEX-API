@@ -165,7 +165,7 @@ fn test_swaps_should_kick_start_if_process_was_killed() {
     block_on(mm_alice_dup.wait_for_log(50., |log| log.contains(&format!("Swap {} kick started.", uuid)))).unwrap();
 }
 
-fn addr_hash_for_privkey(priv_key: [u8; 32]) -> String {
+fn addr_hash_for_privkey(priv_key: IguanaPrivKey) -> String {
     let private = Private {
         prefix: 1,
         secret: priv_key.into(),

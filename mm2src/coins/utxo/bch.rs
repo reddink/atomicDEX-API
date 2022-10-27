@@ -9,7 +9,7 @@ use crate::utxo::utxo_builder::{UtxoArcBuilder, UtxoCoinBuilder};
 use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
 use crate::utxo::utxo_tx_history_v2::{UtxoMyAddressesHistoryError, UtxoTxDetailsError, UtxoTxDetailsParams,
                                       UtxoTxHistoryOps};
-use crate::{BlockHeightAndTime, CanRefundHtlc, CoinBalance, CoinProtocol, CoinWithDerivationMethod,
+use crate::{BlockHeightAndTime, CanRefundHtlc, CoinBalance, CoinProtocol, CoinWithDerivationMethod, IguanaPrivKey,
             NegotiateSwapContractAddrErr, PrivKeyBuildPolicy, RawTransactionFut, RawTransactionRequest,
             SearchForSwapTxSpendInput, SignatureResult, SwapOps, TradePreimageValue, TransactionFut, TransactionType,
             TxFeeDetails, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateOtherPubKeyErr,
@@ -603,7 +603,7 @@ pub async fn bch_coin_with_policy(
     conf: &Json,
     params: BchActivationRequest,
     slp_addr_prefix: CashAddrPrefix,
-    priv_key_policy: PrivKeyBuildPolicy<'_>,
+    priv_key_policy: PrivKeyBuildPolicy,
 ) -> Result<BchCoin, String> {
     if params.bchd_urls.is_empty() && !params.allow_slp_unsafe_conf {
         return Err("Using empty bchd_urls is unsafe for SLP users!".into());
@@ -634,7 +634,7 @@ pub async fn bch_coin_with_priv_key(
     conf: &Json,
     params: BchActivationRequest,
     slp_addr_prefix: CashAddrPrefix,
-    priv_key: &[u8],
+    priv_key: IguanaPrivKey,
 ) -> Result<BchCoin, String> {
     let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(priv_key);
     bch_coin_with_policy(ctx, ticker, conf, params, slp_addr_prefix, priv_key_policy).await
@@ -1343,7 +1343,7 @@ pub fn tbch_coin_for_test() -> (MmArc, BchCoin) {
         &conf,
         params,
         CashAddrPrefix::SlpTest,
-        &*keypair.private().secret,
+        keypair.private().secret,
     ))
     .unwrap();
     (ctx, coin)
@@ -1376,7 +1376,7 @@ pub fn bch_coin_for_test() -> BchCoin {
         &conf,
         params,
         CashAddrPrefix::SimpleLedger,
-        &*keypair.private().secret,
+        keypair.private().secret,
     ))
     .unwrap()
 }

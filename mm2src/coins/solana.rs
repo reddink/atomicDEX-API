@@ -14,6 +14,7 @@ use base58::ToBase58;
 use bincode::{deserialize, serialize};
 use common::executor::{abortable_queue::AbortableQueue, AbortableSystem};
 use common::{async_blocking, now_ms};
+use crypto::Bip44PathToCoin;
 use derive_more::Display;
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future;
@@ -169,7 +170,7 @@ pub async fn solana_coin_with_policy(
     ticker: &str,
     conf: &Json,
     params: SolanaActivationParams,
-    priv_key_policy: PrivKeyBuildPolicy<'_>,
+    priv_key_policy: PrivKeyBuildPolicy,
 ) -> Result<SolanaCoin, String> {
     let client = RpcClient::new_with_commitment(params.client_url.clone(), CommitmentConfig {
         commitment: params.confirmation_commitment,
@@ -177,11 +178,15 @@ pub async fn solana_coin_with_policy(
     let decimals = conf["decimals"].as_u64().unwrap_or(SOLANA_DEFAULT_DECIMALS) as u8;
 
     let priv_key = match priv_key_policy {
-        PrivKeyBuildPolicy::IguanaPrivKey(iguana) => iguana,
+        PrivKeyBuildPolicy::IguanaPrivKey(priv_key) => priv_key,
+        PrivKeyBuildPolicy::GlobalHDAccount(global_hd) => {
+            let derivation_path: Bip44PathToCoin = try_s!(json::from_value(conf["derivation_path"].clone()));
+            try_s!(global_hd.derive_secp256k1_secret(&derivation_path))
+        },
         PrivKeyBuildPolicy::Trezor => return ERR!("{}", PrivKeyNotAllowed::HardwareWalletNotSupported),
     };
 
-    let key_pair = try_s!(generate_keypair_from_slice(priv_key));
+    let key_pair = try_s!(generate_keypair_from_slice(priv_key.as_slice()));
     let my_address = key_pair.pubkey().to_string();
     let spl_tokens_infos = Arc::new(Mutex::new(HashMap::new()));
 

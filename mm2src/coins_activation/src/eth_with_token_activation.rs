@@ -35,6 +35,12 @@ impl From<EthActivationV2Error> for EnablePlatformCoinWithTokensError {
             EthActivationV2Error::CouldNotFetchBalance(e) | EthActivationV2Error::UnreachableNodes(e) => {
                 EnablePlatformCoinWithTokensError::Transport(e)
             },
+            EthActivationV2Error::DerivationPathIsNotSet => EnablePlatformCoinWithTokensError::InvalidPayload(
+                "'derivation_path' field is not found in config".to_string(),
+            ),
+            EthActivationV2Error::ErrorDeserializingDerivationPath(e) => {
+                EnablePlatformCoinWithTokensError::InvalidPayload(e)
+            },
             EthActivationV2Error::PrivKeyPolicyNotAllowed(e) => EnablePlatformCoinWithTokensError::PrivKeyNotAllowed(e),
             EthActivationV2Error::InternalError(e) => EnablePlatformCoinWithTokensError::Internal(e),
         }
@@ -156,7 +162,7 @@ impl PlatformWithTokensActivationOps for EthCoin {
         platform_conf: Json,
         activation_request: Self::ActivationRequest,
         _protocol: Self::PlatformProtocolInfo,
-        priv_key_policy: PrivKeyBuildPolicy<'_>,
+        priv_key_policy: PrivKeyBuildPolicy,
     ) -> Result<Self, MmError<Self::ActivationError>> {
         let platform_coin = eth_coin_from_conf_and_request_v2(
             &ctx,

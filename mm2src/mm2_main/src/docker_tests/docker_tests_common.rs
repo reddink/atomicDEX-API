@@ -17,7 +17,7 @@ use coins::utxo::rpc_clients::{NativeClient, UtxoRpcClientEnum, UtxoRpcClientOps
 use coins::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
 use coins::utxo::{coin_daemon_data_dir, sat_from_big_decimal, zcash_params_path, UtxoActivationParams,
                   UtxoAddressFormat, UtxoCoinFields};
-use coins::MarketCoinOps;
+use coins::{IguanaPrivKey, MarketCoinOps};
 use ethereum_types::H160 as H160Eth;
 use futures01::Future;
 use http::StatusCode;
@@ -97,6 +97,11 @@ pub struct UtxoDockerNode<'a> {
     pub port: u16,
 }
 
+pub fn random_iguana_privkey() -> IguanaPrivKey {
+    let priv_key = SecretKey::new(&mut rand6::thread_rng());
+    IguanaPrivKey::from(*priv_key.as_ref())
+}
+
 pub fn utxo_asset_docker_node<'a>(docker: &'a Cli, ticker: &'static str, port: u16) -> UtxoDockerNode<'a> {
     let args = vec![
         "-v".into(),
@@ -142,8 +147,8 @@ pub fn utxo_asset_docker_node<'a>(docker: &'a Cli, ticker: &'static str, port: u
     }
 }
 
-pub fn rmd160_from_priv(privkey: [u8; 32]) -> H160 {
-    let secret = SecretKey::from_slice(&privkey).unwrap();
+pub fn rmd160_from_priv(privkey: IguanaPrivKey) -> H160 {
+    let secret = SecretKey::from_slice(privkey.as_slice()).unwrap();
     let public = PublicKey::from_secret_key(&Secp256k1::new(), &secret);
     dhash160(&public.serialize())
 }
@@ -166,7 +171,7 @@ where
 }
 
 /// Build `Qrc20Coin` from ticker and privkey without filling the balance.
-pub fn qrc20_coin_from_privkey(ticker: &str, priv_key: &[u8]) -> (MmArc, Qrc20Coin) {
+pub fn qrc20_coin_from_privkey(ticker: &str, priv_key: IguanaPrivKey) -> (MmArc, Qrc20Coin) {
     let (contract_address, swap_contract_address) = unsafe {
         let contract_address = match ticker {
             "QICK" => QICK_TOKEN_ADDRESS
@@ -212,7 +217,7 @@ pub fn qrc20_coin_from_privkey(ticker: &str, priv_key: &[u8]) -> (MmArc, Qrc20Co
         platform,
         &conf,
         &params,
-        &priv_key,
+        priv_key,
         contract_address,
     ))
     .unwrap();
@@ -249,7 +254,7 @@ fn qrc20_coin_conf_item(ticker: &str) -> Json {
 }
 
 /// Build asset `UtxoStandardCoin` from ticker and privkey without filling the balance.
-pub fn utxo_coin_from_privkey(ticker: &str, priv_key: &[u8]) -> (MmArc, UtxoStandardCoin) {
+pub fn utxo_coin_from_privkey(ticker: &str, priv_key: IguanaPrivKey) -> (MmArc, UtxoStandardCoin) {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let conf = json!({"asset":ticker,"txversion":4,"overwintered":1,"txfee":1000,"network":"regtest"});
     let req = json!({"method":"enable"});
@@ -260,7 +265,7 @@ pub fn utxo_coin_from_privkey(ticker: &str, priv_key: &[u8]) -> (MmArc, UtxoStan
 }
 
 /// Create a UTXO coin for the given privkey and fill it's address with the specified balance.
-pub fn generate_utxo_coin_with_privkey(ticker: &str, balance: BigDecimal, priv_key: &[u8]) {
+pub fn generate_utxo_coin_with_privkey(ticker: &str, balance: BigDecimal, priv_key: IguanaPrivKey) {
     let (_, coin) = utxo_coin_from_privkey(ticker, priv_key);
     let timeout = 30; // timeout if test takes more than 30 seconds to run
     let my_address = coin.my_address().expect("!my_address");
@@ -271,13 +276,13 @@ pub fn generate_utxo_coin_with_privkey(ticker: &str, balance: BigDecimal, priv_k
 pub fn generate_utxo_coin_with_random_privkey(
     ticker: &str,
     balance: BigDecimal,
-) -> (MmArc, UtxoStandardCoin, [u8; 32]) {
-    let priv_key = SecretKey::new(&mut rand6::thread_rng());
-    let (ctx, coin) = utxo_coin_from_privkey(ticker, priv_key.as_ref());
+) -> (MmArc, UtxoStandardCoin, IguanaPrivKey) {
+    let priv_key = random_iguana_privkey();
+    let (ctx, coin) = utxo_coin_from_privkey(ticker, priv_key);
     let timeout = 30; // timeout if test takes more than 30 seconds to run
     let my_address = coin.my_address().expect("!my_address");
     fill_address(&coin, &my_address, balance, timeout);
-    (ctx, coin, *priv_key.as_ref())
+    (ctx, coin, priv_key)
 }
 
 /// Get only one address assigned the specified label.
@@ -340,15 +345,15 @@ pub fn generate_qrc20_coin_with_random_privkey(
     ticker: &str,
     qtum_balance: BigDecimal,
     qrc20_balance: BigDecimal,
-) -> (MmArc, Qrc20Coin, [u8; 32]) {
-    let priv_key = SecretKey::new(&mut rand6::thread_rng());
-    let (ctx, coin) = qrc20_coin_from_privkey(ticker, priv_key.as_ref());
+) -> (MmArc, Qrc20Coin, IguanaPrivKey) {
+    let priv_key = random_iguana_privkey();
+    let (ctx, coin) = qrc20_coin_from_privkey(ticker, priv_key);
 
     let timeout = 30; // timeout if test takes more than 30 seconds to run
     let my_address = coin.my_address().expect("!my_address");
     fill_address(&coin, &my_address, qtum_balance, timeout);
     fill_qrc20_address(&coin, qrc20_balance, timeout);
-    (ctx, coin, *priv_key.as_ref())
+    (ctx, coin, priv_key)
 }
 
 pub fn generate_qtum_coin_with_random_privkey(
@@ -373,22 +378,22 @@ pub fn generate_qtum_coin_with_random_privkey(
         "dust": 72800,
     });
     let req = json!({"method": "enable"});
-    let priv_key = SecretKey::new(&mut rand6::thread_rng());
+    let priv_key = random_iguana_privkey();
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key.as_ref())).unwrap();
+    let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key)).unwrap();
 
     let timeout = 30; // timeout if test takes more than 30 seconds to run
     let my_address = coin.my_address().expect("!my_address");
     fill_address(&coin, &my_address, balance, timeout);
-    (ctx, coin, *priv_key.as_ref())
+    (ctx, coin, priv_key.take())
 }
 
 pub fn generate_segwit_qtum_coin_with_random_privkey(
     ticker: &str,
     balance: BigDecimal,
     txfee: Option<u64>,
-) -> (MmArc, QtumCoin, [u8; 32]) {
+) -> (MmArc, QtumCoin, IguanaPrivKey) {
     let confpath = unsafe { QTUM_CONF_PATH.as_ref().expect("Qtum config is not set yet") };
     let conf = json!({
         "coin":ticker,
@@ -411,15 +416,15 @@ pub fn generate_segwit_qtum_coin_with_random_privkey(
         },
     });
     let req = json!({"method": "enable"});
-    let priv_key = SecretKey::new(&mut rand6::thread_rng());
+    let priv_key = random_iguana_privkey();
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key.as_ref())).unwrap();
+    let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key)).unwrap();
 
     let timeout = 30; // timeout if test takes more than 30 seconds to run
     let my_address = coin.my_address().expect("!my_address");
     fill_address(&coin, &my_address, balance, timeout);
-    (ctx, coin, *priv_key.as_ref())
+    (ctx, coin, priv_key)
 }
 
 pub fn fill_address<T>(coin: &T, address: &str, amount: BigDecimal, timeout: u64)
@@ -472,8 +477,8 @@ pub fn wait_for_estimate_smart_fee(timeout: u64) -> Result<(), String> {
         EstimateSmartFeeState::Idle => log!("Start wait_for_estimate_smart_fee"),
     }
 
-    let priv_key = SecretKey::new(&mut rand6::thread_rng());
-    let (_ctx, coin) = qrc20_coin_from_privkey("QICK", priv_key.as_ref());
+    let priv_key = random_iguana_privkey();
+    let (_ctx, coin) = qrc20_coin_from_privkey("QICK", priv_key);
     let timeout = now_ms() / 1000 + timeout;
     let client = match coin.as_ref().rpc_client {
         UtxoRpcClientEnum::Native(ref client) => client,
@@ -516,7 +521,7 @@ pub async fn enable_qrc20_native(mm: &MarketMakerIt, coin: &str) -> Json {
 
 pub fn trade_base_rel((base, rel): (&str, &str)) {
     /// Generate a wallet with the random private key and fill the wallet with Qtum (required by gas_fee) and specified in `ticker` coin.
-    fn generate_and_fill_priv_key(ticker: &str) -> [u8; 32] {
+    fn generate_and_fill_priv_key(ticker: &str) -> IguanaPrivKey {
         let timeout = 30; // timeout if test takes more than 30 seconds to run
 
         match ticker {
@@ -528,28 +533,28 @@ pub fn trade_base_rel((base, rel): (&str, &str)) {
                 priv_key
             },
             "QICK" | "QORTY" => {
-                let priv_key = SecretKey::new(&mut rand6::thread_rng());
-                let (_ctx, coin) = qrc20_coin_from_privkey(ticker, priv_key.as_ref());
+                let priv_key = random_iguana_privkey();
+                let (_ctx, coin) = qrc20_coin_from_privkey(ticker, priv_key);
                 let my_address = coin.my_address().expect("!my_address");
                 fill_address(&coin, &my_address, 10.into(), timeout);
                 fill_qrc20_address(&coin, 10.into(), timeout);
 
-                *priv_key.as_ref()
+                priv_key
             },
             "MYCOIN" | "MYCOIN1" => {
-                let priv_key = SecretKey::new(&mut rand6::thread_rng());
-                let (_ctx, coin) = utxo_coin_from_privkey(ticker, priv_key.as_ref());
+                let priv_key = random_iguana_privkey();
+                let (_ctx, coin) = utxo_coin_from_privkey(ticker, priv_key);
                 let my_address = coin.my_address().expect("!my_address");
                 fill_address(&coin, &my_address, 10.into(), timeout);
                 // also fill the Qtum
-                let (_ctx, coin) = qrc20_coin_from_privkey("QICK", priv_key.as_ref());
+                let (_ctx, coin) = qrc20_coin_from_privkey("QICK", priv_key);
                 let my_address = coin.my_address().expect("!my_address");
                 fill_address(&coin, &my_address, 10.into(), timeout);
 
-                *priv_key.as_ref()
+                priv_key
             },
-            "ADEXSLP" => get_prefilled_slp_privkey(),
-            "FORSLP" => get_prefilled_slp_privkey(),
+            "ADEXSLP" => IguanaPrivKey::from(get_prefilled_slp_privkey()),
+            "FORSLP" => IguanaPrivKey::from(get_prefilled_slp_privkey()),
             _ => panic!("Expected either QICK or QORTY or MYCOIN or MYCOIN1, found {}", ticker),
         }
     }

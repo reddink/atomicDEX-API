@@ -25,6 +25,7 @@ use cosmrs::tendermint::abci::Path as AbciPath;
 use cosmrs::tendermint::chain::Id as ChainId;
 use cosmrs::tx::{self, Fee, Msg, Raw, SignDoc, SignerInfo};
 use cosmrs::{AccountId, Any, Coin, Denom};
+use crypto::{Bip44PathToCoin, Secp256k1Secret};
 use derive_more::Display;
 use futures::lock::Mutex as AsyncMutex;
 use futures::{FutureExt, TryFutureExt};
@@ -35,7 +36,7 @@ use mm2_err_handle::prelude::*;
 use mm2_number::MmNumber;
 use prost::{DecodeError, Message};
 use rpc::v1::types::Bytes as BytesJson;
-use serde_json::Value as Json;
+use serde_json::{self as json, Value as Json};
 use std::convert::TryFrom;
 use std::ops::Deref;
 use std::str::FromStr;
@@ -63,6 +64,24 @@ pub struct TendermintProtocolInfo {
 #[derive(Clone, Deserialize)]
 pub struct TendermintActivationParams {
     rpc_urls: Vec<String>,
+}
+
+pub struct TendermintConf {
+    /// Derivation path of the coin.
+    /// This derivation path consists of `purpose` and `coin_type` only
+    /// where the full `BIP44` address has the following structure:
+    /// `m/purpose'/coin_type'/account'/change/address_index`.
+    derivation_path: Option<Bip44PathToCoin>,
+}
+
+impl TendermintConf {
+    pub fn parse(ticker: &str, conf: &Json) -> MmResult<Self, TendermintInitError> {
+        let derivation_path = json::from_value(conf["derivation_path"].clone()).map_to_mm(|e| TendermintInitError {
+            ticker: ticker.to_string(),
+            kind: TendermintInitErrorKind::ErrorDeserializingDerivationPath(e.to_string()),
+        })?;
+        Ok(TendermintConf { derivation_path })
+    }
 }
 
 pub struct TendermintCoinImpl {
@@ -104,6 +123,10 @@ pub enum TendermintInitErrorKind {
     RpcClientInitError(String),
     InvalidChainId(String),
     InvalidDenom(String),
+    #[display(fmt = "'derivation_path' field is not found in config")]
+    DerivationPathIsNotSet,
+    #[display(fmt = "Error deserializing 'derivation_path': {}", _0)]
+    ErrorDeserializingDerivationPath(String),
     PrivKeyPolicyNotAllowed(PrivKeyNotAllowed),
     RpcError(String),
 }
@@ -163,9 +186,10 @@ impl TendermintCoin {
     pub async fn init(
         ctx: &MmArc,
         ticker: String,
+        conf: TendermintConf,
         protocol_info: TendermintProtocolInfo,
         activation_params: TendermintActivationParams,
-        priv_key_policy: PrivKeyBuildPolicy<'_>,
+        priv_key_policy: PrivKeyBuildPolicy,
     ) -> MmResult<Self, TendermintInitError> {
         if activation_params.rpc_urls.is_empty() {
             return MmError::err(TendermintInitError {
@@ -174,19 +198,14 @@ impl TendermintCoin {
             });
         }
 
-        let priv_key = match priv_key_policy {
-            PrivKeyBuildPolicy::IguanaPrivKey(iguana) => iguana,
-            PrivKeyBuildPolicy::Trezor => {
-                let kind =
-                    TendermintInitErrorKind::PrivKeyPolicyNotAllowed(PrivKeyNotAllowed::HardwareWalletNotSupported);
-                return MmError::err(TendermintInitError { ticker, kind });
-            },
-        };
+        let priv_key = secret_from_priv_key_policy(&conf, priv_key_policy)?;
 
         let account_id =
-            account_id_from_privkey(priv_key, &protocol_info.account_prefix).mm_err(|kind| TendermintInitError {
-                ticker: ticker.clone(),
-                kind,
+            account_id_from_privkey(priv_key.as_slice(), &protocol_info.account_prefix).mm_err(|kind| {
+                TendermintInitError {
+                    ticker: ticker.clone(),
+                    kind,
+                }
             })?;
 
         // TODO multiple rpc_urls support will be added on the next iteration
@@ -797,6 +816,34 @@ impl SwapOps for TendermintCoin {
     fn validate_other_pubkey(&self, _raw_pubkey: &[u8]) -> MmResult<(), ValidateOtherPubKeyErr> { todo!() }
 }
 
+/// Processes the given `priv_key_policy` and returns corresponding `Secp256k1Secret`.
+/// This function expects either [`PrivKeyBuildPolicy::IguanaPrivKey`]
+/// or [`PrivKeyBuildPolicy::GlobalHDAccount`], otherwise returns `PrivKeyPolicyNotAllowed` error.
+pub(crate) fn secret_from_priv_key_policy(
+    conf: &TendermintConf,
+    priv_key_policy: PrivKeyBuildPolicy,
+) -> MmResult<Secp256k1Secret, TendermintInitError> {
+    match priv_key_policy {
+        PrivKeyBuildPolicy::IguanaPrivKey(iguana) => Ok(iguana),
+        PrivKeyBuildPolicy::GlobalHDAccount(global_hd) => {
+            let derivation_path = conf.derivation_path.or_mm_err(|| TendermintInitError {
+                ticker: ticker.clone(),
+                kind: TendermintInitErrorKind::DerivationPathIsNotSet,
+            })?;
+            global_hd
+                .derive_secp256k1_secret(&derivation_path)
+                .mm_err(|e| TendermintInitError {
+                    ticker: ticker.clone(),
+                    kind: TendermintInitErrorKind::InvalidPrivKey(e.to_string()),
+                })
+        },
+        PrivKeyBuildPolicy::Trezor => {
+            let kind = TendermintInitErrorKind::PrivKeyPolicyNotAllowed(PrivKeyNotAllowed::HardwareWalletNotSupported);
+            MmError::err(TendermintInitError { ticker, kind })
+        },
+    }
+}
+
 #[cfg(test)]
 mod tendermint_coin_tests {
     use super::*;
@@ -842,10 +889,12 @@ mod tendermint_coin_tests {
             .unwrap()
             .private()
             .secret;
-        let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(priv_key.as_slice());
+        let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(priv_key);
+        let conf = TendermintConf { derivation_path: None };
         let coin = common::block_on(TendermintCoin::init(
             &ctx,
             "USDC-IBC".to_string(),
+            conf,
             protocol_conf,
             activation_request,
             priv_key_policy,

@@ -3,7 +3,7 @@
 mod bip32_child;
 mod bip44;
 mod crypto_ctx;
-mod hd_ctx;
+mod global_hd_ctx;
 mod hw_client;
 mod hw_ctx;
 mod hw_error;
@@ -16,12 +16,14 @@ pub use bip32_child::{Bip32Child, Bip32DerPathError, Bip32DerPathOps, Bip44Tail}
 pub use bip44::{Bip44Chain, Bip44DerPathError, Bip44DerivationPath, Bip44PathToAccount, Bip44PathToCoin,
                 UnkownBip44ChainError, BIP44_PURPOSE};
 pub use crypto_ctx::{CryptoCtx, CryptoCtxError, CryptoInitError, CryptoInitResult, HwCtxInitError, KeyPairPolicy};
+pub use global_hd_ctx::GlobalHDAccountArc;
 pub use hw_client::{HwClient, HwDeviceInfo, HwProcessingError, HwPubkey, HwWalletType, TrezorConnectProcessor};
 pub use hw_common::primitives::{Bip32Error, ChildNumber, DerivationPath, EcdsaCurve, ExtendedPublicKey,
                                 Secp256k1ExtendedPublicKey, XPub};
 pub use hw_ctx::{HardwareWalletArc, HardwareWalletCtx};
 pub use hw_error::{from_hw_error, HwError, HwResult, HwRpcError, WithHwRpcError};
 pub use iguana_ctx::{IguanaArc, IguanaCtx};
+pub use keys::Secret as Secp256k1Secret;
 pub use trezor;
 pub use xpub::{XPubConverter, XpubError};
 

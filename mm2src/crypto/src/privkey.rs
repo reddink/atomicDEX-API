@@ -22,9 +22,8 @@
 use bip32::ExtendedPrivateKey;
 use bitcrypto::{sha256, ChecksumType};
 use derive_more::Display;
-use keys::{Error as KeysError, KeyPair, Private};
+use keys::{Error as KeysError, KeyPair, Private, Secret as Secp256k1Secret};
 use mm2_err_handle::prelude::*;
-use primitives::hash::H256;
 use rustc_hex::FromHexError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -62,7 +61,7 @@ fn private_from_seed(seed: &str) -> PrivKeyResult<Private> {
 
     match seed.strip_prefix("0x") {
         Some(stripped) => {
-            let hash: H256 = stripped.parse()?;
+            let hash: Secp256k1Secret = stripped.parse()?;
             Ok(Private {
                 prefix: 0,
                 secret: hash,
@@ -84,7 +83,7 @@ fn private_from_seed(seed: &str) -> PrivKeyResult<Private> {
 }
 
 /// Mutates the arbitrary hash to become a valid secp256k1 private key
-pub fn secp_privkey_from_hash(mut hash: H256) -> H256 {
+pub fn secp_privkey_from_hash(mut hash: Secp256k1Secret) -> Secp256k1Secret {
     hash[0] &= 248;
     hash[31] &= 127;
     hash[31] |= 64;

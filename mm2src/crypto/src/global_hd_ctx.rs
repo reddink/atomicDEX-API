@@ -1,7 +1,7 @@
 use crate::privkey::{bip39_priv_key_from_seed, key_pair_from_secret, PrivKeyError};
 use crate::{mm2_internal_der_path, Bip32DerPathOps, Bip32Error, Bip44PathToCoin, CryptoInitError, CryptoInitResult};
 use bip32::{ChildNumber, ExtendedPrivateKey};
-use keys::{hash::H256, KeyPair, Private, Public as PublicKey};
+use keys::{KeyPair, Private, Public as PublicKey, Secret as Secp256k1Secret};
 use mm2_err_handle::prelude::*;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -10,15 +10,15 @@ const HARDENED: bool = true;
 const NON_HARDENED: bool = false;
 
 #[derive(Clone)]
-pub struct HDAccountArc(Arc<HDAccountCtx>);
+pub struct GlobalHDAccountArc(Arc<GlobalHDAccountCtx>);
 
-impl Deref for HDAccountArc {
-    type Target = HDAccountCtx;
+impl Deref for GlobalHDAccountArc {
+    type Target = GlobalHDAccountCtx;
 
     fn deref(&self) -> &Self::Target { &self.0 }
 }
 
-pub struct HDAccountCtx {
+pub struct GlobalHDAccountCtx {
     bip39_priv_key: ExtendedPrivateKey<secp256k1::SecretKey>,
     /// secp256k1 key pair derived at `mm2_internal_der_path`.
     /// It's used for mm2 internal purposes such as signing P2P messages.
@@ -28,8 +28,8 @@ pub struct HDAccountCtx {
     hd_account: ChildNumber,
 }
 
-impl HDAccountCtx {
-    pub fn new(passphrase: &str, hd_account: u32) -> CryptoInitResult<HDAccountCtx> {
+impl GlobalHDAccountCtx {
+    pub fn new(passphrase: &str, hd_account: u32) -> CryptoInitResult<GlobalHDAccountCtx> {
         let bip39_priv_key = bip39_priv_key_from_seed(passphrase)?;
 
         let hd_account = ChildNumber::new(hd_account, NON_HARDENED)
@@ -45,7 +45,7 @@ impl HDAccountCtx {
 
         let mm2_internal_key_pair = key_pair_from_secret(internal_priv_key.private_key().as_ref())?;
 
-        Ok(HDAccountCtx {
+        Ok(GlobalHDAccountCtx {
             bip39_priv_key,
             mm2_internal_key_pair,
             hd_account,
@@ -58,7 +58,7 @@ impl HDAccountCtx {
 
     pub fn mm2_internal_privkey(&self) -> &Private { self.mm2_internal_key_pair.private() }
 
-    pub fn mm2_internal_privkey_bytes(&self) -> H256 { self.mm2_internal_privkey().secret }
+    pub fn mm2_internal_privkey_bytes(&self) -> Secp256k1Secret { self.mm2_internal_privkey().secret }
 
     pub fn mm2_internal_privkey_slice(&self) -> &[u8] { self.mm2_internal_privkey().secret.as_slice() }
 
@@ -70,7 +70,7 @@ impl HDAccountCtx {
     /// * `address_id = HDAccountCtx::hd_account`.
     ///
     /// Returns the `secp256k1::Private` Secret 256-bit key
-    pub fn derive_secp256k1_secret(&self, derivation_path: Bip44PathToCoin) -> MmResult<H256, Bip32Error> {
+    pub fn derive_secp256k1_secret(&self, derivation_path: &Bip44PathToCoin) -> MmResult<Secp256k1Secret, Bip32Error> {
         const ACCOUNT_ID: u32 = 0;
         const CHAIN_ID: u32 = 0;
 
@@ -85,6 +85,6 @@ impl HDAccountCtx {
         }
 
         let secret = *priv_key.private_key().as_ref();
-        Ok(H256::from(secret))
+        Ok(Secp256k1Secret::from(secret))
     }
 }

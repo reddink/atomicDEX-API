@@ -169,7 +169,7 @@ impl PlatformWithTokensActivationOps for SolanaCoin {
         platform_conf: Json,
         activation_request: Self::ActivationRequest,
         _protocol_conf: Self::PlatformProtocolInfo,
-        priv_key_policy: PrivKeyBuildPolicy<'_>,
+        priv_key_policy: PrivKeyBuildPolicy,
     ) -> Result<Self, MmError<Self::ActivationError>> {
         let platform_coin = solana_coin_with_policy(
             &ctx,

@@ -597,6 +597,7 @@ impl MmCtxBuilder {
         self
     }
 
+    // TODO consider removing this
     pub fn with_secp256k1_key_pair(mut self, key_pair: KeyPair) -> Self {
         self.key_pair = Some(key_pair);
         self

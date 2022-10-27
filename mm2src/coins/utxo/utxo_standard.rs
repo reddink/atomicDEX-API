@@ -20,7 +20,7 @@ use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_builder::{UtxoArcBuilder, UtxoCoinBuilder};
 use crate::utxo::utxo_tx_history_v2::{UtxoMyAddressesHistoryError, UtxoTxDetailsError, UtxoTxDetailsParams,
                                       UtxoTxHistoryOps};
-use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, GetWithdrawSenderAddress,
+use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, GetWithdrawSenderAddress, IguanaPrivKey,
             NegotiateSwapContractAddrErr, PrivKeyBuildPolicy, SearchForSwapTxSpendInput, SignatureResult, SwapOps,
             TradePreimageValue, TransactionFut, TxMarshalingErr, ValidateAddressResult, ValidateOtherPubKeyErr,
             ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherValidatePaymentInput, WithdrawFut,
@@ -53,7 +53,7 @@ pub async fn utxo_standard_coin_with_policy(
     ticker: &str,
     conf: &Json,
     activation_params: &UtxoActivationParams,
-    priv_key_policy: PrivKeyBuildPolicy<'_>,
+    priv_key_policy: PrivKeyBuildPolicy,
 ) -> Result<UtxoStandardCoin, String> {
     let coin = try_s!(
         UtxoArcBuilder::new(
@@ -75,7 +75,7 @@ pub async fn utxo_standard_coin_with_priv_key(
     ticker: &str,
     conf: &Json,
     activation_params: &UtxoActivationParams,
-    priv_key: &[u8],
+    priv_key: IguanaPrivKey,
 ) -> Result<UtxoStandardCoin, String> {
     let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(priv_key);
     utxo_standard_coin_with_policy(ctx, ticker, conf, activation_params, priv_key_policy).await

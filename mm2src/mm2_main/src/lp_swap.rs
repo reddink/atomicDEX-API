@@ -1550,7 +1550,7 @@ mod lp_swap_tests {
             address_format: None,
             gap_limit: None,
             enable_params: Default::default(),
-            priv_key_policy: PrivKeyActivationPolicy::IguanaPrivKey,
+            priv_key_policy: PrivKeyActivationPolicy::ContextPrivKey,
             check_utxo_maturity: None,
         }
     }
@@ -1590,7 +1590,7 @@ mod lp_swap_tests {
             "RICK",
             &rick_conf(),
             &rick_activation_params,
-            maker_key_pair.private_ref(),
+            maker_key_pair.private().secret,
         ))
         .unwrap();
 
@@ -1601,7 +1601,7 @@ mod lp_swap_tests {
             "MORTY",
             &morty_conf(),
             &morty_activation_params,
-            maker_key_pair.private_ref(),
+            maker_key_pair.private().secret,
         ))
         .unwrap();
 
@@ -1624,7 +1624,7 @@ mod lp_swap_tests {
             "RICK",
             &rick_conf(),
             &rick_activation_params,
-            taker_key_pair.private_ref(),
+            taker_key_pair.private().secret,
         ))
         .unwrap();
 
@@ -1633,7 +1633,7 @@ mod lp_swap_tests {
             "MORTY",
             &morty_conf(),
             &morty_activation_params,
-            taker_key_pair.private_ref(),
+            taker_key_pair.private().secret,
         ))
         .unwrap();
 

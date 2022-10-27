@@ -564,6 +564,11 @@ pub struct UtxoCoinConf {
     /// The parameters that specify how the coin block headers should be verified. If None and enable_spv_proof is true,
     /// headers will be saved in DB without verification, can be none if the coin's RPC server is trusted.
     pub block_headers_verification_params: Option<BlockHeaderVerificationParams>,
+    /// Derivation path of the coin.
+    /// This derivation path consists of `purpose` and `coin_type` only
+    /// where the full `BIP44` address has the following structure:
+    /// `m/purpose'/coin_type'/account'/change/address_index`.
+    pub derivation_path: Option<Bip44PathToCoin>,
 }
 
 pub struct UtxoCoinFields {
@@ -1352,7 +1357,7 @@ pub struct UtxoActivationParams {
     pub gap_limit: Option<u32>,
     #[serde(flatten)]
     pub enable_params: EnabledCoinBalanceParams,
-    #[serde(default = "PrivKeyActivationPolicy::iguana_priv_key")]
+    #[serde(default = "PrivKeyActivationPolicy::context_priv_key")]
     pub priv_key_policy: PrivKeyActivationPolicy,
     /// The flag determines whether to use mature unspent outputs *only* to generate transactions.
     /// https://github.com/KomodoPlatform/atomicDEX-API/issues/1181
@@ -1408,7 +1413,7 @@ impl UtxoActivationParams {
         };
         let priv_key_policy = json::from_value::<Option<PrivKeyActivationPolicy>>(req["priv_key_policy"].clone())
             .map_to_mm(UtxoFromLegacyReqErr::InvalidPrivKeyPolicy)?
-            .unwrap_or(PrivKeyActivationPolicy::IguanaPrivKey);
+            .unwrap_or(PrivKeyActivationPolicy::ContextPrivKey);
 
         Ok(UtxoActivationParams {
             mode,
@@ -1837,7 +1842,7 @@ pub fn address_by_conf_and_pubkey_str(
         address_format: None,
         gap_limit: None,
         enable_params: EnabledCoinBalanceParams::default(),
-        priv_key_policy: PrivKeyActivationPolicy::IguanaPrivKey,
+        priv_key_policy: PrivKeyActivationPolicy::ContextPrivKey,
         check_utxo_maturity: None,
     };
     let conf_builder = UtxoConfBuilder::new(conf, &params, coin);

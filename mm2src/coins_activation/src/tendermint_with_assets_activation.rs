@@ -3,8 +3,8 @@ use crate::platform_coin_with_tokens::{EnablePlatformCoinWithTokensError, GetPla
 use crate::prelude::*;
 use async_trait::async_trait;
 use coins::my_tx_history_v2::TxHistoryStorage;
-use coins::tendermint::{TendermintActivationParams, TendermintCoin, TendermintInitError, TendermintInitErrorKind,
-                        TendermintProtocolInfo};
+use coins::tendermint::{TendermintActivationParams, TendermintCoin, TendermintConf, TendermintInitError,
+                        TendermintInitErrorKind, TendermintProtocolInfo};
 use coins::{CoinBalance, CoinProtocol, MarketCoinOps, PrivKeyBuildPolicy};
 use common::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
@@ -63,12 +63,13 @@ impl PlatformWithTokensActivationOps for TendermintCoin {
     async fn enable_platform_coin(
         ctx: MmArc,
         ticker: String,
-        _coin_conf: Json,
+        coin_conf: Json,
         activation_request: Self::ActivationRequest,
         protocol_conf: Self::PlatformProtocolInfo,
-        priv_key_policy: PrivKeyBuildPolicy<'_>,
+        priv_key_policy: PrivKeyBuildPolicy,
     ) -> Result<Self, MmError<Self::ActivationError>> {
-        TendermintCoin::init(&ctx, ticker, protocol_conf, activation_request, priv_key_policy).await
+        let conf = TendermintConf::parse(&ticker, &coin_conf)?;
+        TendermintCoin::init(&ctx, ticker, conf, protocol_conf, activation_request, priv_key_policy).await
     }
 
     fn token_initializers(

@@ -22,8 +22,8 @@ use crate::utxo::utxo_sql_block_header_storage::SqliteBlockHeadersStorage;
 use crate::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
 use crate::utxo::utxo_tx_history_v2::{UtxoTxDetailsParams, UtxoTxHistoryOps};
 #[cfg(not(target_arch = "wasm32"))] use crate::WithdrawFee;
-use crate::{BlockHeightAndTime, CoinBalance, PrivKeyBuildPolicy, SearchForSwapTxSpendInput, StakingInfosDetails,
-            SwapOps, TradePreimageValue, TxFeeDetails, TxMarshalingErr};
+use crate::{BlockHeightAndTime, CoinBalance, IguanaPrivKey, PrivKeyBuildPolicy, SearchForSwapTxSpendInput,
+            StakingInfosDetails, SwapOps, TradePreimageValue, TxFeeDetails, TxMarshalingErr};
 use chain::{BlockHeader, OutPoint};
 use common::executor::Timer;
 use common::{block_on, now_ms, OrdRange, PagingOptionsEnum, DEX_FEE_ADDR_RAW_PUBKEY};
@@ -51,7 +51,7 @@ pub fn electrum_client_for_test(servers: &[&str]) -> ElectrumClient {
         "servers": servers,
     });
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(&[]);
+    let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(IguanaPrivKey::default());
     let builder = UtxoArcBuilder::new(
         &ctx,
         TEST_COIN_NAME,
@@ -1325,10 +1325,8 @@ fn test_cashaddresses_in_tx_details_by_hash() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(utxo_standard_coin_with_priv_key(
-        &ctx, "BCH", &conf, &params, &[1u8; 32],
-    ))
-    .unwrap();
+    let priv_key = IguanaPrivKey::from([1; 32]);
+    let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "BCH", &conf, &params, priv_key)).unwrap();
 
     let tx_details = get_tx_details_eq_for_both_versions(&coin, TX_HASH);
     log!("{:?}", tx_details);
@@ -1366,10 +1364,8 @@ fn test_address_from_str_with_cashaddress_activated() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(utxo_standard_coin_with_priv_key(
-        &ctx, "BCH", &conf, &params, &[1u8; 32],
-    ))
-    .unwrap();
+    let priv_key = IguanaPrivKey::from([1; 32]);
+    let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "BCH", &conf, &params, priv_key)).unwrap();
 
     // other error on parse
     let error = UtxoCommonOps::address_from_str(&coin, "bitcoincash:000000000000000000000000000000000000000000")
@@ -1406,10 +1402,8 @@ fn test_address_from_str_with_legacy_address_activated() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(utxo_standard_coin_with_priv_key(
-        &ctx, "BCH", &conf, &params, &[1u8; 32],
-    ))
-    .unwrap();
+    let priv_key = IguanaPrivKey::from([1; 32]);
+    let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "BCH", &conf, &params, priv_key)).unwrap();
 
     let error = UtxoCommonOps::address_from_str(&coin, "bitcoincash:qzxqqt9lh4feptf0mplnk58gnajfepzwcq9f2rxk55")
         .err()
@@ -1467,11 +1461,10 @@ fn test_unavailable_electrum_proto_version() {
 
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let error = block_on(utxo_standard_coin_with_priv_key(
-        &ctx, "RICK", &conf, &params, &[1u8; 32],
-    ))
-    .err()
-    .unwrap();
+    let priv_key = IguanaPrivKey::from([1; 32]);
+    let error = block_on(utxo_standard_coin_with_priv_key(&ctx, "RICK", &conf, &params, priv_key))
+        .err()
+        .unwrap();
     log!("Error: {}", error);
     assert!(error.contains("There are no Electrums with the required protocol version"));
 }
@@ -1495,7 +1488,7 @@ fn test_spam_rick() {
         "RICK",
         &conf,
         &params,
-        &*key_pair.private().secret,
+        key_pair.private().secret,
     ))
     .unwrap();
 
@@ -1543,10 +1536,8 @@ fn test_one_unavailable_electrum_proto_version() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(utxo_standard_coin_with_priv_key(
-        &ctx, "BTC", &conf, &params, &[1u8; 32],
-    ))
-    .unwrap();
+    let priv_key = IguanaPrivKey::from([1; 32]);
+    let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "BTC", &conf, &params, priv_key)).unwrap();
 
     block_on(async { Timer::sleep(0.5).await });
 
@@ -1555,10 +1546,10 @@ fn test_one_unavailable_electrum_proto_version() {
 
 #[test]
 fn test_qtum_generate_pod() {
-    let priv_key = [
+    let priv_key = IguanaPrivKey::from([
         3, 98, 177, 3, 108, 39, 234, 144, 131, 178, 103, 103, 127, 80, 230, 166, 53, 68, 147, 215, 42, 216, 144, 72,
         172, 110, 180, 13, 123, 179, 10, 49,
-    ];
+    ]);
     let conf = json!({"coin":"tQTUM","rpcport":13889,"pubtype":120,"p2shtype":110});
     let req = json!({
         "method": "electrum",
@@ -1568,7 +1559,7 @@ fn test_qtum_generate_pod() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
 
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let coin = block_on(qtum_coin_with_priv_key(&ctx, "tQTUM", &conf, &params, &priv_key)).unwrap();
+    let coin = block_on(qtum_coin_with_priv_key(&ctx, "tQTUM", &conf, &params, priv_key)).unwrap();
     let expected_res = "20086d757b34c01deacfef97a391f8ed2ca761c72a08d5000adc3d187b1007aca86a03bc5131b1f99b66873a12b51f8603213cdc1aa74c05ca5d48fe164b82152b";
     let address = Address::from_str("qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE").unwrap();
     let res = coin.generate_pod(address.hash).unwrap();
@@ -1591,7 +1582,7 @@ fn test_qtum_add_delegation() {
         "tQTUM",
         &conf,
         &params,
-        keypair.private().secret.as_slice(),
+        keypair.private().secret,
     ))
     .unwrap();
     let address = Address::from_str("qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE").unwrap();
@@ -1630,7 +1621,7 @@ fn test_qtum_add_delegation_on_already_delegating() {
         "tQTUM",
         &conf,
         &params,
-        keypair.private().secret.as_slice(),
+        keypair.private().secret,
     ))
     .unwrap();
     let address = Address::from_str("qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE").unwrap();
@@ -1661,7 +1652,7 @@ fn test_qtum_get_delegation_infos() {
         "tQTUM",
         &conf,
         &params,
-        keypair.private().secret.as_slice(),
+        keypair.private().secret,
     ))
     .unwrap();
     let staking_infos = coin.get_delegation_infos().wait().unwrap();
@@ -1691,7 +1682,7 @@ fn test_qtum_remove_delegation() {
         "tQTUM",
         &conf,
         &params,
-        keypair.private().secret.as_slice(),
+        keypair.private().secret,
     ))
     .unwrap();
     let res = coin.remove_delegation().wait();
@@ -1744,13 +1735,13 @@ fn test_qtum_my_balance() {
 
     let ctx = MmCtxBuilder::new().into_mm_arc();
 
-    let priv_key = [
+    let priv_key = IguanaPrivKey::from([
         184, 199, 116, 240, 113, 222, 8, 199, 253, 143, 98, 185, 127, 26, 87, 38, 246, 206, 159, 27, 207, 20, 27, 112,
         184, 102, 137, 37, 78, 214, 113, 78,
-    ];
+    ]);
 
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let coin = block_on(qtum_coin_with_priv_key(&ctx, "tQTUM", &conf, &params, &priv_key)).unwrap();
+    let coin = block_on(qtum_coin_with_priv_key(&ctx, "tQTUM", &conf, &params, priv_key)).unwrap();
 
     let CoinBalance { spendable, unspendable } = coin.my_balance().wait().unwrap();
     let expected_spendable = BigDecimal::from(66);
@@ -1780,13 +1771,13 @@ fn test_qtum_my_balance_with_check_utxo_maturity_false() {
 
     let ctx = MmCtxBuilder::new().into_mm_arc();
 
-    let priv_key = [
+    let priv_key = IguanaPrivKey::from([
         184, 199, 116, 240, 113, 222, 8, 199, 253, 143, 98, 185, 127, 26, 87, 38, 246, 206, 159, 27, 207, 20, 27, 112,
         184, 102, 137, 37, 78, 214, 113, 78,
-    ];
+    ]);
 
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let coin = block_on(qtum_coin_with_priv_key(&ctx, "tQTUM", &conf, &params, &priv_key)).unwrap();
+    let coin = block_on(qtum_coin_with_priv_key(&ctx, "tQTUM", &conf, &params, priv_key)).unwrap();
 
     let CoinBalance { spendable, unspendable } = coin.my_balance().wait().unwrap();
     let expected_spendable = BigDecimal::from(DISPLAY_BALANCE);
@@ -2673,8 +2664,9 @@ fn test_generate_tx_doge_fee() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&request).unwrap();
 
+    let priv_key = IguanaPrivKey::from([1; 32]);
     let doge = block_on(utxo_standard_coin_with_priv_key(
-        &ctx, "DOGE", &config, &params, &[1; 32],
+        &ctx, "DOGE", &config, &params, priv_key,
     ))
     .unwrap();
 
@@ -3184,10 +3176,8 @@ fn test_utxo_standard_with_check_utxo_maturity_true() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(utxo_standard_coin_with_priv_key(
-        &ctx, "RICK", &conf, &params, &[1u8; 32],
-    ))
-    .unwrap();
+    let priv_key = IguanaPrivKey::from([1; 32]);
+    let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "RICK", &conf, &params, priv_key)).unwrap();
 
     let address = Address::from("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW");
     // Don't use `block_on` here because it's used within a mock of [`GetUtxoListOps::get_mature_unspent_ordered_list`].
@@ -3226,10 +3216,8 @@ fn test_utxo_standard_without_check_utxo_maturity() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(utxo_standard_coin_with_priv_key(
-        &ctx, "RICK", &conf, &params, &[1u8; 32],
-    ))
-    .unwrap();
+    let priv_key = IguanaPrivKey::from([1; 32]);
+    let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "RICK", &conf, &params, priv_key)).unwrap();
 
     let address = Address::from("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW");
     // Don't use `block_on` here because it's used within a mock of [`UtxoStandardCoin::get_all_unspent_ordered_list`].
@@ -3263,7 +3251,8 @@ fn test_qtum_without_check_utxo_maturity() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, &[1u8; 32])).unwrap();
+    let priv_key = IguanaPrivKey::from([1; 32]);
+    let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key)).unwrap();
 
     let address = Address::from("qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE");
     // Don't use `block_on` here because it's used within a mock of [`QtumCoin::get_mature_unspent_ordered_list`].
@@ -3275,10 +3264,10 @@ fn test_qtum_without_check_utxo_maturity() {
 #[test]
 #[ignore]
 fn test_split_qtum() {
-    let priv_key = [
+    let priv_key = IguanaPrivKey::from([
         3, 98, 177, 3, 108, 39, 234, 144, 131, 178, 103, 103, 127, 80, 230, 166, 53, 68, 147, 215, 42, 216, 144, 72,
         172, 110, 180, 13, 123, 179, 10, 49,
-    ];
+    ]);
     let conf = json!({
       "coin": "tQTUM",
       "name": "qtumtest",
@@ -3306,7 +3295,7 @@ fn test_split_qtum() {
     });
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, &priv_key)).unwrap();
+    let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key)).unwrap();
     let p2pkh_address = coin.as_ref().derivation_method.unwrap_iguana();
     let script: Script = output_script(p2pkh_address, ScriptType::P2PKH);
     let key_pair = coin.as_ref().priv_key_policy.key_pair_or_err().unwrap();
@@ -3377,7 +3366,8 @@ fn test_qtum_with_check_utxo_maturity_false() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, &[1u8; 32])).unwrap();
+    let priv_key = IguanaPrivKey::from([1; 32]);
+    let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key)).unwrap();
 
     let address = Address::from("qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE");
     // Don't use `block_on` here because it's used within a mock of [`QtumCoin::get_all_unspent_ordered_list`].
@@ -4238,10 +4228,8 @@ fn test_utxo_validate_valid_and_invalid_pubkey() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(utxo_standard_coin_with_priv_key(
-        &ctx, "RICK", &conf, &params, &[1u8; 32],
-    ))
-    .unwrap();
+    let priv_key = IguanaPrivKey::from([1; 32]);
+    let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "RICK", &conf, &params, priv_key)).unwrap();
     // Test expected to pass at this point as we're using a valid pubkey to validate against a valid pubkey
     assert!(coin
         .validate_other_pubkey(&[
