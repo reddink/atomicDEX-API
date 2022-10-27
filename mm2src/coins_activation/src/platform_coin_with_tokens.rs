@@ -285,6 +285,18 @@ impl HttpStatusCode for EnablePlatformCoinWithTokensError {
     }
 }
 
+// pub async fn disable_platform_coin_with_token<Platform>(
+//     ctx: MmArc,
+//     req: EnablePlatformCoinWithTokensReq<Platform::ActivationRequest>,
+// ) -> Result<Platform::ActivationResult, MmError<EnablePlatformCoinWithTokensError>>
+// where
+//     Platform: PlatformWithTokensActivationOps,
+//     EnablePlatformCoinWithTokensError: From<Platform::ActivationError>,
+//     (Platform::ActivationError, EnablePlatformCoinWithTokensError): NotEqual,
+// {
+//     todo!()
+// }
+
 pub async fn enable_platform_coin_with_tokens<Platform>(
     ctx: MmArc,
     req: EnablePlatformCoinWithTokensReq<Platform::ActivationRequest>,

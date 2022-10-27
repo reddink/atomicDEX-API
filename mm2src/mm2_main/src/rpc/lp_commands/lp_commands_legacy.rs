@@ -20,7 +20,7 @@
 //
 
 use coins::{disable_coin as disable_coin_impl, lp_coinfind, lp_coininit, MmCoinEnum};
-use common::executor::Timer;
+use common::executor::{AbortableSystem, Timer};
 use common::log::error;
 use common::{rpc_err_response, rpc_response, HyRes};
 use futures::compat::Future01CompatExt;
@@ -71,6 +71,7 @@ pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, St
             .map_err(|e| ERRL!("{}", e));
     }
 
+    ctx.abortable_system.abort_all();
     // If the coin is a Lightning Coin, we need to drop it's background processor first to
     // persist the latest state to the filesystem.
     #[cfg(not(target_arch = "wasm32"))]
