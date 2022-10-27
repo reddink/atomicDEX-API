@@ -1404,6 +1404,10 @@ impl MmCoin for Qrc20Coin {
         Some(BytesJson::from(self.swap_contract_address.0.as_ref()))
     }
 
+    fn fallback_swap_contract(&self) -> Option<BytesJson> {
+        self.fallback_swap_contract.map(|a| BytesJson::from(a.0.as_ref()))
+    }
+
     fn mature_confirmations(&self) -> Option<u32> { Some(self.utxo.conf.mature_confirmations) }
 
     fn coin_protocol_info(&self) -> Vec<u8> { utxo_common::coin_protocol_info(self) }

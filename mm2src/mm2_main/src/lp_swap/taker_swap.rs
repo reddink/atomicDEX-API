@@ -1029,10 +1029,14 @@ impl TakerSwap {
             .negotiate_swap_contract_addr(maker_data.maker_coin_swap_contract())
         {
             Ok(addr) => addr,
-            Err(e) => {
-                return Ok((Some(TakerSwapCommand::Finish), vec![TakerSwapEvent::NegotiateFailed(
-                    ERRL!("!maker_coin.negotiate_swap_contract_addr {}", e).into(),
-                )]))
+            Err(e) => match self.maker_coin.fallback_swap_contract() {
+                // try to negotiate using fallback
+                Some(addr) => Some(addr),
+                None => {
+                    return Ok((Some(TakerSwapCommand::Finish), vec![TakerSwapEvent::NegotiateFailed(
+                        ERRL!("!maker_coin.negotiate_swap_contract_addr {}", e).into(),
+                    )]))
+                },
             },
         };
 
@@ -1041,10 +1045,14 @@ impl TakerSwap {
             .negotiate_swap_contract_addr(maker_data.taker_coin_swap_contract())
         {
             Ok(addr) => addr,
-            Err(e) => {
-                return Ok((Some(TakerSwapCommand::Finish), vec![TakerSwapEvent::NegotiateFailed(
-                    ERRL!("!taker_coin.negotiate_swap_contract_addr {}", e).into(),
-                )]))
+            Err(e) => match self.taker_coin.fallback_swap_contract() {
+                // try to negotiate using fallback
+                Some(addr) => Some(addr),
+                None => {
+                    return Ok((Some(TakerSwapCommand::Finish), vec![TakerSwapEvent::NegotiateFailed(
+                        ERRL!("!taker_coin.negotiate_swap_contract_addr {}", e).into(),
+                    )]))
+                },
             },
         };
 

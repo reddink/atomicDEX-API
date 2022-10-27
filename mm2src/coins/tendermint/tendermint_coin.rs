@@ -1267,9 +1267,9 @@ impl MmCoin for TendermintCoin {
 
     fn set_requires_notarization(&self, requires_nota: bool) { todo!() }
 
-    // TODO
-    // !! This function includes dummy implementation for P.O.C work
     fn swap_contract_address(&self) -> Option<BytesJson> { None }
+
+    fn fallback_swap_contract(&self) -> Option<BytesJson> { None }
 
     fn mature_confirmations(&self) -> Option<u32> { None }
 

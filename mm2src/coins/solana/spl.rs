@@ -560,6 +560,8 @@ impl MmCoin for SplToken {
 
     fn swap_contract_address(&self) -> Option<BytesJson> { unimplemented!() }
 
+    fn fallback_swap_contract(&self) -> Option<BytesJson> { unimplemented!() }
+
     fn mature_confirmations(&self) -> Option<u32> { Some(1) }
 
     fn coin_protocol_info(&self) -> Vec<u8> { Vec::new() }

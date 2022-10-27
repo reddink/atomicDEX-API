@@ -1,11 +1,11 @@
-use crate::{mm2::lp_ordermatch::start_simple_market_maker_bot, mm2::lp_ordermatch::stop_simple_market_maker_bot,
-            mm2::lp_ordermatch::StartSimpleMakerBotRequest};
-use common::block_on;
+use common::{block_on, log};
 use crypto::privkey::key_pair_from_seed;
 use http::StatusCode;
 use mm2_core::mm_ctx::MmCtxBuilder;
+use mm2_main::{mm2::lp_ordermatch::start_simple_market_maker_bot, mm2::lp_ordermatch::stop_simple_market_maker_bot,
+               mm2::lp_ordermatch::StartSimpleMakerBotRequest};
 use mm2_test_helpers::for_tests::MarketMakerIt;
-use serde_json::Value as Json;
+use serde_json::{json, Value as Json};
 
 mod tests {
     use super::*;

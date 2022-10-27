@@ -645,7 +645,9 @@ impl MmCoin for TendermintToken {
 
     fn set_requires_notarization(&self, requires_nota: bool) { todo!() }
 
-    fn swap_contract_address(&self) -> Option<BytesJson> { None }
+    fn swap_contract_address(&self) -> Option<BytesJson> { self.platform_coin.swap_contract_address() }
+
+    fn fallback_swap_contract(&self) -> Option<BytesJson> { self.platform_coin.fallback_swap_contract() }
 
     fn mature_confirmations(&self) -> Option<u32> { None }
 

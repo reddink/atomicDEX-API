@@ -1143,6 +1143,8 @@ impl MmCoin for LightningCoin {
 
     fn swap_contract_address(&self) -> Option<BytesJson> { None }
 
+    fn fallback_swap_contract(&self) -> Option<BytesJson> { None }
+
     fn mature_confirmations(&self) -> Option<u32> { None }
 
     // Todo: This uses default data for now for the sake of swap P.O.C., this should be implemented probably when implementing order matching if it's needed

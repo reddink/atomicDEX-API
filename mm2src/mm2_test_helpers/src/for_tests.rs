@@ -1052,13 +1052,10 @@ pub fn mm_dump(log_path: &Path) -> (RaiiDump, RaiiDump) {
 
 /// A typical MM instance.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn mm_spat(
-    local_start: LocalStart,
-    conf_mod: &dyn Fn(Json) -> Json,
-) -> (&'static str, MarketMakerIt, RaiiDump, RaiiDump) {
+pub fn mm_spat() -> (&'static str, MarketMakerIt, RaiiDump, RaiiDump) {
     let passphrase = "SPATsRps3dhEtXwtnpRCKF";
     let mm = MarketMakerIt::start(
-        conf_mod(json! ({
+        json!({
             "gui": "nogui",
             "passphrase": passphrase,
             "rpccors": "http://localhost:4000",
@@ -1068,12 +1065,9 @@ pub fn mm_spat(
             ],
             "i_am_seed": true,
             "rpc_password": "pass",
-        })),
+        }),
         "pass".into(),
-        match common::var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "1" => Some(local_start),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
     let (dump_log, dump_dashboard) = mm_dump(&mm.log_path);

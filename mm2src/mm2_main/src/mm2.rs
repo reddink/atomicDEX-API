@@ -68,10 +68,6 @@ pub mod database;
 #[path = "lp_swap.rs"] pub mod lp_swap;
 #[path = "rpc.rs"] pub mod rpc;
 
-#[cfg(any(test, target_arch = "wasm32"))]
-#[path = "mm2_tests.rs"]
-pub mod mm2_tests;
-
 pub const MM_DATETIME: &str = env!("MM_DATETIME");
 pub const MM_VERSION: &str = env!("MM_VERSION");
 pub const PASSWORD_MAXIMUM_CONSECUTIVE_CHARACTERS: usize = 3;

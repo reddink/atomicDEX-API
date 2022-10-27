@@ -3551,6 +3551,10 @@ pub async fn get_verbose_transactions_from_cache_or_rpc(
 #[inline]
 pub fn swap_contract_address() -> Option<BytesJson> { None }
 
+/// Fallback swap contract address is not used by standard UTXO coins.
+#[inline]
+pub fn fallback_swap_contract() -> Option<BytesJson> { None }
+
 /// Convert satoshis to BigDecimal amount of coin units
 #[inline]
 pub fn big_decimal_from_sat(satoshis: i64, decimals: u8) -> BigDecimal {

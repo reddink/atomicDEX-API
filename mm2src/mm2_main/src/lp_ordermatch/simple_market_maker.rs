@@ -118,8 +118,8 @@ pub struct StartSimpleMakerBotRequest {
     bot_refresh_rate: Option<f64>,
 }
 
-#[cfg(test)]
 impl StartSimpleMakerBotRequest {
+    #[allow(dead_code)]
     pub fn new() -> StartSimpleMakerBotRequest {
         return StartSimpleMakerBotRequest {
             cfg: Default::default(),
@@ -134,8 +134,8 @@ pub struct StopSimpleMakerBotRes {
     result: String,
 }
 
-#[cfg(test)]
 impl StopSimpleMakerBotRes {
+    #[allow(dead_code)]
     pub fn get_result(&self) -> String { self.result.clone() }
 }
 
@@ -144,8 +144,8 @@ pub struct StartSimpleMakerBotRes {
     result: String,
 }
 
-#[cfg(test)]
 impl StartSimpleMakerBotRes {
+    #[allow(dead_code)]
     pub fn get_result(&self) -> String { self.result.clone() }
 }
 

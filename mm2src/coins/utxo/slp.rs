@@ -1838,7 +1838,9 @@ impl MmCoin for SlpToken {
         warn!("set_requires_notarization has no effect on SLPTOKEN!")
     }
 
-    fn swap_contract_address(&self) -> Option<BytesJson> { None }
+    fn swap_contract_address(&self) -> Option<BytesJson> { utxo_common::fallback_swap_contract() }
+
+    fn fallback_swap_contract(&self) -> Option<BytesJson> { utxo_common::fallback_swap_contract() }
 
     fn mature_confirmations(&self) -> Option<u32> { self.platform_coin.mature_confirmations() }
 
