@@ -119,13 +119,13 @@ pub struct StartSimpleMakerBotRequest {
 }
 
 impl StartSimpleMakerBotRequest {
-    #[allow(dead_code)]
+    #[allow(dead_code, clippy::new_without_default)]
     pub fn new() -> StartSimpleMakerBotRequest {
-        return StartSimpleMakerBotRequest {
+        StartSimpleMakerBotRequest {
             cfg: Default::default(),
             price_url: None,
             bot_refresh_rate: None,
-        };
+        }
     }
 }
 
