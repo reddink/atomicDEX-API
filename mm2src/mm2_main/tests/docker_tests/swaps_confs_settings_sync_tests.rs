@@ -1,6 +1,6 @@
 use super::*;
-use crate::mm2::lp_ordermatch::OrderConfirmationsSettings;
-use crate::mm2::lp_swap::get_payment_locktime;
+use mm2_main::mm2::lp_ordermatch::OrderConfirmationsSettings;
+use mm2_main::mm2::lp_swap::get_payment_locktime;
 
 struct SwapConfirmationsSettings {
     maker_coin_confs: u64,

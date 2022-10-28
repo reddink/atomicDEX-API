@@ -1,4 +1,6 @@
 use crate::docker_tests::docker_tests_common::*;
+use crate::integration_tests_common::{EnableSolanaWithTokensResponse, EnableSplResponse, RpcV2Response,
+                                      SignatureResponse, VerificationResponse};
 use mm2_test_helpers::for_tests::{enable_solana_with_tokens, enable_spl, sign_message, verify_message};
 use num_traits::Zero;
 use serde_json as json;

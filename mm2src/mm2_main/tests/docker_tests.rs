@@ -29,12 +29,6 @@ extern crate serde_derive;
 extern crate ser_error_derive;
 #[cfg(test)] extern crate test;
 
-#[cfg(test)]
-#[path = "mm2.rs"]
-pub mod mm2;
-
-fn main() { unimplemented!() }
-
 /// rustfmt cannot resolve the module path within docker_tests.
 /// Specify the path manually outside the docker_tests.
 #[cfg(rustfmt)]
@@ -52,6 +46,8 @@ mod swaps_file_lock_tests;
 #[cfg(rustfmt)]
 #[path = "docker_tests/qrc20_tests.rs"]
 mod qrc20_tests;
+
+mod integration_tests_common;
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod docker_tests {
@@ -94,8 +90,7 @@ mod docker_tests {
     #[rustfmt::skip]
     mod swaps_file_lock_tests;
 
-    use docker_tests_common::*;
-
+    use crate::integration_tests_common::*;
     use bitcrypto::ChecksumType;
     use chain::{OutPoint, TransactionOutput};
     use coins::eth::{eth_coin_from_conf_and_request, EthCoin};
@@ -110,6 +105,7 @@ mod docker_tests {
                 Transaction, TransactionEnum, WatcherOps, WithdrawRequest};
     use common::{block_on, now_ms};
     use crypto::privkey::{key_pair_from_secret, key_pair_from_seed};
+    use docker_tests_common::*;
     use futures01::Future;
     use keys::{Address, KeyPair, NetworkPrefix as CashAddrPrefix, Private};
     use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
@@ -3907,12 +3903,10 @@ mod docker_tests {
         log!("{:?}", block_on(enable_native(&mm_bob, "MYCOIN", &[])));
         log!("{:?}", block_on(enable_native(&mm_alice, "MYCOIN", &[])));
         let eth_bob = block_on(enable_native(&mm_bob, "ETH", &["http://195.201.0.6:8565"]));
-        let eth_bob: EnableElectrumResponse = json::from_value(eth_bob).unwrap();
         // pass without 0x
         fill_eth(&eth_bob.address[2..]);
 
         let eth_alice = block_on(enable_native(&mm_alice, "ETH", &["http://195.201.0.6:8565"]));
-        let eth_alice: EnableElectrumResponse = json::from_value(eth_alice).unwrap();
         // pass without 0x
         fill_eth(&eth_alice.address[2..]);
 
@@ -3988,12 +3982,10 @@ mod docker_tests {
         log!("{:?}", block_on(enable_native(&mm_bob, "MYCOIN", &[])));
         log!("{:?}", block_on(enable_native(&mm_alice, "MYCOIN", &[])));
         let eth_bob = block_on(enable_native(&mm_bob, "ETH", &["http://195.201.0.6:8565"]));
-        let eth_bob: EnableElectrumResponse = json::from_value(eth_bob).unwrap();
         // pass without 0x
         fill_eth(&eth_bob.address[2..]);
 
         let eth_alice = block_on(enable_native(&mm_alice, "ETH", &["http://195.201.0.6:8565"]));
-        let eth_alice: EnableElectrumResponse = json::from_value(eth_alice).unwrap();
         // pass without 0x
         fill_eth(&eth_alice.address[2..]);
 

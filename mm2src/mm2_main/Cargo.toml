@@ -27,10 +27,6 @@ test = false
 doctest = false
 bench = false
 
-[[bin]]
-name = "docker_tests"
-path = "src/docker_tests.rs"
-
 [lib]
 test = false
 doctest = false
