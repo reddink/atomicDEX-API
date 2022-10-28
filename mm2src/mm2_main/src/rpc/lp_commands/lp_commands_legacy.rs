@@ -19,7 +19,7 @@
 //  marketmaker
 //
 
-use coins::{disable_coin as disable_coin_impl, lp_coinfind, lp_coininit, MmCoinEnum};
+use coins::{disable_coin as disable_coin_impl, lp_coinfind, lp_coininit, MarketCoinOps, MmCoinEnum};
 use common::executor::{AbortableSystem, Timer};
 use common::log::error;
 use common::{rpc_err_response, rpc_response, HyRes};
@@ -40,11 +40,18 @@ use crate::mm2::MmVersionResult;
 /// Attempts to disable the coin
 pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
     let ticker = try_s!(req["coin"].as_str().ok_or("No 'coin' field")).to_owned();
-    let _coin = match lp_coinfind(&ctx, &ticker).await {
+    let coin = match lp_coinfind(&ctx, &ticker).await {
         Ok(Some(t)) => t,
         Ok(None) => return ERR!("No such coin: {}", ticker),
         Err(err) => return ERR!("!lp_coinfind({}): ", err),
     };
+    let platform_coin = match coin {
+        MmCoinEnum::SlpToken(ref slp) => Some(slp.platform_ticker()),
+        MmCoinEnum::SplToken(ref spl) => Some(spl.platform_coin.ticker()),
+        MmCoinEnum::LightningCoin(ref lightning) => Some(lightning.platform.coin.platform_ticker()),
+        _ => None,
+    };
+
     let swaps = try_s!(active_swaps_using_coin(&ctx, &ticker));
     if !swaps.is_empty() {
         let err = json!({
