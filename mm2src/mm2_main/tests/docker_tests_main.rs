@@ -4,8 +4,6 @@
 #![test_runner(docker_tests_runner)]
 #![feature(drain_filter)]
 #![feature(hash_raw_entry)]
-#![feature(map_first_last)]
-#![recursion_limit = "512"]
 
 #[cfg(test)]
 #[macro_use]
@@ -22,9 +20,7 @@ extern crate serde_json;
 #[cfg(test)]
 #[macro_use]
 extern crate serde_derive;
-#[cfg(test)]
-#[macro_use]
-extern crate ser_error_derive;
+#[cfg(test)] extern crate ser_error_derive;
 #[cfg(test)] extern crate test;
 
 use chain::TransactionOutput;
@@ -35,7 +31,7 @@ use coins::utxo::slp::SlpToken;
 use coins::utxo::slp::{slp_genesis_output, SlpOutput};
 use coins::utxo::utxo_common::send_outputs_from_my_address;
 use coins::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
-use coins::utxo::{dhash160, GetUtxoListOps, UtxoActivationParams, UtxoCommonOps};
+use coins::utxo::{UtxoActivationParams, UtxoCommonOps};
 use coins::{CoinProtocol, MarketCoinOps, Transaction};
 use common::{block_on, now_ms};
 use crypto::privkey::{key_pair_from_secret, key_pair_from_seed};
@@ -53,7 +49,7 @@ use testcontainers::clients::Cli;
 mod docker_tests;
 use docker_tests::docker_tests_common::*;
 use docker_tests::qrc20_tests::{qtum_docker_node, QtumDockerOps, QTUM_REGTEST_DOCKER_IMAGE};
-mod integration_tests_common;
+#[allow(dead_code)] mod integration_tests_common;
 
 // AP: custom test runner is intended to initialize the required environment (e.g. coin daemons in the docker containers)
 // and then gracefully clear it by dropping the RAII docker container handlers
