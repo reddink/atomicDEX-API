@@ -428,9 +428,8 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
         }
         .fuse(),
     );
-    let do_nothing = (); // to fix https://rust-lang.github.io/rust-clippy/master/index.html#unused_unit
     select! {
-        _swap = swap_fut => do_nothing, // swap finished normally
+        _swap = swap_fut => (), // swap finished normally
         _touch = touch_loop => unreachable!("Touch loop can not stop!"),
     };
 }
@@ -2321,6 +2320,7 @@ pub struct MaxTakerVolumeLessThanDust {
     pub min_tx_amount: MmNumber,
 }
 
+#[allow(clippy::result_large_err)]
 pub fn max_taker_vol_from_available(
     available: MmNumber,
     base: &str,

@@ -479,7 +479,7 @@ fn on_update_config(args: &[OsString]) -> Result<(), String> {
     let formatter = json::ser::PrettyFormatter::with_indent(b"\t");
     let mut ser = json::Serializer::with_formatter(buf, formatter);
     try_s!(result.serialize(&mut ser));
-    try_s!(std::fs::write(&dst_path, ser.into_inner()));
+    try_s!(std::fs::write(dst_path, ser.into_inner()));
     Ok(())
 }
 

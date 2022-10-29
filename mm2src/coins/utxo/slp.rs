@@ -510,7 +510,7 @@ impl SlpToken {
                 if token_id != self.token_id() {
                     return MmError::err(SpendHtlcError::InvalidSlpDetails);
                 }
-                *amounts.get(0).ok_or(SpendHtlcError::InvalidSlpDetails)?
+                *amounts.first().ok_or(SpendHtlcError::InvalidSlpDetails)?
             },
             _ => return MmError::err(SpendHtlcError::InvalidSlpDetails),
         };
@@ -561,7 +561,7 @@ impl SlpToken {
                 if token_id != self.token_id() {
                     return MmError::err(SpendHtlcError::InvalidSlpDetails);
                 }
-                *amounts.get(0).ok_or(SpendHtlcError::InvalidSlpDetails)?
+                *amounts.first().ok_or(SpendHtlcError::InvalidSlpDetails)?
             },
             _ => return MmError::err(SpendHtlcError::InvalidSlpDetails),
         };

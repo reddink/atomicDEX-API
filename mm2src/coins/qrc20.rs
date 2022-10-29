@@ -314,7 +314,7 @@ pub struct Qrc20Coin(Arc<Qrc20CoinFields>);
 
 impl Deref for Qrc20Coin {
     type Target = Qrc20CoinFields;
-    fn deref(&self) -> &Qrc20CoinFields { &*self.0 }
+    fn deref(&self) -> &Qrc20CoinFields { &self.0 }
 }
 
 impl AsRef<UtxoCoinFields> for Qrc20Coin {
