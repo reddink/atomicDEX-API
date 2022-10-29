@@ -620,7 +620,7 @@ impl MarketMakerIt {
             let executable = try_s!(env::args().next().ok_or("No program name"));
             let executable = try_s!(Path::new(&executable).canonicalize());
             let log = try_s!(fs::File::create(&log_path));
-            let child = try_s!(Command::new(&executable)
+            let child = try_s!(Command::new(executable)
                 .arg("test_mm_start")
                 .arg("--nocapture")
                 .current_dir(&folder)

@@ -28,6 +28,8 @@ doctest = false
 bench = false
 
 [lib]
+name = "mm2"
+crate-type = ["cdylib", "lib"]
 test = false
 doctest = false
 bench = false
