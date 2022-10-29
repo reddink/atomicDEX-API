@@ -998,6 +998,38 @@ impl TendermintCoin {
             .or_mm_err(|| TendermintCoinRpcError::InvalidResponse(format!("Tx {} does not exist", request.hash)))
     }
 
+    /// Returns status code of transaction.
+    /// If tx doesn't exists on chain, then returns `None`.
+    async fn get_tx_status_code_or_none(
+        &self,
+        hash: String,
+    ) -> MmResult<Option<cosmrs::tendermint::abci::Code>, TendermintCoinRpcError> {
+        let path = AbciPath::from_str(ABCI_GET_TX_PATH).expect("valid path");
+        let request = GetTxRequest { hash };
+        let response = self
+            .rpc_client()
+            .await?
+            .abci_query(
+                Some(path),
+                request.encode_to_vec(),
+                ABCI_REQUEST_HEIGHT,
+                ABCI_REQUEST_PROVE,
+            )
+            .await?;
+
+        let tx = GetTxResponse::decode(response.value.as_slice())?;
+
+        if let Some(tx_response) = tx.tx_response {
+            // non-zero values are error.
+            match tx_response.code {
+                0 => Ok(Some(cosmrs::tendermint::abci::Code::Ok)),
+                err_code => Ok(Some(cosmrs::tendermint::abci::Code::Err(err_code))),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
     async fn query_htlc(&self, id: String) -> MmResult<QueryHtlcResponseProto, TendermintCoinRpcError> {
         let path = AbciPath::from_str(ABCI_QUERY_HTLC_PATH).expect("valid path");
         let request = QueryHtlcRequestProto { id };
@@ -1357,30 +1389,21 @@ impl MarketCoinOps for TendermintCoin {
                     return ERR!(
                         "Waited too long until {} for payment {} to be received",
                         wait_until,
-                        tx_hash
+                        tx_hash.clone()
                     );
                 }
 
-                let rpc_client = try_s!(coin.rpc_client().await);
-                let q = format!("tx.hash = '{}'", tx_hash);
-                let response = try_s!(
-                    // Search single tx
-                    rpc_client
-                        .perform(TxSearchRequest::new(q, false, 1, 1, TendermintResultOrder::Descending))
-                        .await
-                );
+                let tx_status_code = try_s!(coin.get_tx_status_code_or_none(tx_hash.clone()).await);
 
-                if let Some(tx) = response.txs.first() {
-                    return match tx.tx_result.code {
+                if let Some(tx_status_code) = tx_status_code {
+                    return match tx_status_code {
                         cosmrs::tendermint::abci::Code::Ok => Ok(()),
-                        cosmrs::tendermint::abci::Code::Err(err_code) => {
-                            return Err(format!(
-                                "Got {} error code. Broadcasted tx likely isn't valid.",
-                                err_code
-                            ));
-                        },
+                        cosmrs::tendermint::abci::Code::Err(err_code) => Err(format!(
+                            "Got error code: '{}' for tx: '{}'. Broadcasted tx isn't valid.",
+                            err_code, tx_hash
+                        )),
                     };
-                }
+                };
 
                 Timer::sleep(check_every as f64).await;
             }
@@ -1834,10 +1857,12 @@ impl WatcherOps for TendermintCoin {
 #[cfg(test)]
 pub mod tendermint_coin_tests {
     use super::*;
+
     use crate::tendermint::htlc_proto::ClaimHtlcProtoRep;
     use common::{block_on, DEX_FEE_ADDR_RAW_PUBKEY};
     use cosmrs::proto::cosmos::tx::v1beta1::{GetTxRequest, GetTxResponse, GetTxsEventResponse};
     use rand::{thread_rng, Rng};
+    use std::mem::discriminant;
 
     pub const IRIS_TESTNET_HTLC_PAIR1_SEED: &str = "iris test seed";
     // pub const IRIS_TESTNET_HTLC_PAIR1_PUB_KEY: &str = &[
@@ -2354,5 +2379,66 @@ pub mod tendermint_coin_tests {
             ValidatePaymentError::UnexpectedPaymentState(_) => (),
             unexpected => panic!("Unexpected error variant {:?}", unexpected),
         };
+    }
+
+    #[test]
+    fn test_get_tx_status_code_or_none() {
+        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let protocol_conf = get_iris_usdc_ibc_protocol();
+        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default()
+            .with_secp256k1_key_pair(crypto::privkey::key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap())
+            .into_mm_arc();
+        let priv_key = &*ctx.secp256k1_key_pair().private().secret;
+        let coin = common::block_on(TendermintCoin::init(
+            &ctx,
+            "USDC-IBC".to_string(),
+            5,
+            protocol_conf,
+            rpc_urls,
+            priv_key,
+        ))
+        .unwrap();
+
+        let succeed_tx_hashes = vec![
+            // https://nyancat.iobscan.io/#/tx?txHash=A010FC0AA33FC6D597A8635F9D127C0A7B892FAAC72489F4DADD90048CFE9279
+            "A010FC0AA33FC6D597A8635F9D127C0A7B892FAAC72489F4DADD90048CFE9279".to_string(),
+            // https://nyancat.iobscan.io/#/tx?txHash=54FD77054AE311C484CC2EADD4621428BB23D14A9BAAC128B0E7B47422F86EC8
+            "54FD77054AE311C484CC2EADD4621428BB23D14A9BAAC128B0E7B47422F86EC8".to_string(),
+            // https://nyancat.iobscan.io/#/tx?txHash=7C00FAE7F70C36A316A4736025B08A6EAA2A0CC7919A2C4FC4CD14D9FFD166F9
+            "7C00FAE7F70C36A316A4736025B08A6EAA2A0CC7919A2C4FC4CD14D9FFD166F9".to_string(),
+        ];
+
+        for succeed_tx_hash in succeed_tx_hashes {
+            let status_code = common::block_on(coin.get_tx_status_code_or_none(succeed_tx_hash))
+                .unwrap()
+                .expect("tx exists");
+
+            assert_eq!(status_code, cosmrs::tendermint::abci::Code::Ok);
+        }
+
+        let failed_tx_hashes = vec![
+            // https://nyancat.iobscan.io/#/tx?txHash=57EE62B2DF7E311C98C24AE2A53EB0FF2C16D289CECE0826CA1FF1108C91B3F9
+            "57EE62B2DF7E311C98C24AE2A53EB0FF2C16D289CECE0826CA1FF1108C91B3F9".to_string(),
+            // https://nyancat.iobscan.io/#/tx?txHash=F3181D69C580318DFD54282C656AC81113BC600BCFBAAA480E6D8A6469EE8786
+            "F3181D69C580318DFD54282C656AC81113BC600BCFBAAA480E6D8A6469EE8786".to_string(),
+            // https://nyancat.iobscan.io/#/tx?txHash=FE6F9F395DA94A14FCFC04E0E8C496197077D5F4968DA5528D9064C464ADF522
+            "FE6F9F395DA94A14FCFC04E0E8C496197077D5F4968DA5528D9064C464ADF522".to_string(),
+        ];
+
+        for failed_tx_hash in failed_tx_hashes {
+            let status_code = common::block_on(coin.get_tx_status_code_or_none(failed_tx_hash))
+                .unwrap()
+                .expect("tx exists");
+
+            assert_eq!(
+                discriminant(&status_code),
+                discriminant(&cosmrs::tendermint::abci::Code::Err(61))
+            );
+        }
+
+        // Doesn't exists
+        let tx_hash = "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+        let status_code = common::block_on(coin.get_tx_status_code_or_none(tx_hash)).unwrap();
+        assert!(status_code.is_none());
     }
 }
