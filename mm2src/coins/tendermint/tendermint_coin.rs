@@ -21,7 +21,7 @@ use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
 use common::executor::Timer;
 use common::executor::{abortable_queue::AbortableQueue, AbortableSystem};
-use common::{get_utc_timestamp, log, Future01CompatExt};
+use common::{get_utc_timestamp, log, now_ms, Future01CompatExt};
 use cosmrs::bank::MsgSend;
 use cosmrs::crypto::secp256k1::SigningKey;
 use cosmrs::proto::cosmos::auth::v1beta1::{BaseAccount, QueryAccountRequest, QueryAccountResponse};
@@ -1255,17 +1255,13 @@ impl MmCoin for TendermintCoin {
         })
     }
 
-    // TODO
-    // !! This function includes dummy implementation for P.O.C work
     fn required_confirmations(&self) -> u64 { 0 }
 
-    // TODO
-    // !! This function includes dummy implementation for P.O.C work
     fn requires_notarization(&self) -> bool { false }
 
-    fn set_required_confirmations(&self, confirmations: u64) { todo!() }
+    fn set_required_confirmations(&self, _confirmations: u64) { unimplemented!() }
 
-    fn set_requires_notarization(&self, requires_nota: bool) { todo!() }
+    fn set_requires_notarization(&self, _requires_nota: bool) { unimplemented!() }
 
     // TODO
     // !! This function includes dummy implementation for P.O.C work
@@ -1343,13 +1339,53 @@ impl MarketCoinOps for TendermintCoin {
 
     fn wait_for_confirmations(
         &self,
-        _tx: &[u8],
+        tx_bytes: &[u8],
         _confirmations: u64,
         _requires_nota: bool,
-        _wait_until: u64,
-        _check_every: u64,
+        wait_until: u64,
+        check_every: u64,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        let fut = async move { Ok(()) };
+        let tx_raw: TxRaw = try_fus!(Message::decode(tx_bytes));
+        let tx = TransactionEnum::CosmosTransaction(CosmosTransaction { data: tx_raw });
+        let mut tx_hash = hex::encode_upper(&tx.tx_hash().0);
+        tx_hash.make_ascii_uppercase();
+
+        let coin = self.clone();
+        let fut = async move {
+            loop {
+                if now_ms() / 1000 > wait_until {
+                    return ERR!(
+                        "Waited too long until {} for payment {} to be received",
+                        wait_until,
+                        tx_hash
+                    );
+                }
+
+                let rpc_client = try_s!(coin.rpc_client().await);
+                let q = format!("tx.hash = '{}'", tx_hash);
+                let response = try_s!(
+                    // Search single tx
+                    rpc_client
+                        .perform(TxSearchRequest::new(q, false, 1, 1, TendermintResultOrder::Descending))
+                        .await
+                );
+
+                if let Some(tx) = response.txs.first() {
+                    return match tx.tx_result.code {
+                        cosmrs::tendermint::abci::Code::Ok => Ok(()),
+                        cosmrs::tendermint::abci::Code::Err(err_code) => {
+                            return Err(format!(
+                                "Got {} error code. Broadcasted tx likely isn't valid.",
+                                err_code
+                            ));
+                        },
+                    };
+                }
+
+                Timer::sleep(check_every as f64).await;
+            }
+        };
+
         Box::new(fut.boxed().compat())
     }
 

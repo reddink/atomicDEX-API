@@ -641,9 +641,9 @@ impl MmCoin for TendermintToken {
 
     fn requires_notarization(&self) -> bool { self.platform_coin.requires_notarization() }
 
-    fn set_required_confirmations(&self, confirmations: u64) { todo!() }
+    fn set_required_confirmations(&self, confirmations: u64) { unimplemented!() }
 
-    fn set_requires_notarization(&self, requires_nota: bool) { todo!() }
+    fn set_requires_notarization(&self, requires_nota: bool) { unimplemented!() }
 
     fn swap_contract_address(&self) -> Option<BytesJson> { None }
 
