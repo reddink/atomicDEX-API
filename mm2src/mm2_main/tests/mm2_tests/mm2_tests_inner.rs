@@ -10,7 +10,8 @@ use mm2_number::{BigDecimal, BigRational, Fraction, MmNumber};
 use mm2_test_helpers::for_tests::init_z_coin_native;
 use mm2_test_helpers::for_tests::{btc_with_spv_conf, check_my_swap_status, check_recent_swaps,
                                   check_stats_swap_status, enable_qrc20, find_metrics_in_json, from_env_file, mm_spat,
-                                  morty_conf, rick_conf, sign_message, tbtc_with_spv_conf, verify_message,
+                                  morty_conf, rick_conf, sign_message, start_swaps, tbtc_with_spv_conf,
+                                  verify_message, wait_for_swaps_finish_and_check_status,
                                   wait_till_history_has_records, MarketMakerIt, Mm2TestConf, RaiiDump,
                                   ETH_MAINNET_NODE, ETH_MAINNET_SWAP_CONTRACT, MAKER_ERROR_EVENTS,
                                   MAKER_SUCCESS_EVENTS, MORTY, RICK, TAKER_ERROR_EVENTS, TAKER_SUCCESS_EVENTS};
@@ -23,6 +24,19 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
+
+cfg_native! {
+    use common::block_on;
+    use mm2_test_helpers::for_tests::{get_passphrase, new_mm2_temp_folder_path};
+    use mm2_io::fs::slurp;
+    use hyper::header::ACCESS_CONTROL_ALLOW_ORIGIN;
+}
+
+cfg_wasm32! {
+    use wasm_bindgen_test::*;
+
+    wasm_bindgen_test_configure!(run_in_browser);
+}
 
 #[cfg(all(feature = "zhtlc-native-tests", not(target_arch = "wasm32")))]
 async fn enable_z_coin(mm: &MarketMakerIt, coin: &str) -> CoinActivationResult {
@@ -46,19 +60,6 @@ async fn enable_z_coin(mm: &MarketMakerIt, coin: &str) -> CoinActivationResult {
             _ => Timer::sleep(1.).await,
         }
     }
-}
-
-cfg_native! {
-    use common::block_on;
-    use mm2_test_helpers::for_tests::{get_passphrase, new_mm2_temp_folder_path};
-    use mm2_io::fs::slurp;
-    use hyper::header::ACCESS_CONTROL_ALLOW_ORIGIN;
-}
-
-cfg_wasm32! {
-    use wasm_bindgen_test::*;
-
-    wasm_bindgen_test_configure!(run_in_browser);
 }
 
 /// Integration test for RPC server.
@@ -747,12 +748,12 @@ async fn trade_base_rel_electrum(
     let bob_passphrase = get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap();
     let alice_passphrase = get_passphrase!(".env.client", "ALICE_PASSPHRASE").unwrap();
 
-    let coins = json! ([
-        {"coin":"RICK","asset":"RICK","required_confirmations":0,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"}},
-        {"coin":"MORTY","asset":"MORTY","required_confirmations":0,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"}},
+    let coins = json!([
+        rick_conf(),
+        morty_conf(),
         {"coin":"ETH","name":"ethereum","protocol":{"type":"ETH"}},
+        {"coin":"JST","name":"jst","protocol":{"type":"ERC20","protocol_data":{"platform":"ETH","contract_address":"0x2b294F029Fde858b2c62184e8390591755521d8E"}}},
         {"coin":"ZOMBIE","asset":"ZOMBIE","fname":"ZOMBIE (TESTCOIN)","txversion":4,"overwintered":1,"mm2":1,"protocol":{"type":"ZHTLC"},"required_confirmations":0},
-        {"coin":"JST","name":"jst","protocol":{"type":"ERC20","protocol_data":{"platform":"ETH","contract_address":"0x2b294F029Fde858b2c62184e8390591755521d8E"}}}
     ]);
 
     let mut mm_bob = MarketMakerIt::start_async(
@@ -838,74 +839,7 @@ async fn trade_base_rel_electrum(
     let rc = enable_coins_eth_electrum(&mm_alice, &["http://195.201.0.6:8565"]).await;
     log!("enable_coins (alice): {:?}", rc);
 
-    // unwrap! (mm_alice.wait_for_log (999., &|log| log.contains ("set pubkey for ")));
-
-    let mut uuids = vec![];
-
-    // issue sell request on Bob side by setting base/rel price
-    for (base, rel) in pairs.iter() {
-        log!("Issue bob {}/{} sell request", base, rel);
-        let rc = mm_bob
-            .rpc(&json! ({
-                "userpass": mm_bob.userpass,
-                "method": "setprice",
-                "base": base,
-                "rel": rel,
-                "price": maker_price,
-                "volume": volume
-            }))
-            .await
-            .unwrap();
-        assert!(rc.0.is_success(), "!setprice: {}", rc.1);
-    }
-
-    for (base, rel) in pairs.iter() {
-        common::log::info!(
-            "Trigger alice subscription to {}/{} orderbook topic first and sleep for 1 second",
-            base,
-            rel
-        );
-        let rc = mm_alice
-            .rpc(&json! ({
-                "userpass": mm_alice.userpass,
-                "method": "orderbook",
-                "base": base,
-                "rel": rel,
-            }))
-            .await
-            .unwrap();
-        assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
-        Timer::sleep(1.).await;
-        common::log::info!("Issue alice {}/{} buy request", base, rel);
-        let rc = mm_alice
-            .rpc(&json! ({
-                "userpass": mm_alice.userpass,
-                "method": "buy",
-                "base": base,
-                "rel": rel,
-                "volume": volume,
-                "price": taker_price
-            }))
-            .await
-            .unwrap();
-        assert!(rc.0.is_success(), "!buy: {}", rc.1);
-        let buy_json: Json = serde_json::from_str(&rc.1).unwrap();
-        uuids.push(buy_json["result"]["uuid"].as_str().unwrap().to_owned());
-    }
-
-    for (base, rel) in pairs.iter() {
-        // ensure the swaps are started
-        let expected_log = format!("Entering the taker_swap_loop {}/{}", base, rel);
-        mm_alice
-            .wait_for_log(5., |log| log.contains(&expected_log))
-            .await
-            .unwrap();
-        let expected_log = format!("Entering the maker_swap_loop {}/{}", base, rel);
-        mm_bob
-            .wait_for_log(5., |log| log.contains(&expected_log))
-            .await
-            .unwrap()
-    }
+    let uuids = start_swaps(&mut mm_bob, &mut mm_alice, pairs, maker_price, taker_price, volume).await;
 
     #[cfg(not(target_arch = "wasm32"))]
     for uuid in uuids.iter() {
@@ -921,42 +855,7 @@ async fn trade_base_rel_electrum(
             .unwrap()
     }
 
-    for uuid in uuids.iter() {
-        mm_bob
-            .wait_for_log(900., |log| log.contains(&format!("[swap uuid={}] Finished", uuid)))
-            .await
-            .unwrap();
-
-        mm_alice
-            .wait_for_log(900., |log| log.contains(&format!("[swap uuid={}] Finished", uuid)))
-            .await
-            .unwrap();
-
-        log!("Waiting a few second for the fresh swap status to be saved..");
-        Timer::sleep(7.77).await;
-
-        log!("Checking alice/taker status..");
-        check_my_swap_status(
-            &mm_alice,
-            uuid,
-            &TAKER_SUCCESS_EVENTS,
-            &TAKER_ERROR_EVENTS,
-            BigDecimal::try_from(volume).unwrap(),
-            BigDecimal::try_from(volume).unwrap(),
-        )
-        .await;
-
-        log!("Checking bob/maker status..");
-        check_my_swap_status(
-            &mm_bob,
-            uuid,
-            &MAKER_SUCCESS_EVENTS,
-            &MAKER_ERROR_EVENTS,
-            BigDecimal::try_from(volume).unwrap(),
-            BigDecimal::try_from(volume).unwrap(),
-        )
-        .await;
-    }
+    wait_for_swaps_finish_and_check_status();
 
     log!("Waiting 3 seconds for nodes to broadcast their swaps data..");
     Timer::sleep(3.).await;
@@ -1018,13 +917,6 @@ fn trade_test_electrum_and_eth_coins() { block_on(trade_base_rel_electrum(&[("ET
 #[test]
 #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc-native-tests"))]
 fn trade_test_electrum_rick_zombie() { block_on(trade_base_rel_electrum(&[("RICK", "ZOMBIE")], 1, 2, 0.1)); }
-
-#[wasm_bindgen_test]
-#[cfg(target_arch = "wasm32")]
-async fn trade_test_rick_and_morty() {
-    let pairs: &[_] = &[("RICK", "MORTY")];
-    trade_base_rel_electrum(pairs, 1, 1, 0.0001).await;
-}
 
 #[cfg(not(target_arch = "wasm32"))]
 fn withdraw_and_send(
@@ -7556,135 +7448,4 @@ fn test_tbtc_block_header_sync() {
     log!("enable UTXO bob {:?}", utxo_bob);
 
     block_on(mm_bob.stop()).unwrap();
-}
-
-/// This function runs Alice and Bob nodes, activates coins, starts swaps,
-/// and then immediately stops the nodes to check if `MmArc` is dropped in a short period.
-#[cfg(target_arch = "wasm32")]
-async fn test_mm2_stops_impl(
-    pairs: &[(&'static str, &'static str)],
-    maker_price: i32,
-    taker_price: i32,
-    volume: f64,
-    stop_timeout_ms: u64,
-) {
-    let coins = json! ([
-        {"coin":"RICK","asset":"RICK","required_confirmations":0,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"},"tx_history":true},
-        {"coin":"MORTY","asset":"MORTY","required_confirmations":0,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"},"tx_history":true},
-        {"coin":"ETH","name":"ethereum","protocol":{"type":"ETH"}},
-        {"coin":"JST","name":"jst","protocol":{"type":"ERC20","protocol_data":{"platform":"ETH","contract_address":"0x2b294F029Fde858b2c62184e8390591755521d8E"}}},
-    ]);
-
-    let bob_passphrase = get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap();
-    let alice_passphrase = get_passphrase!(".env.client", "ALICE_PASSPHRASE").unwrap();
-
-    let bob_conf = Mm2TestConf::seednode(&bob_passphrase, &coins);
-    let mut mm_bob = MarketMakerIt::start_async(bob_conf.conf, bob_conf.rpc_password, None)
-        .await
-        .unwrap();
-    let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        log!("Bob log path: {}", mm_bob.log_path.display())
-    }
-
-    Timer::sleep(1.).await;
-
-    let alice_conf = Mm2TestConf::light_node(&alice_passphrase, &coins, &[&mm_bob.my_seed_addr()]);
-    let mut mm_alice = MarketMakerIt::start_async(alice_conf.conf, alice_conf.rpc_password, None)
-        .await
-        .unwrap();
-    let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
-
-    // Enable coins on Bob side. Print the replies in case we need the address.
-    let rc = enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]).await;
-    log!("enable_coins (bob): {:?}", rc);
-
-    // Enable coins on Alice side. Print the replies in case we need the address.
-    let rc = enable_coins_eth_electrum(&mm_alice, &["http://195.201.0.6:8565"]).await;
-    log!("enable_coins (alice): {:?}", rc);
-
-    let mut uuids = vec![];
-
-    // issue sell request on Bob side by setting base/rel price
-    for (base, rel) in pairs.iter() {
-        log!("Issue bob {}/{} sell request", base, rel);
-        let rc = mm_bob
-            .rpc(&json! ({
-                "userpass": mm_bob.userpass,
-                "method": "setprice",
-                "base": base,
-                "rel": rel,
-                "price": maker_price,
-                "volume": volume
-            }))
-            .await
-            .unwrap();
-        assert!(rc.0.is_success(), "!setprice: {}", rc.1);
-    }
-
-    for (base, rel) in pairs.iter() {
-        common::log::info!(
-            "Trigger alice subscription to {}/{} orderbook topic first and sleep for 1 second",
-            base,
-            rel
-        );
-        let rc = mm_alice
-            .rpc(&json! ({
-                "userpass": mm_alice.userpass,
-                "method": "orderbook",
-                "base": base,
-                "rel": rel,
-            }))
-            .await
-            .unwrap();
-        assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
-        Timer::sleep(1.).await;
-        common::log::info!("Issue alice {}/{} buy request", base, rel);
-        let rc = mm_alice
-            .rpc(&json! ({
-                "userpass": mm_alice.userpass,
-                "method": "buy",
-                "base": base,
-                "rel": rel,
-                "volume": volume,
-                "price": taker_price
-            }))
-            .await
-            .unwrap();
-        assert!(rc.0.is_success(), "!buy: {}", rc.1);
-        let buy_json: Json = serde_json::from_str(&rc.1).unwrap();
-        uuids.push(buy_json["result"]["uuid"].as_str().unwrap().to_owned());
-    }
-
-    for (base, rel) in pairs.iter() {
-        // ensure the swaps are started
-        let expected_log = format!("Entering the taker_swap_loop {}/{}", base, rel);
-        mm_alice
-            .wait_for_log(5., |log| log.contains(&expected_log))
-            .await
-            .unwrap();
-        let expected_log = format!("Entering the maker_swap_loop {}/{}", base, rel);
-        mm_bob
-            .wait_for_log(5., |log| log.contains(&expected_log))
-            .await
-            .unwrap()
-    }
-
-    mm_alice
-        .stop_and_wait_for_ctx_is_dropped(stop_timeout_ms)
-        .await
-        .unwrap();
-    mm_bob.stop_and_wait_for_ctx_is_dropped(stop_timeout_ms).await.unwrap();
-}
-
-#[wasm_bindgen_test]
-#[cfg(target_arch = "wasm32")]
-async fn test_mm2_stops_immediately() {
-    const STOP_TIMEOUT_MS: u64 = 1000;
-
-    common::log::wasm_log::register_wasm_log();
-
-    let pairs: &[_] = &[("RICK", "MORTY")];
-    test_mm2_stops_impl(pairs, 1, 1, 0.0001, STOP_TIMEOUT_MS).await;
 }
