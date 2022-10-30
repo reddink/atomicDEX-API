@@ -833,7 +833,13 @@ fn test_watcher_spends_taker_spends_maker_payment() {
             .ip
             .to_string()])
         .conf;
-    let mut mm_watcher = MarketMakerIt::start(watcher_conf, "pass".to_string(), None).unwrap();
+    let mut mm_watcher = block_on(MarketMakerIt::start_with_envs(
+        watcher_conf,
+        "pass".to_string(),
+        None,
+        &[("SWAP_WATCHER_SKIP_WAITING", "")],
+    ))
+    .unwrap();
     let (_watcher_dump_log, _watcher_dump_dashboard) = mm_dump(&mm_watcher.log_path);
 
     log!("{:?}", block_on(enable_native(&mm_bob, "MYCOIN", &[])));
@@ -1156,6 +1162,9 @@ fn test_max_taker_vol_swap() {
     let expected_vol = MmNumber::from((647499741, 12965000));
 
     let actual_vol = MmNumber::from(vol.result.clone());
+    println!("actual vol {}", actual_vol.to_decimal());
+    println!("expected vol {}", expected_vol.to_decimal());
+
     assert_eq!(expected_vol, actual_vol);
 
     let rc = block_on(mm_alice.rpc(&json!({

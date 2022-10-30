@@ -264,8 +264,7 @@ impl State for WaitForTakerPaymentSpend {
     type Result = ();
 
     async fn on_changed(self: Box<Self>, watcher_ctx: &mut WatcherContext) -> StateResult<Self::Ctx, Self::Result> {
-        #[cfg(not(test))]
-        {
+        if std::env::var("SWAP_WATCHER_SKIP_WAITING").is_err() {
             // Sleep for half the locktime to allow the taker to spend the maker payment first
             let now = now_ms() / 1000;
             let wait_for_taker_until =
