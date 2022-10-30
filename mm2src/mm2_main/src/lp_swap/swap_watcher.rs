@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use coins::{CanRefundHtlc, FoundSwapTxSpend, MmCoinEnum, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput};
 use common::executor::{AbortSettings, SpawnAbortable, Timer};
 use common::log::{error, info};
+use common::now_ms;
 use common::state_machine::prelude::*;
 use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
@@ -14,8 +15,6 @@ use rpc::v1::types::Bytes as BytesJson;
 use std::cmp::min;
 use std::sync::Arc;
 use uuid::Uuid;
-
-#[cfg(not(test))] use common::now_ms;
 
 pub const WATCHER_PREFIX: TopicPrefix = "swpwtchr";
 const TAKER_SWAP_CONFIRMATIONS: u64 = 1;
