@@ -1,9 +1,9 @@
-use crate::integration_tests_common::{MyBalanceResponse, RpcV2Response, TendermintActivationResult, TransactionDetails};
 use common::block_on;
 use mm2_number::BigDecimal;
 use mm2_test_helpers::for_tests::{atom_testnet_conf, enable_tendermint, enable_tendermint_token,
                                   iris_nimda_testnet_conf, iris_testnet_conf, my_balance, send_raw_transaction,
                                   withdraw_v1, MarketMakerIt, Mm2TestConf};
+use mm2_test_helpers::structs::{MyBalanceResponse, RpcV2Response, TendermintActivationResult, TransactionDetails};
 use serde_json::{self as json, json};
 
 const ATOM_TEST_BALANCE_SEED: &str = "atom test seed";

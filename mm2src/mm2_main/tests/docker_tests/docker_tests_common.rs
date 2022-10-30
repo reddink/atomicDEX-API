@@ -7,7 +7,6 @@ pub use secp256k1::{PublicKey, SecretKey};
 pub use std::env;
 pub use std::thread;
 
-use crate::integration_tests_common::{MyBalanceResponse, TransactionDetails};
 use bitcrypto::{dhash160, ChecksumType};
 use coins::qrc20::rpc_clients::for_tests::Qrc20NativeWalletOps;
 use coins::qrc20::{qrc20_coin_from_conf_and_params, Qrc20ActivationParams, Qrc20Coin};
@@ -24,6 +23,7 @@ use keys::{Address, AddressHashEnum};
 use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
 use mm2_number::BigDecimal;
 use mm2_test_helpers::for_tests::enable_native;
+use mm2_test_helpers::structs::{MyBalanceResponse, TransactionDetails};
 use primitives::hash::{H160, H256};
 use secp256k1::Secp256k1;
 use serde_json::{self as json, Value as Json};

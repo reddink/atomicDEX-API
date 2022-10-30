@@ -1,8 +1,8 @@
-use crate::integration_tests_common::{enable_coins_rick_morty_electrum, enable_electrum, RpcV2Response,
-                                      SignatureResponse, VerificationResponse};
+use crate::integration_tests_common::{enable_coins_rick_morty_electrum, enable_electrum};
 use common::executor::Timer;
 use common::{block_on, log};
 use mm2_test_helpers::for_tests::{enable_lightning, sign_message, verify_message, MarketMakerIt};
+use mm2_test_helpers::structs::{RpcV2Response, SignatureResponse, VerificationResponse};
 use serde_json::{self as json, json, Value as Json};
 use std::env;
 

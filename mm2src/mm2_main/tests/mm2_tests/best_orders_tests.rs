@@ -3,6 +3,8 @@ use common::{block_on, log};
 use http::StatusCode;
 use mm2_number::BigDecimal;
 use mm2_test_helpers::for_tests::{get_passphrase, MarketMakerIt};
+use mm2_test_helpers::structs::{BestOrdersResponse, BestOrdersV2Response, EnableElectrumResponse, RpcV2Response,
+                                SetPriceResponse};
 use serde_json::{self as json, json};
 use std::env::{self};
 use std::thread;

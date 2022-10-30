@@ -1,7 +1,5 @@
 use crate::integration_tests_common::{enable_coins_eth_electrum, enable_coins_rick_morty_electrum, enable_electrum,
-                                      enable_electrum_json, enable_z_coin_light, EnableElectrumResponse,
-                                      GetPublicKeyResult, OrderbookEntryAggregate, OrderbookResponse,
-                                      OrderbookV2Response, RpcV2Response, SetPriceResponse};
+                                      enable_electrum_json, enable_z_coin_light};
 use common::{block_on, log};
 use http::StatusCode;
 use mm2::mm2::lp_ordermatch::MIN_ORDER_KEEP_ALIVE_INTERVAL;
@@ -10,6 +8,8 @@ use mm2_test_helpers::electrums::rick_electrums;
 use mm2_test_helpers::for_tests::{get_passphrase, orderbook_v2, rick_conf, zombie_conf, MarketMakerIt, Mm2TestConf,
                                   RICK, ZOMBIE_ELECTRUMS, ZOMBIE_LIGHTWALLETD_URLS, ZOMBIE_TICKER};
 use mm2_test_helpers::get_passphrase;
+use mm2_test_helpers::structs::{EnableElectrumResponse, GetPublicKeyResult, OrderbookEntryAggregate,
+                                OrderbookResponse, OrderbookV2Response, RpcV2Response, SetPriceResponse};
 use serde_json::{self as json, json, Value as Json};
 use std::env;
 use std::str::FromStr;

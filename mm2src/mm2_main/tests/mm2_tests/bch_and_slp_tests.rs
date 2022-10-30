@@ -1,9 +1,10 @@
-use crate::integration_tests_common::*;
 use common::executor::Timer;
 use common::{block_on, log, now_ms};
 use http::StatusCode;
 use mm2_test_helpers::for_tests::{enable_bch_with_tokens, enable_slp, my_tx_history_v2, sign_message, verify_message,
                                   MarketMakerIt, Mm2TestConf, UtxoRpcMode};
+use mm2_test_helpers::structs::{RpcV2Response, SignatureResponse, StandardHistoryV2Res, UtxoFeeDetails,
+                                VerificationResponse};
 use serde_json::{self as json, json, Value as Json};
 use std::env;
 use std::thread;

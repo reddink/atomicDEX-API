@@ -16,6 +16,7 @@ use mm2_test_helpers::for_tests::{btc_with_spv_conf, check_recent_swaps, check_s
                                   MarketMakerIt, Mm2TestConf, RaiiDump, ETH_MAINNET_NODE, ETH_MAINNET_SWAP_CONTRACT,
                                   MAKER_SUCCESS_EVENTS, MORTY, RICK, TAKER_SUCCESS_EVENTS};
 use mm2_test_helpers::get_passphrase;
+use mm2_test_helpers::structs::*;
 use serde_json::{self as json, json, Value as Json};
 use std::collections::HashMap;
 use std::env::{self, var};

@@ -7,6 +7,8 @@ use mm2_test_helpers::for_tests::{init_withdraw, pirate_conf, rick_conf, send_ra
                                   z_coin_tx_history, zombie_conf, MarketMakerIt, Mm2TestConf, ARRR, PIRATE_ELECTRUMS,
                                   PIRATE_LIGHTWALLETD_URLS, RICK, ZOMBIE_ELECTRUMS, ZOMBIE_LIGHTWALLETD_URLS,
                                   ZOMBIE_TICKER};
+use mm2_test_helpers::structs::{EnableCoinBalance, InitTaskResult, RpcV2Response, TransactionDetails, WithdrawStatus,
+                                ZcoinHistoryRes};
 use serde_json::{self as json, json, Value as Json};
 use std::collections::HashSet;
 use std::iter::FromIterator;

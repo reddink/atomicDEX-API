@@ -11,6 +11,7 @@ use common::{block_on, now_ms};
 use futures01::Future;
 use mm2_number::{BigDecimal, MmNumber};
 use mm2_test_helpers::for_tests::{check_my_swap_status_amounts, mm_dump, MarketMakerIt, Mm2TestConf};
+use mm2_test_helpers::structs::*;
 use secp256k1::SecretKey;
 use serde_json::Value as Json;
 use std::collections::HashMap;

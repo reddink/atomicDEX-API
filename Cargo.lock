@@ -4576,7 +4576,9 @@ dependencies = [
  "mm2_number",
  "rand 0.7.3",
  "regex",
+ "rpc",
  "serde",
+ "serde_derive",
  "serde_json",
  "uuid 0.7.4",
 ]
