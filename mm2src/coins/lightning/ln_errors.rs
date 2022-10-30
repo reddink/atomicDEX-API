@@ -1,5 +1,5 @@
 use crate::utxo::rpc_clients::UtxoRpcError;
-use crate::PrivKeyNotAllowed;
+use crate::PrivKeyPolicyNotAllowed;
 use common::HttpStatusCode;
 use db_common::sqlite::rusqlite::Error as SqlError;
 use derive_more::Display;
@@ -66,8 +66,8 @@ impl From<UtxoRpcError> for EnableLightningError {
     fn from(e: UtxoRpcError) -> Self { EnableLightningError::RpcError(e.to_string()) }
 }
 
-impl From<PrivKeyNotAllowed> for EnableLightningError {
-    fn from(e: PrivKeyNotAllowed) -> Self { EnableLightningError::PrivKeyPolicyNotAllowed(e.to_string()) }
+impl From<PrivKeyPolicyNotAllowed> for EnableLightningError {
+    fn from(e: PrivKeyPolicyNotAllowed) -> Self { EnableLightningError::PrivKeyPolicyNotAllowed(e.to_string()) }
 }
 
 #[derive(Display, PartialEq)]

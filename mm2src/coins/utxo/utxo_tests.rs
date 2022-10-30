@@ -222,7 +222,7 @@ fn test_generate_transaction() {
     }];
 
     let outputs = vec![TransactionOutput {
-        script_pubkey: Builder::build_p2pkh(&coin.as_ref().derivation_method.unwrap_iguana().hash).to_bytes(),
+        script_pubkey: Builder::build_p2pkh(&coin.as_ref().derivation_method.unwrap_single_addr().hash).to_bytes(),
         value: 100000,
     }];
 
@@ -907,7 +907,7 @@ fn test_utxo_lock() {
     let coin = utxo_coin_for_test(client.into(), None, false);
     let output = TransactionOutput {
         value: 1000000,
-        script_pubkey: Builder::build_p2pkh(&coin.as_ref().derivation_method.unwrap_iguana().hash).to_bytes(),
+        script_pubkey: Builder::build_p2pkh(&coin.as_ref().derivation_method.unwrap_single_addr().hash).to_bytes(),
     };
     let mut futures = vec![];
     for _ in 0..5 {
@@ -1503,7 +1503,7 @@ fn test_spam_rick() {
 
     let output = TransactionOutput {
         value: 1000000,
-        script_pubkey: Builder::build_p2pkh(&coin.as_ref().derivation_method.unwrap_iguana().hash).to_bytes(),
+        script_pubkey: Builder::build_p2pkh(&coin.as_ref().derivation_method.unwrap_single_addr().hash).to_bytes(),
     };
     let mut futures = vec![];
     for _ in 0..5 {
@@ -2856,7 +2856,7 @@ fn test_tx_details_kmd_rewards() {
     ]);
     let mut fields = utxo_coin_fields_for_test(electrum.into(), None, false);
     fields.conf.ticker = "KMD".to_owned();
-    fields.derivation_method = DerivationMethod::Iguana(Address::from("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk"));
+    fields.derivation_method = DerivationMethod::SingleAddress(Address::from("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk"));
     let coin = utxo_coin_from_fields(fields);
 
     let tx_details = get_tx_details_eq_for_both_versions(
@@ -2893,7 +2893,7 @@ fn test_tx_details_kmd_rewards_claimed_by_other() {
     ]);
     let mut fields = utxo_coin_fields_for_test(electrum.into(), None, false);
     fields.conf.ticker = "KMD".to_owned();
-    fields.derivation_method = DerivationMethod::Iguana(Address::from("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk"));
+    fields.derivation_method = DerivationMethod::SingleAddress(Address::from("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk"));
     let coin = utxo_coin_from_fields(fields);
 
     let tx_details = get_tx_details_eq_for_both_versions(&coin, TX_HASH);
@@ -2945,7 +2945,7 @@ fn test_update_kmd_rewards() {
     ]);
     let mut fields = utxo_coin_fields_for_test(electrum.into(), None, false);
     fields.conf.ticker = "KMD".to_owned();
-    fields.derivation_method = DerivationMethod::Iguana(Address::from("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk"));
+    fields.derivation_method = DerivationMethod::SingleAddress(Address::from("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk"));
     let coin = utxo_coin_from_fields(fields);
 
     let mut input_transactions = HistoryUtxoTxMap::default();
@@ -2977,7 +2977,7 @@ fn test_update_kmd_rewards_claimed_not_by_me() {
     ]);
     let mut fields = utxo_coin_fields_for_test(electrum.into(), None, false);
     fields.conf.ticker = "KMD".to_owned();
-    fields.derivation_method = DerivationMethod::Iguana(Address::from("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk"));
+    fields.derivation_method = DerivationMethod::SingleAddress(Address::from("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk"));
     let coin = utxo_coin_from_fields(fields);
 
     let mut input_transactions = HistoryUtxoTxMap::default();
@@ -3040,9 +3040,9 @@ fn test_withdraw_to_p2pkh() {
     // Create a p2pkh address for the test coin
     let p2pkh_address = Address {
         prefix: coin.as_ref().conf.pub_addr_prefix,
-        hash: coin.as_ref().derivation_method.unwrap_iguana().hash.clone(),
+        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash.clone(),
         t_addr_prefix: coin.as_ref().conf.pub_t_addr_prefix,
-        checksum_type: coin.as_ref().derivation_method.unwrap_iguana().checksum_type,
+        checksum_type: coin.as_ref().derivation_method.unwrap_single_addr().checksum_type,
         hrp: coin.as_ref().conf.bech32_hrp.clone(),
         addr_format: UtxoAddressFormat::Standard,
     };
@@ -3088,9 +3088,9 @@ fn test_withdraw_to_p2sh() {
     // Create a p2sh address for the test coin
     let p2sh_address = Address {
         prefix: coin.as_ref().conf.p2sh_addr_prefix,
-        hash: coin.as_ref().derivation_method.unwrap_iguana().hash.clone(),
+        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash.clone(),
         t_addr_prefix: coin.as_ref().conf.p2sh_t_addr_prefix,
-        checksum_type: coin.as_ref().derivation_method.unwrap_iguana().checksum_type,
+        checksum_type: coin.as_ref().derivation_method.unwrap_single_addr().checksum_type,
         hrp: coin.as_ref().conf.bech32_hrp.clone(),
         addr_format: UtxoAddressFormat::Standard,
     };
@@ -3136,9 +3136,9 @@ fn test_withdraw_to_p2wpkh() {
     // Create a p2wpkh address for the test coin
     let p2wpkh_address = Address {
         prefix: coin.as_ref().conf.pub_addr_prefix,
-        hash: coin.as_ref().derivation_method.unwrap_iguana().hash.clone(),
+        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash.clone(),
         t_addr_prefix: coin.as_ref().conf.pub_t_addr_prefix,
-        checksum_type: coin.as_ref().derivation_method.unwrap_iguana().checksum_type,
+        checksum_type: coin.as_ref().derivation_method.unwrap_single_addr().checksum_type,
         hrp: coin.as_ref().conf.bech32_hrp.clone(),
         addr_format: UtxoAddressFormat::Segwit,
     };
@@ -3308,7 +3308,7 @@ fn test_split_qtum() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
     let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key)).unwrap();
-    let p2pkh_address = coin.as_ref().derivation_method.unwrap_iguana();
+    let p2pkh_address = coin.as_ref().derivation_method.unwrap_single_addr();
     let script: Script = output_script(p2pkh_address, ScriptType::P2PKH);
     let key_pair = coin.as_ref().priv_key_policy.key_pair_or_err().unwrap();
     let (unspents, _) = block_on(coin.get_mature_unspent_ordered_list(p2pkh_address)).expect("Unspent list is empty");

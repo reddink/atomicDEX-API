@@ -208,7 +208,7 @@ pub enum EnablePlatformCoinWithTokensError {
         error: String,
     },
     #[display(fmt = "Private key is not allowed: {}", _0)]
-    PrivKeyNotAllowed(String),
+    PrivKeyPolicyNotAllowed(String),
     #[display(fmt = "Unexpected derivation method: {}", _0)]
     UnexpectedDerivationMethod(String),
     Transport(String),
@@ -272,7 +272,7 @@ impl HttpStatusCode for EnablePlatformCoinWithTokensError {
             EnablePlatformCoinWithTokensError::CoinProtocolParseError { .. }
             | EnablePlatformCoinWithTokensError::TokenProtocolParseError { .. }
             | EnablePlatformCoinWithTokensError::PlatformCoinCreationError { .. }
-            | EnablePlatformCoinWithTokensError::PrivKeyNotAllowed(_)
+            | EnablePlatformCoinWithTokensError::PrivKeyPolicyNotAllowed(_)
             | EnablePlatformCoinWithTokensError::UnexpectedDerivationMethod(_)
             | EnablePlatformCoinWithTokensError::Transport(_)
             | EnablePlatformCoinWithTokensError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,

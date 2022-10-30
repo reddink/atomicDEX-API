@@ -287,7 +287,7 @@ pub(crate) fn key_pair_from_priv_key_policy(
         },
         PrivKeyBuildPolicy::Trezor => {
             return MmError::err(EthActivationV2Error::PrivKeyPolicyNotAllowed(
-                PrivKeyNotAllowed::HardwareWalletNotSupported.to_string(),
+                PrivKeyPolicyNotAllowed::HardwareWalletNotSupported.to_string(),
             ))
         },
     };

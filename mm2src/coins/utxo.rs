@@ -97,11 +97,11 @@ use self::rpc_clients::{electrum_script_hash, ElectrumClient, ElectrumRpcRequest
                         UtxoRpcResult};
 use super::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BalanceResult, CoinBalance, CoinFutSpawner,
             CoinsContext, DerivationMethod, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, KmdRewardsDetails,
-            MarketCoinOps, MmCoin, NumConversError, NumConversResult, PrivKeyActivationPolicy, PrivKeyNotAllowed,
-            PrivKeyPolicy, RawTransactionFut, RawTransactionRequest, RawTransactionResult, RpcTransportEventHandler,
-            RpcTransportEventHandlerShared, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
-            Transaction, TransactionDetails, TransactionEnum, TransactionErr, UnexpectedDerivationMethod,
-            VerificationError, WithdrawError, WithdrawRequest};
+            MarketCoinOps, MmCoin, NumConversError, NumConversResult, PrivKeyActivationPolicy, PrivKeyPolicy,
+            PrivKeyPolicyNotAllowed, RawTransactionFut, RawTransactionRequest, RawTransactionResult,
+            RpcTransportEventHandler, RpcTransportEventHandlerShared, TradeFee, TradePreimageError, TradePreimageFut,
+            TradePreimageResult, Transaction, TransactionDetails, TransactionEnum, TransactionErr,
+            UnexpectedDerivationMethod, VerificationError, WithdrawError, WithdrawRequest};
 use crate::coin_balance::{EnableCoinScanPolicy, EnabledCoinBalanceParams, HDAddressBalanceScanner};
 use crate::hd_wallet::{HDAccountOps, HDAccountsMutex, HDAddress, HDAddressId, HDWalletCoinOps, HDWalletOps,
                        InvalidBip44ChainError};
@@ -1687,7 +1687,7 @@ pub async fn kmd_rewards_info<T: UtxoCommonOps>(coin: &T) -> Result<Vec<KmdRewar
     }
 
     let utxo = coin.as_ref();
-    let my_address = try_s!(utxo.derivation_method.iguana_or_err());
+    let my_address = try_s!(utxo.derivation_method.single_addr_or_err());
     let rpc_client = &utxo.rpc_client;
     let mut unspents = try_s!(rpc_client.list_unspent(my_address, utxo.decimals).compat().await);
     // Reorder from highest to lowest unspent outputs.
@@ -1754,7 +1754,7 @@ async fn send_outputs_from_my_address_impl<T>(
 where
     T: UtxoCommonOps + GetUtxoListOps,
 {
-    let my_address = try_tx_s!(coin.as_ref().derivation_method.iguana_or_err());
+    let my_address = try_tx_s!(coin.as_ref().derivation_method.single_addr_or_err());
     let (unspents, recently_sent_txs) = try_tx_s!(coin.get_unspent_ordered_list(my_address).await);
     generate_and_send_tx(&coin, unspents, None, FeePolicy::SendExact, recently_sent_txs, outputs).await
 }
@@ -1771,7 +1771,7 @@ async fn generate_and_send_tx<T>(
 where
     T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps + UtxoTxBroadcastOps,
 {
-    let my_address = try_tx_s!(coin.as_ref().derivation_method.iguana_or_err());
+    let my_address = try_tx_s!(coin.as_ref().derivation_method.single_addr_or_err());
     let key_pair = try_tx_s!(coin.as_ref().priv_key_policy.key_pair_or_err());
 
     let mut builder = UtxoTxBuilder::new(coin)

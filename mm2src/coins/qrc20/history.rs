@@ -224,7 +224,7 @@ impl Qrc20Coin {
         receipt: TxReceipt,
         miner_fee: BigDecimal,
     ) -> Result<TxTransferMap, String> {
-        let my_address = try_s!(self.utxo.derivation_method.iguana_or_err());
+        let my_address = try_s!(self.utxo.derivation_method.single_addr_or_err());
         let tx_hash: H256Json = try_s!(H256Json::from_str(&qtum_details.tx_hash));
         if qtum_tx.outputs.len() <= (receipt.output_index as usize) {
             return ERR!(
@@ -621,7 +621,7 @@ impl TransferHistoryBuilder {
                     .coin
                     .utxo
                     .derivation_method
-                    .iguana_or_err()
+                    .single_addr_or_err()
                     .mm_err(|e| UtxoRpcError::Internal(e.to_string()))?;
                 qtum::contract_addr_from_utxo_addr(my_address.clone())
                     .mm_err(|e| UtxoRpcError::Internal(e.to_string()))?

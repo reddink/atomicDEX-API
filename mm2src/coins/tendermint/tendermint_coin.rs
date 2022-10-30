@@ -9,12 +9,12 @@ use crate::utxo::sat_from_big_decimal;
 use crate::utxo::utxo_common::big_decimal_from_sat;
 use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal, CoinBalance, CoinFutSpawner,
             FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr,
-            PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy, PrivKeyNotAllowed, RawTransactionError,
-            RawTransactionFut, RawTransactionRequest, RawTransactionRes, SearchForSwapTxSpendInput, SignatureResult,
-            SwapOps, TradeFee, TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails,
-            TransactionEnum, TransactionErr, TransactionFut, TransactionType, TxFeeDetails, TxMarshalingErr,
-            UnexpectedDerivationMethod, ValidateAddressResult, ValidateInstructionsErr, ValidateOtherPubKeyErr,
-            ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherOps,
+            PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed,
+            RawTransactionError, RawTransactionFut, RawTransactionRequest, RawTransactionRes,
+            SearchForSwapTxSpendInput, SignatureResult, SwapOps, TradeFee, TradePreimageFut, TradePreimageResult,
+            TradePreimageValue, TransactionDetails, TransactionEnum, TransactionErr, TransactionFut, TransactionType,
+            TxFeeDetails, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateInstructionsErr,
+            ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherOps,
             WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WithdrawError, WithdrawFut, WithdrawRequest};
 use async_std::prelude::FutureExt as AsyncStdFutureExt;
 use async_trait::async_trait;
@@ -188,7 +188,7 @@ pub enum TendermintInitErrorKind {
     DerivationPathIsNotSet,
     #[display(fmt = "Error deserializing 'derivation_path': {}", _0)]
     ErrorDeserializingDerivationPath(String),
-    PrivKeyPolicyNotAllowed(PrivKeyNotAllowed),
+    PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed),
     RpcError(String),
     #[display(fmt = "avg_block_time missing or invalid. Please provide it with min 1 or max 255 value.")]
     AvgBlockTimeMissingOrInvalid,
@@ -1860,7 +1860,8 @@ pub(crate) fn secret_from_priv_key_policy(
                 })
         },
         PrivKeyBuildPolicy::Trezor => {
-            let kind = TendermintInitErrorKind::PrivKeyPolicyNotAllowed(PrivKeyNotAllowed::HardwareWalletNotSupported);
+            let kind =
+                TendermintInitErrorKind::PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed::HardwareWalletNotSupported);
             MmError::err(TendermintInitError {
                 ticker: ticker.to_string(),
                 kind,

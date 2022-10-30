@@ -41,7 +41,9 @@ impl From<EthActivationV2Error> for EnablePlatformCoinWithTokensError {
             EthActivationV2Error::ErrorDeserializingDerivationPath(e) => {
                 EnablePlatformCoinWithTokensError::InvalidPayload(e)
             },
-            EthActivationV2Error::PrivKeyPolicyNotAllowed(e) => EnablePlatformCoinWithTokensError::PrivKeyNotAllowed(e),
+            EthActivationV2Error::PrivKeyPolicyNotAllowed(e) => {
+                EnablePlatformCoinWithTokensError::PrivKeyPolicyNotAllowed(e)
+            },
             EthActivationV2Error::InternalError(e) => EnablePlatformCoinWithTokensError::Internal(e),
         }
     }

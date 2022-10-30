@@ -127,7 +127,7 @@ impl Qrc20Coin {
 
         let expected_call_bytes = {
             let expected_value = wei_from_big_decimal(&amount, self.utxo.decimals)?;
-            let my_address = self.utxo.derivation_method.iguana_or_err()?.clone();
+            let my_address = self.utxo.derivation_method.single_addr_or_err()?.clone();
             let expected_receiver = qtum::contract_addr_from_utxo_addr(my_address)
                 .mm_err(|err| ValidatePaymentError::InternalError(err.to_string()))?;
             self.erc20_payment_call_bytes(
@@ -255,7 +255,7 @@ impl Qrc20Coin {
         }
 
         // Else try to find a 'senderRefund' contract call.
-        let my_address = try_s!(self.utxo.derivation_method.iguana_or_err()).clone();
+        let my_address = try_s!(self.utxo.derivation_method.single_addr_or_err()).clone();
         let sender = try_s!(qtum::contract_addr_from_utxo_addr(my_address));
         let refund_txs = try_s!(self.sender_refund_transactions(sender, search_from_block).await);
         let found = refund_txs.into_iter().find(|tx| {
@@ -279,7 +279,7 @@ impl Qrc20Coin {
             return Ok(None);
         };
 
-        let my_address = try_s!(self.utxo.derivation_method.iguana_or_err()).clone();
+        let my_address = try_s!(self.utxo.derivation_method.single_addr_or_err()).clone();
         let sender = try_s!(qtum::contract_addr_from_utxo_addr(my_address));
         let erc20_payment_txs = try_s!(self.erc20_payment_transactions(sender, search_from_block).await);
         let found = erc20_payment_txs
@@ -444,7 +444,7 @@ impl Qrc20Coin {
         let my_address = self
             .utxo
             .derivation_method
-            .iguana_or_err()
+            .single_addr_or_err()
             .mm_err(|e| UtxoRpcError::Internal(e.to_string()))?;
         let tokens = self
             .utxo

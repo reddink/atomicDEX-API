@@ -3,12 +3,13 @@ use crate::coin_errors::MyAddressError;
 use crate::solana::solana_common::{lamports_to_sol, PrepareTransferData, SufficientBalanceError};
 use crate::solana::spl::SplTokenInfo;
 use crate::{BalanceError, BalanceFut, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, NegotiateSwapContractAddrErr,
-            PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy, PrivKeyNotAllowed, RawTransactionFut,
-            RawTransactionRequest, SearchForSwapTxSpendInput, SignatureResult, TradePreimageFut, TradePreimageResult,
-            TradePreimageValue, TransactionDetails, TransactionFut, TransactionType, TxMarshalingErr,
-            UnexpectedDerivationMethod, ValidateAddressResult, ValidateInstructionsErr, ValidateOtherPubKeyErr,
-            ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherSearchForSwapTxSpendInput,
-            WatcherValidatePaymentInput, WithdrawError, WithdrawFut, WithdrawRequest, WithdrawResult};
+            PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed,
+            RawTransactionFut, RawTransactionRequest, SearchForSwapTxSpendInput, SignatureResult, TradePreimageFut,
+            TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionFut, TransactionType,
+            TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateInstructionsErr,
+            ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput, VerificationResult,
+            WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WithdrawError, WithdrawFut,
+            WithdrawRequest, WithdrawResult};
 use async_trait::async_trait;
 use base58::ToBase58;
 use bincode::{deserialize, serialize};
@@ -183,7 +184,7 @@ pub async fn solana_coin_with_policy(
             let derivation_path: Bip44PathToCoin = try_s!(json::from_value(conf["derivation_path"].clone()));
             try_s!(global_hd.derive_secp256k1_secret(&derivation_path))
         },
-        PrivKeyBuildPolicy::Trezor => return ERR!("{}", PrivKeyNotAllowed::HardwareWalletNotSupported),
+        PrivKeyBuildPolicy::Trezor => return ERR!("{}", PrivKeyPolicyNotAllowed::HardwareWalletNotSupported),
     };
 
     let key_pair = try_s!(generate_keypair_from_slice(priv_key.as_slice()));

@@ -339,19 +339,18 @@ pub enum TxHistoryError {
     InternalError(String),
 }
 
-// TODO consider renaming this error enum to `PrivKeyPolicyNotAllowed`.
 #[derive(Debug, Display)]
-pub enum PrivKeyNotAllowed {
+pub enum PrivKeyPolicyNotAllowed {
     #[display(fmt = "Hardware Wallet is not supported")]
     HardwareWalletNotSupported,
 }
 
 #[derive(Debug, Display, PartialEq, Serialize)]
 pub enum UnexpectedDerivationMethod {
-    #[display(fmt = "Iguana private key is unavailable")]
-    IguanaPrivKeyUnavailable,
-    #[display(fmt = "HD wallet is unavailable")]
-    HDWalletUnavailable,
+    #[display(fmt = "Expected 'SingleAddress' derivation method")]
+    ExpectedSingleAddress,
+    #[display(fmt = "Expected 'HDWallet' derivationMethod")]
+    ExpectedHDWallet,
 }
 
 pub trait Transaction: fmt::Debug + 'static {
@@ -1480,8 +1479,8 @@ impl From<UtxoSignWithKeyPairError> for DelegationError {
     }
 }
 
-impl From<PrivKeyNotAllowed> for DelegationError {
-    fn from(e: PrivKeyNotAllowed) -> Self { DelegationError::DelegationOpsNotSupported { reason: e.to_string() } }
+impl From<PrivKeyPolicyNotAllowed> for DelegationError {
+    fn from(e: PrivKeyPolicyNotAllowed) -> Self { DelegationError::DelegationOpsNotSupported { reason: e.to_string() } }
 }
 
 impl From<UnexpectedDerivationMethod> for DelegationError {
@@ -1663,8 +1662,8 @@ impl From<UnexpectedDerivationMethod> for WithdrawError {
     fn from(e: UnexpectedDerivationMethod) -> Self { WithdrawError::InternalError(e.to_string()) }
 }
 
-impl From<PrivKeyNotAllowed> for WithdrawError {
-    fn from(e: PrivKeyNotAllowed) -> Self { WithdrawError::InternalError(e.to_string()) }
+impl From<PrivKeyPolicyNotAllowed> for WithdrawError {
+    fn from(e: PrivKeyPolicyNotAllowed) -> Self { WithdrawError::InternalError(e.to_string()) }
 }
 
 impl WithdrawError {
@@ -1743,8 +1742,8 @@ impl From<ethkey::Error> for SignatureError {
     fn from(e: ethkey::Error) -> Self { SignatureError::InternalError(e.to_string()) }
 }
 
-impl From<PrivKeyNotAllowed> for SignatureError {
-    fn from(e: PrivKeyNotAllowed) -> Self { SignatureError::InternalError(e.to_string()) }
+impl From<PrivKeyPolicyNotAllowed> for SignatureError {
+    fn from(e: PrivKeyPolicyNotAllowed) -> Self { SignatureError::InternalError(e.to_string()) }
 }
 
 impl From<CoinFindError> for SignatureError {
@@ -2216,9 +2215,9 @@ impl<T> PrivKeyPolicy<T> {
         }
     }
 
-    pub fn key_pair_or_err(&self) -> Result<&T, MmError<PrivKeyNotAllowed>> {
+    pub fn key_pair_or_err(&self) -> Result<&T, MmError<PrivKeyPolicyNotAllowed>> {
         self.key_pair()
-            .or_mm_err(|| PrivKeyNotAllowed::HardwareWalletNotSupported)
+            .or_mm_err(|| PrivKeyPolicyNotAllowed::HardwareWalletNotSupported)
     }
 }
 
@@ -2239,42 +2238,41 @@ impl PrivKeyBuildPolicy {
     }
 }
 
-/// TODO rename `Iguana` to `SingleAddress`.
 #[derive(Debug)]
 pub enum DerivationMethod<Address, HDWallet> {
-    Iguana(Address),
+    SingleAddress(Address),
     HDWallet(HDWallet),
 }
 
 impl<Address, HDWallet> DerivationMethod<Address, HDWallet> {
-    pub fn iguana(&self) -> Option<&Address> {
+    pub fn single_addr(&self) -> Option<&Address> {
         match self {
-            DerivationMethod::Iguana(my_address) => Some(my_address),
+            DerivationMethod::SingleAddress(my_address) => Some(my_address),
             DerivationMethod::HDWallet(_) => None,
         }
     }
 
-    pub fn iguana_or_err(&self) -> MmResult<&Address, UnexpectedDerivationMethod> {
-        self.iguana()
-            .or_mm_err(|| UnexpectedDerivationMethod::IguanaPrivKeyUnavailable)
+    pub fn single_addr_or_err(&self) -> MmResult<&Address, UnexpectedDerivationMethod> {
+        self.single_addr()
+            .or_mm_err(|| UnexpectedDerivationMethod::ExpectedSingleAddress)
     }
 
     pub fn hd_wallet(&self) -> Option<&HDWallet> {
         match self {
-            DerivationMethod::Iguana(_) => None,
+            DerivationMethod::SingleAddress(_) => None,
             DerivationMethod::HDWallet(hd_wallet) => Some(hd_wallet),
         }
     }
 
     pub fn hd_wallet_or_err(&self) -> MmResult<&HDWallet, UnexpectedDerivationMethod> {
         self.hd_wallet()
-            .or_mm_err(|| UnexpectedDerivationMethod::HDWalletUnavailable)
+            .or_mm_err(|| UnexpectedDerivationMethod::ExpectedHDWallet)
     }
 
     /// # Panic
     ///
     /// Panic if the address mode is [`DerivationMethod::HDWallet`].
-    pub fn unwrap_iguana(&self) -> &Address { self.iguana_or_err().unwrap() }
+    pub fn unwrap_single_addr(&self) -> &Address { self.single_addr_or_err().unwrap() }
 }
 
 #[async_trait]

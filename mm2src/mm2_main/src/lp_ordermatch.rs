@@ -2844,7 +2844,6 @@ fn lp_connect_start_bob(ctx: MmArc, maker_match: MakerMatch, maker_order: MakerO
 
         let crypto_ctx = CryptoCtx::from_ctx(&ctx).expect("'CryptoCtx' must be initialized already");
         let raw_priv = crypto_ctx.mm2_internal_privkey_bytes();
-        // TODO consider removing
         let my_persistent_pub = compressed_pub_key_from_priv_raw(raw_priv.as_slice(), ChecksumType::DSHA256).unwrap();
 
         let my_conf_settings = choose_maker_confs_and_notas(
@@ -2936,7 +2935,6 @@ fn lp_connected_alice(ctx: MmArc, taker_order: TakerOrder, taker_match: TakerMat
 
         let crypto_ctx = CryptoCtx::from_ctx(&ctx).expect("'CryptoCtx' must be initialized already");
         let raw_priv = crypto_ctx.mm2_internal_privkey_bytes();
-        // TODO consider removing this.
         let my_persistent_pub = compressed_pub_key_from_priv_raw(raw_priv.as_slice(), ChecksumType::DSHA256).unwrap();
 
         let maker_amount = taker_match.reserved.get_base_amount().clone();

@@ -8,7 +8,7 @@ use coins::utxo::rpc_clients::UtxoRpcError;
 use coins::utxo::slp::{SlpProtocolConf, SlpToken};
 use coins::utxo::utxo_tx_history_v2::bch_and_slp_history_loop;
 use coins::utxo::UtxoCommonOps;
-use coins::{CoinBalance, CoinProtocol, MarketCoinOps, MmCoin, PrivKeyBuildPolicy, PrivKeyNotAllowed,
+use coins::{CoinBalance, CoinProtocol, MarketCoinOps, MmCoin, PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed,
             UnexpectedDerivationMethod};
 use common::executor::{AbortSettings, SpawnAbortable};
 use common::Future01CompatExt;
@@ -89,8 +89,8 @@ impl From<BchWithTokensActivationError> for EnablePlatformCoinWithTokensError {
                     prefix, ticker, error
                 ))
             },
-            BchWithTokensActivationError::PrivKeyNotAllowed(e) => {
-                EnablePlatformCoinWithTokensError::PrivKeyNotAllowed(e)
+            BchWithTokensActivationError::PrivKeyPolicyNotAllowed(e) => {
+                EnablePlatformCoinWithTokensError::PrivKeyPolicyNotAllowed(e)
             },
             BchWithTokensActivationError::UnexpectedDerivationMethod(e) => {
                 EnablePlatformCoinWithTokensError::UnexpectedDerivationMethod(e)
@@ -160,7 +160,7 @@ pub enum BchWithTokensActivationError {
         prefix: String,
         error: String,
     },
-    PrivKeyNotAllowed(String),
+    PrivKeyPolicyNotAllowed(String),
     UnexpectedDerivationMethod(String),
     Transport(String),
     Internal(String),
@@ -176,8 +176,8 @@ impl From<UnexpectedDerivationMethod> for BchWithTokensActivationError {
     }
 }
 
-impl From<PrivKeyNotAllowed> for BchWithTokensActivationError {
-    fn from(e: PrivKeyNotAllowed) -> Self { BchWithTokensActivationError::PrivKeyNotAllowed(e.to_string()) }
+impl From<PrivKeyPolicyNotAllowed> for BchWithTokensActivationError {
+    fn from(e: PrivKeyPolicyNotAllowed) -> Self { BchWithTokensActivationError::PrivKeyPolicyNotAllowed(e.to_string()) }
 }
 
 #[async_trait]
@@ -227,7 +227,7 @@ impl PlatformWithTokensActivationOps for BchCoin {
     async fn get_activation_result(
         &self,
     ) -> Result<BchWithTokensActivationResult, MmError<BchWithTokensActivationError>> {
-        let my_address = self.as_ref().derivation_method.iguana_or_err()?;
+        let my_address = self.as_ref().derivation_method.single_addr_or_err()?;
         let my_slp_address = self
             .get_my_slp_address()
             .map_to_mm(BchWithTokensActivationError::Internal)?

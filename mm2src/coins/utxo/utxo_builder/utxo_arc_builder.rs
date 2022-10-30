@@ -158,7 +158,7 @@ async fn merge_utxo_loop<T>(
         };
 
         let my_address = match coin.as_ref().derivation_method {
-            DerivationMethod::Iguana(ref my_address) => my_address,
+            DerivationMethod::SingleAddress(ref my_address) => my_address,
             DerivationMethod::HDWallet(_) => {
                 warn!("'merge_utxo_loop' is currently not used for HD wallets");
                 return;

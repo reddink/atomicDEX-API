@@ -15,7 +15,7 @@ use crate::utxo::{generate_and_send_tx, sat_from_big_decimal, ActualTxFee, Addit
                   UtxoCommonOps, UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps};
 use crate::{BalanceFut, CoinBalance, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, HistorySyncState,
             MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, NumConversError, PaymentInstructions,
-            PaymentInstructionsErr, PrivKeyNotAllowed, RawTransactionFut, RawTransactionRequest,
+            PaymentInstructionsErr, PrivKeyPolicyNotAllowed, RawTransactionFut, RawTransactionRequest,
             SearchForSwapTxSpendInput, SignatureResult, SwapOps, TradeFee, TradePreimageError, TradePreimageFut,
             TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum, TransactionErr,
             TransactionFut, TxFeeDetails, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult,
@@ -128,7 +128,7 @@ pub enum SpendP2SHError {
     GenerateTxErr(GenerateTxError),
     Rpc(UtxoRpcError),
     SignTxErr(UtxoSignWithKeyPairError),
-    PrivKeyNotAllowed(PrivKeyNotAllowed),
+    PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed),
     UnexpectedDerivationMethod(UnexpectedDerivationMethod),
     String(String),
 }
@@ -145,8 +145,8 @@ impl From<UtxoSignWithKeyPairError> for SpendP2SHError {
     fn from(sign: UtxoSignWithKeyPairError) -> SpendP2SHError { SpendP2SHError::SignTxErr(sign) }
 }
 
-impl From<PrivKeyNotAllowed> for SpendP2SHError {
-    fn from(e: PrivKeyNotAllowed) -> Self { SpendP2SHError::PrivKeyNotAllowed(e) }
+impl From<PrivKeyPolicyNotAllowed> for SpendP2SHError {
+    fn from(e: PrivKeyPolicyNotAllowed) -> Self { SpendP2SHError::PrivKeyPolicyNotAllowed(e) }
 }
 
 impl From<UnexpectedDerivationMethod> for SpendP2SHError {
@@ -1056,7 +1056,7 @@ impl MarketCoinOps for SlpToken {
     fn ticker(&self) -> &str { &self.conf.ticker }
 
     fn my_address(&self) -> MmResult<String, MyAddressError> {
-        let my_address = self.as_ref().derivation_method.iguana_or_err()?;
+        let my_address = self.as_ref().derivation_method.single_addr_or_err()?;
         let slp_address = self
             .platform_coin
             .slp_address(my_address)
@@ -1583,7 +1583,7 @@ impl MmCoin for SlpToken {
     fn withdraw(&self, req: WithdrawRequest) -> WithdrawFut {
         let coin = self.clone();
         let fut = async move {
-            let my_address = coin.platform_coin.as_ref().derivation_method.iguana_or_err()?;
+            let my_address = coin.platform_coin.as_ref().derivation_method.single_addr_or_err()?;
             let key_pair = coin.platform_coin.as_ref().priv_key_policy.key_pair_or_err()?;
 
             let address = CashAddress::decode(&req.to).map_to_mm(WithdrawError::InvalidAddress)?;
@@ -2096,7 +2096,7 @@ mod slp_tests {
         let token_id = H256::from("bb309e48930671582bea508f9a1d9b491e49b69be3d6f372dc08da2ac6e90eb7");
         let fusd = SlpToken::new(4, "FUSD".into(), token_id, bch.clone(), 0);
 
-        let bch_address = bch.as_ref().derivation_method.unwrap_iguana();
+        let bch_address = bch.as_ref().derivation_method.unwrap_single_addr();
         let (unspents, recently_spent) = block_on(bch.get_unspent_ordered_list(bch_address)).unwrap();
 
         let secret_hash = hex::decode("5d9e149ad9ccb20e9f931a69b605df2ffde60242").unwrap();

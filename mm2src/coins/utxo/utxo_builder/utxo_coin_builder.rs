@@ -178,7 +178,7 @@ where
     };
 
     let my_script_pubkey = output_script(&my_address, ScriptType::P2PKH).to_bytes();
-    let derivation_method = DerivationMethod::Iguana(my_address);
+    let derivation_method = DerivationMethod::SingleAddress(my_address);
     let priv_key_policy = PrivKeyPolicy::KeyPair(key_pair);
 
     // Create an abortable system linked to the `MmCtx` so if the context is stopped via `MmArc::stop`,

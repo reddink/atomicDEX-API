@@ -17,13 +17,13 @@ use crate::utxo::{qtum, ActualTxFee, AdditionalTxData, AddrFromStrError, Broadca
                   UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps, VerboseTransactionFrom, UTXO_LOCK};
 use crate::{BalanceError, BalanceFut, CoinBalance, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, HistorySyncState,
             IguanaPrivKey, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, PaymentInstructions,
-            PaymentInstructionsErr, PrivKeyBuildPolicy, PrivKeyNotAllowed, RawTransactionFut, RawTransactionRequest,
-            SearchForSwapTxSpendInput, SignatureResult, SwapOps, TradeFee, TradePreimageError, TradePreimageFut,
-            TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum, TransactionErr,
-            TransactionFut, TransactionType, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult,
-            ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput,
-            VerificationResult, WatcherOps, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
-            WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult};
+            PaymentInstructionsErr, PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed, RawTransactionFut,
+            RawTransactionRequest, SearchForSwapTxSpendInput, SignatureResult, SwapOps, TradeFee, TradePreimageError,
+            TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum,
+            TransactionErr, TransactionFut, TransactionType, TxMarshalingErr, UnexpectedDerivationMethod,
+            ValidateAddressResult, ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentFut,
+            ValidatePaymentInput, VerificationResult, WatcherOps, WatcherSearchForSwapTxSpendInput,
+            WatcherValidatePaymentInput, WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult};
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
 use chain::TransactionOutput;
@@ -80,7 +80,7 @@ pub type Qrc20AbiResult<T> = Result<T, MmError<Qrc20AbiError>>;
 pub enum Qrc20GenTxError {
     ErrorGeneratingUtxoTx(GenerateTxError),
     ErrorSigningTx(UtxoSignWithKeyPairError),
-    PrivKeyNotAllowed(PrivKeyNotAllowed),
+    PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed),
     UnexpectedDerivationMethod(UnexpectedDerivationMethod),
 }
 
@@ -92,8 +92,8 @@ impl From<UtxoSignWithKeyPairError> for Qrc20GenTxError {
     fn from(e: UtxoSignWithKeyPairError) -> Self { Qrc20GenTxError::ErrorSigningTx(e) }
 }
 
-impl From<PrivKeyNotAllowed> for Qrc20GenTxError {
-    fn from(e: PrivKeyNotAllowed) -> Self { Qrc20GenTxError::PrivKeyNotAllowed(e) }
+impl From<PrivKeyPolicyNotAllowed> for Qrc20GenTxError {
+    fn from(e: PrivKeyPolicyNotAllowed) -> Self { Qrc20GenTxError::PrivKeyPolicyNotAllowed(e) }
 }
 
 impl From<UnexpectedDerivationMethod> for Qrc20GenTxError {
@@ -111,7 +111,7 @@ impl Qrc20GenTxError {
                 WithdrawError::from_generate_tx_error(gen_err, coin, decimals)
             },
             Qrc20GenTxError::ErrorSigningTx(sign_err) => WithdrawError::InternalError(sign_err.to_string()),
-            Qrc20GenTxError::PrivKeyNotAllowed(priv_err) => WithdrawError::InternalError(priv_err.to_string()),
+            Qrc20GenTxError::PrivKeyPolicyNotAllowed(priv_err) => WithdrawError::InternalError(priv_err.to_string()),
             Qrc20GenTxError::UnexpectedDerivationMethod(addr_err) => WithdrawError::InternalError(addr_err.to_string()),
         }
     }
@@ -282,7 +282,7 @@ impl<'a> UtxoCoinBuilder for Qrc20CoinBuilder<'a> {
             PrivKeyBuildPolicy::Trezor => {
                 // TODO consider adding `UtxoCoinBuildError::PrivKeyPolicyNotAllowed`.
                 return MmError::err(UtxoCoinBuildError::UnexpectedDerivationMethod(
-                    PrivKeyNotAllowed::HardwareWalletNotSupported.to_string(),
+                    PrivKeyPolicyNotAllowed::HardwareWalletNotSupported.to_string(),
                 ));
             },
         };
@@ -514,7 +514,7 @@ impl Qrc20Coin {
         &self,
         contract_outputs: Vec<ContractCallOutput>,
     ) -> Result<GenerateQrc20TxResult, MmError<Qrc20GenTxError>> {
-        let my_address = self.utxo.derivation_method.iguana_or_err()?;
+        let my_address = self.utxo.derivation_method.single_addr_or_err()?;
         let (unspents, _) = self.get_unspent_ordered_list(my_address).await?;
 
         let mut gas_fee = 0;
@@ -531,7 +531,7 @@ impl Qrc20Coin {
             .build()
             .await?;
 
-        let my_address = self.utxo.derivation_method.iguana_or_err()?;
+        let my_address = self.utxo.derivation_method.single_addr_or_err()?;
         let key_pair = self.utxo.priv_key_policy.key_pair_or_err()?;
 
         let prev_script = ScriptBuilder::build_p2pkh(&my_address.hash);
@@ -1524,7 +1524,7 @@ async fn qrc20_withdraw(coin: Qrc20Coin, req: WithdrawRequest) -> WithdrawResult
         .await
         .mm_err(|gen_tx_error| gen_tx_error.into_withdraw_error(coin.platform.clone(), coin.utxo.decimals))?;
 
-    let my_address = coin.utxo.derivation_method.iguana_or_err()?;
+    let my_address = coin.utxo.derivation_method.single_addr_or_err()?;
     let received_by_me = if to_addr == *my_address {
         qrc20_amount.clone()
     } else {
