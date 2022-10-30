@@ -51,7 +51,7 @@ use std::ptr::null;
 use std::str;
 
 #[path = "lp_native_dex.rs"] mod lp_native_dex;
-use self::lp_native_dex::lp_init;
+pub use self::lp_native_dex::lp_init;
 use coins::update_coins_config;
 use mm2_err_handle::prelude::*;
 

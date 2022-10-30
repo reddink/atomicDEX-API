@@ -1,10 +1,18 @@
-use common::executor::Timer;
+use common::executor::{spawn, Timer};
 use common::log::wasm_log::register_wasm_log;
+use mm2::mm2::lp_init;
 use mm2_test_helpers::for_tests::{enable_electrum, morty_conf, rick_conf, start_swaps, MarketMakerIt, Mm2TestConf,
                                   MORTY, MORTY_ELECTRUM_ADDRS, RICK, RICK_ELECTRUM_ADDRS};
 use mm2_test_helpers::get_passphrase;
 use serde_json::json;
 use wasm_bindgen_test::wasm_bindgen_test;
+
+/// Starts the WASM version of MM.
+fn wasm_start_impl(ctx: mm2_core::mm_ctx::MmArc) {
+    spawn(async move {
+        lp_init(ctx).await.unwrap();
+    })
+}
 
 /// This function runs Alice and Bob nodes, activates coins, starts swaps,
 /// and then immediately stops the nodes to check if `MmArc` is dropped in a short period.
