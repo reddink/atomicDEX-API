@@ -207,7 +207,7 @@ impl From<CryptoInitError> for MmInitError {
             CryptoInitError::InvalidPassphrase(pass) => MmInitError::InvalidPassphrase(pass.to_string()),
             CryptoInitError::InvalidHdAccount { error, .. } => MmInitError::FieldWrongValueInConfig {
                 field: "hd_account".to_string(),
-                error: error.to_string(),
+                error,
             },
             CryptoInitError::Internal(internal) => MmInitError::Internal(internal),
         }
@@ -411,7 +411,11 @@ pub async fn lp_init(ctx: MmArc) -> MmInitResult<()> {
                 field: "passphrase".to_owned(),
                 error: e.to_string(),
             })?;
-        CryptoCtx::init_with_iguana_passphrase(ctx.clone(), &passphrase)?;
+
+        match ctx.conf["hd_account_id"].as_u64() {
+            Some(hd_account_id) => CryptoCtx::init_with_global_hd_account(ctx.clone(), &passphrase, hd_account_id)?,
+            None => CryptoCtx::init_with_iguana_passphrase(ctx.clone(), &passphrase)?,
+        };
     }
 
     lp_init_continue(ctx.clone()).await?;

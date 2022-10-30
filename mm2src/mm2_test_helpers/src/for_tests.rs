@@ -1176,7 +1176,9 @@ pub fn from_env_file(env: Vec<u8>) -> (Option<String>, Option<String>) {
 #[cfg(target_arch = "wasm32")]
 macro_rules! get_passphrase {
     ($_env_file:literal, $env:literal) => {
-        option_env!($env).ok_or_else(|| ERRL!("No such '{}' environment variable", $env))
+        option_env!($env)
+            .map(|pass| pass.to_string())
+            .ok_or_else(|| ERRL!("No such '{}' environment variable", $env))
     };
 }
 

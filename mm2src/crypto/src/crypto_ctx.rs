@@ -1,10 +1,9 @@
-use crate::global_hd_ctx::GlobalHDAccountArc;
+use crate::global_hd_ctx::{GlobalHDAccountArc, GlobalHDAccountCtx};
 use crate::hw_client::{HwDeviceInfo, HwProcessingError, HwPubkey, TrezorConnectProcessor};
 use crate::hw_ctx::{HardwareWalletArc, HardwareWalletCtx};
 use crate::hw_error::HwError;
 use crate::iguana_ctx::IguanaArc;
 use crate::privkey::{key_pair_from_seed, PrivKeyError};
-use crate::Bip32Error;
 use arrayref::array_ref;
 use common::bits256;
 use derive_more::Display;
@@ -27,10 +26,10 @@ pub enum CryptoInitError {
     NullStringPassphrase,
     #[display(fmt = "Invalid passphrase: '{}'", _0)]
     InvalidPassphrase(PrivKeyError),
-    #[display(fmt = "Invalid hd_account = {}: {}", hd_account, error)]
+    #[display(fmt = "Invalid 'hd_account_id' = {}: {}", hd_account_id, error)]
     InvalidHdAccount {
-        hd_account: u32,
-        error: Bip32Error,
+        hd_account_id: u64,
+        error: String,
     },
     Internal(String),
 }
@@ -219,13 +218,43 @@ impl CryptoCtx {
         *ctx_field = Some(result.clone());
         drop(ctx_field);
 
-        // TODO remove initializing legacy fields when no-login mode covers all cases.
         ctx.rmd160.pin(rmd160).map_to_mm(CryptoInitError::Internal)?;
 
         Ok(result)
     }
 
-    pub fn init_with_bip39_passphrase(_ctx: MmArc, _passphrase: &str) -> CryptoInitResult<()> { todo!() }
+    pub fn init_with_global_hd_account(
+        ctx: MmArc,
+        passphrase: &str,
+        hd_account_id: u64,
+    ) -> CryptoInitResult<Arc<CryptoCtx>> {
+        let mut ctx_field = ctx
+            .crypto_ctx
+            .lock()
+            .map_to_mm(|poison| CryptoInitError::Internal(poison.to_string()))?;
+        if ctx_field.is_some() {
+            return MmError::err(CryptoInitError::InitializedAlready);
+        }
+
+        if passphrase.is_empty() {
+            return MmError::err(CryptoInitError::NullStringPassphrase);
+        }
+
+        let global_hd_ctx = GlobalHDAccountCtx::new(passphrase, hd_account_id)?;
+        let rmd160 = global_hd_ctx.mm2_internal_pubkey().address_hash();
+        let crypto_ctx = CryptoCtx {
+            key_pair_policy: KeyPairPolicy::GlobalHDAccount(global_hd_ctx.into_arc()),
+            hw_ctx: RwLock::new(HardwareWalletCtxState::NotInitialized),
+        };
+
+        let result = Arc::new(crypto_ctx);
+        *ctx_field = Some(result.clone());
+        drop(ctx_field);
+
+        ctx.rmd160.pin(rmd160).map_to_mm(CryptoInitError::Internal)?;
+
+        Ok(result)
+    }
 
     pub async fn init_hw_ctx_with_trezor<Processor>(
         &self,

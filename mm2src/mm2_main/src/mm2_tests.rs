@@ -983,26 +983,44 @@ fn test_rpc_password_from_json_no_userpass() {
     );
 }
 
-/// Trading test using coins with remote RPC (Electrum, ETH nodes), it needs only ENV variables to be set, coins daemons are not required.
-/// Trades few pairs concurrently to speed up the process and also act like "load" test
-async fn trade_base_rel_electrum(
-    pairs: &[(&'static str, &'static str)],
-    maker_price: i32,
-    taker_price: i32,
-    volume: f64,
-) {
-    let bob_passphrase = get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap();
-    let alice_passphrase = get_passphrase!(".env.client", "ALICE_PASSPHRASE").unwrap();
+enum PrivKeyPolicy {
+    Iguana,
+    GlobalHDAccount,
+}
+
+/// Generates Bob and Alice mm2 instances using coins with remote RPC (Electrum, ETH nodes),
+/// it needs only ENV variables to be set.
+async fn get_bob_alice_for_trade(
+    bob_policy: PrivKeyPolicy,
+    alice_policy: PrivKeyPolicy,
+) -> (MarketMakerIt, MarketMakerIt) {
+    const HD_ACCOUNT_ID: Option<u32> = Some(0);
+    // TODO consider moving it to read it from a env file.
+    // ETH - 0x6dF5a71f5296a67561222624b78F79501b982EcF
+    // KMD - RCEYwiEddpPqzKi8gwvTdMKVWFJWcqvGrw
+    const BOB_HD_PASSPHRASE: &str = "involve work eager scene give acoustic tooth mimic dance smoke hold foster";
+    // ETH - 0x1737F1FaB40c6Fd3dc729B51C0F97DB3297CCA93
+    // KMD - RXNtAyDSsY3DS3VxTpJegzoHU9bUX54j56
+    const ALICE_HD_PASSPHRASE: &str = "tank abandon bind salon remove wisdom net size aspect direct source fossil";
+
+    let (bob_passphrase, bob_hd_account_id) = match bob_policy {
+        PrivKeyPolicy::Iguana => (get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap(), None),
+        PrivKeyPolicy::GlobalHDAccount => (BOB_HD_PASSPHRASE.to_string(), HD_ACCOUNT_ID),
+    };
+    let (alice_passphrase, alice_hd_account_id) = match alice_policy {
+        PrivKeyPolicy::Iguana => (get_passphrase!(".env.client", "ALICE_PASSPHRASE").unwrap(), None),
+        PrivKeyPolicy::GlobalHDAccount => (ALICE_HD_PASSPHRASE.to_string(), HD_ACCOUNT_ID),
+    };
 
     let coins = json! ([
-        {"coin":"RICK","asset":"RICK","required_confirmations":0,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"}},
-        {"coin":"MORTY","asset":"MORTY","required_confirmations":0,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"}},
-        {"coin":"ETH","name":"ethereum","protocol":{"type":"ETH"}},
-        {"coin":"ZOMBIE","asset":"ZOMBIE","fname":"ZOMBIE (TESTCOIN)","txversion":4,"overwintered":1,"mm2":1,"protocol":{"type":"ZHTLC"},"required_confirmations":0},
-        {"coin":"JST","name":"jst","protocol":{"type":"ERC20","protocol_data":{"platform":"ETH","contract_address":"0x2b294F029Fde858b2c62184e8390591755521d8E"}}}
+        {"coin":"RICK","asset":"RICK","required_confirmations":0,"txversion":4,"overwintered":1,"derivation_path":"m/44'/141'","protocol":{"type":"UTXO"}},
+        {"coin":"MORTY","asset":"MORTY","required_confirmations":0,"txversion":4,"overwintered":1,"derivation_path":"m/44'/141'","protocol":{"type":"UTXO"}},
+        {"coin":"ETH","name":"ethereum","derivation_path":"m/44'/60'","protocol":{"type":"ETH"}},
+        {"coin":"ZOMBIE","asset":"ZOMBIE","fname":"ZOMBIE (TESTCOIN)","txversion":4,"overwintered":1,"mm2":1,"derivation_path":"m/44'/141'","protocol":{"type":"ZHTLC"},"required_confirmations":0},
+        {"coin":"JST","name":"jst","derivation_path":"m/44'/60'","protocol":{"type":"ERC20","protocol_data":{"platform":"ETH","contract_address":"0x2b294F029Fde858b2c62184e8390591755521d8E"}}}
     ]);
 
-    let mut mm_bob = MarketMakerIt::start_async(
+    let mm_bob = MarketMakerIt::start_async(
         json! ({
             "gui": "nogui",
             "netid": 8999,
@@ -1014,6 +1032,7 @@ async fn trade_base_rel_electrum(
             "coins": coins,
             "rpc_password": "password",
             "i_am_seed": true,
+            "hd_account_id": bob_hd_account_id,
         }),
         "password".into(),
         local_start!("bob"),
@@ -1029,7 +1048,7 @@ async fn trade_base_rel_electrum(
 
     Timer::sleep(1.).await;
 
-    let mut mm_alice = MarketMakerIt::start_async(
+    let mm_alice = MarketMakerIt::start_async(
         json! ({
             "gui": "nogui",
             "netid": 8999,
@@ -1041,6 +1060,7 @@ async fn trade_base_rel_electrum(
             "seednodes": [mm_bob.my_seed_addr()],
             "rpc_password": "password",
             "skip_startup_checks": true,
+            "hd_account_id": alice_hd_account_id,
         }),
         "password".into(),
         local_start!("alice"),
@@ -1077,6 +1097,7 @@ async fn trade_base_rel_electrum(
         let zombie_alice = enable_z_coin(&mm_alice, "ZOMBIE").await;
         log!("enable ZOMBIE alice {:?}", zombie_alice);
     }
+
     // Enable coins on Bob side. Print the replies in case we need the address.
     let rc = enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]).await;
     log!("enable_coins (bob): {:?}", rc);
@@ -1085,8 +1106,18 @@ async fn trade_base_rel_electrum(
     let rc = enable_coins_eth_electrum(&mm_alice, &["http://195.201.0.6:8565"]).await;
     log!("enable_coins (alice): {:?}", rc);
 
-    // unwrap! (mm_alice.wait_for_log (999., &|log| log.contains ("set pubkey for ")));
+    (mm_bob, mm_alice)
+}
 
+/// Trades few pairs concurrently to speed up the process and also act like "load" test.
+async fn trade_with_bob_alice(
+    mut mm_bob: MarketMakerIt,
+    mut mm_alice: MarketMakerIt,
+    pairs: &[(&'static str, &'static str)],
+    maker_price: i32,
+    taker_price: i32,
+    volume: f64,
+) {
     let mut uuids = vec![];
 
     // issue sell request on Bob side by setting base/rel price
@@ -1260,17 +1291,27 @@ async fn trade_base_rel_electrum(
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
-fn trade_test_electrum_and_eth_coins() { block_on(trade_base_rel_electrum(&[("ETH", "JST")], 1, 2, 0.1)); }
+fn trade_test_electrum_and_eth_coins() {
+    let (mm_bob, mm_alice) = block_on(get_bob_alice_for_trade(
+        PrivKeyPolicy::Iguana,
+        PrivKeyPolicy::GlobalHDAccount,
+    ));
+    block_on(trade_with_bob_alice(mm_bob, mm_alice, &[("ETH", "RICK")], 1, 2, 0.1));
+}
 
 #[test]
 #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc-native-tests"))]
-fn trade_test_electrum_rick_zombie() { block_on(trade_base_rel_electrum(&[("RICK", "ZOMBIE")], 1, 2, 0.1)); }
+fn trade_test_electrum_rick_zombie() {
+    let pairs = &[("RICK", "ZOMBIE")];
+    let (mm_bob, mm_alice) = block_on(get_bob_alice_for_trade(PrivKeyPolicy::Iguana, PrivKeyPolicy::Iguana));
+    block_on(trade_with_bob_alice(mm_bob, mm_alice, pairs, 1, 2, 0.1));
+}
 
 #[wasm_bindgen_test]
 #[cfg(target_arch = "wasm32")]
 async fn trade_test_rick_and_morty() {
-    let pairs: &[_] = &[("RICK", "MORTY")];
-    trade_base_rel_electrum(pairs, 1, 1, 0.0001).await;
+    let (mm_bob, mm_alice) = get_bob_alice_for_trade(PrivKeyPolicy::GlobalHDAccount, PrivKeyPolicy::Iguana).await;
+    trade_with_bob_alice(mm_bob, mm_alice, &[("RICK", "MORTY")], 1, 1, 0.0001).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]

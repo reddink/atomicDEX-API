@@ -3,6 +3,8 @@ use crate::{mm2_internal_der_path, Bip32DerPathOps, Bip32Error, Bip44PathToCoin,
 use bip32::{ChildNumber, ExtendedPrivateKey};
 use keys::{KeyPair, Private, Public as PublicKey, Secret as Secp256k1Secret};
 use mm2_err_handle::prelude::*;
+use std::convert::TryInto;
+use std::num::TryFromIntError;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -29,11 +31,22 @@ pub struct GlobalHDAccountCtx {
 }
 
 impl GlobalHDAccountCtx {
-    pub fn new(passphrase: &str, hd_account: u32) -> CryptoInitResult<GlobalHDAccountCtx> {
+    pub fn new(passphrase: &str, hd_account_id: u64) -> CryptoInitResult<GlobalHDAccountCtx> {
         let bip39_priv_key = bip39_priv_key_from_seed(passphrase)?;
 
-        let hd_account = ChildNumber::new(hd_account, NON_HARDENED)
-            .map_to_mm(|error| CryptoInitError::InvalidHdAccount { hd_account, error })?;
+        let hd_account_id =
+            hd_account_id
+                .try_into()
+                .map_to_mm(|e: TryFromIntError| CryptoInitError::InvalidHdAccount {
+                    hd_account_id,
+                    error: e.to_string(),
+                })?;
+        let hd_account =
+            ChildNumber::new(hd_account_id, NON_HARDENED).map_to_mm(|e| CryptoInitError::InvalidHdAccount {
+                hd_account_id: hd_account_id as u64,
+                error: e.to_string(),
+            })?;
+
         let derivation_path = mm2_internal_der_path(Some(hd_account));
 
         let mut internal_priv_key = bip39_priv_key.clone();
@@ -51,6 +64,8 @@ impl GlobalHDAccountCtx {
             hd_account,
         })
     }
+
+    pub fn into_arc(self) -> GlobalHDAccountArc { GlobalHDAccountArc(Arc::new(self)) }
 
     pub fn mm2_internal_key_pair(&self) -> &KeyPair { &self.mm2_internal_key_pair }
 
