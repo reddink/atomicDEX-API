@@ -1,7 +1,9 @@
 //! Helpers used in the unit and integration tests.
 
+use crate::electrums::qtum_electrums;
 use common::executor::Timer;
 use common::log;
+use common::log::debug;
 use common::{cfg_native, now_float, now_ms, PagingOptionsEnum};
 use gstuff::{try_s, ERR, ERRL};
 use http::{HeaderMap, StatusCode};
@@ -14,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{self as json, json, Value as Json};
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::env;
 use std::net::IpAddr;
 use std::num::NonZeroUsize;
 use std::process::Child;
@@ -33,7 +36,6 @@ cfg_native! {
     use gstuff::ISATTY;
     use http::Request;
     use regex::Regex;
-    use std::env;
     use std::fs;
     use std::net::Ipv4Addr;
     use std::path::{Path, PathBuf};
@@ -2127,5 +2129,119 @@ pub async fn wait_for_swaps_finish_and_check_status(
             BigDecimal::try_from(volume).unwrap(),
         )
         .await;
+    }
+}
+
+pub async fn test_qrc20_history_impl(local_start: Option<LocalStart>) {
+    let passphrase = "daring blind measure rebuild grab boost fix favorite nurse stereo april rookie";
+    let coins = json!([
+        {"coin":"QRC20","required_confirmations":0,"pubtype": 120,"p2shtype": 50,"wiftype": 128,"txfee": 0,"mm2": 1,"mature_confirmations":2000,
+         "protocol":{"type":"QRC20","protocol_data":{"platform":"QTUM","contract_address":"0xd362e096e873eb7907e205fadc6175c6fec7bc44"}}},
+    ]);
+
+    let mut mm = MarketMakerIt::start_async(
+        json! ({
+            "gui": "nogui",
+            "netid": 9998,
+            "myipaddr": env::var ("BOB_TRADE_IP") .ok(),
+            "rpcip": env::var ("BOB_TRADE_IP") .ok(),
+            "passphrase": passphrase,
+            "coins": coins,
+            "rpc_password": "pass",
+            "metrics_interval": 30.,
+        }),
+        "pass".into(),
+        local_start,
+    )
+    .await
+    .unwrap();
+    let (_dump_log, _dump_dashboard) = mm.mm_dump();
+
+    #[cfg(not(target_arch = "wasm32"))]
+    common::log::info!("log path: {}", mm.log_path.display());
+
+    mm.wait_for_log(22., |log| log.contains(">>>>>>>>> DEX stats "))
+        .await
+        .unwrap();
+
+    let electrum = mm
+        .rpc(&json!({
+            "userpass": mm.userpass,
+            "method": "electrum",
+            "coin": "QRC20",
+            "servers": qtum_electrums(),
+            "mm2": 1,
+            "tx_history": true,
+            "swap_contract_address": "0xd362e096e873eb7907e205fadc6175c6fec7bc44",
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        electrum.0,
+        StatusCode::OK,
+        "RPC «electrum» failed with status «{}», response «{}»",
+        electrum.0,
+        electrum.1
+    );
+    let electrum_json: Json = json::from_str(&electrum.1).unwrap();
+    assert_eq!(
+        electrum_json["address"].as_str(),
+        Some("qfkXE2cNFEwPFQqvBcqs8m9KrkNa9KV4xi")
+    );
+
+    // Wait till tx_history will not be loaded
+    mm.wait_for_log(22., |log| log.contains("history has been loaded successfully"))
+        .await
+        .unwrap();
+
+    // let the MarketMaker save the history to the file
+    Timer::sleep(1.).await;
+
+    let tx_history = mm
+        .rpc(&json!({
+            "userpass": mm.userpass,
+            "method": "my_tx_history",
+            "coin": "QRC20",
+            "limit": 100,
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        tx_history.0,
+        StatusCode::OK,
+        "RPC «my_tx_history» failed with status «{}», response «{}»",
+        tx_history.0,
+        tx_history.1
+    );
+    debug!("{:?}", tx_history.1);
+    let tx_history_json: Json = json::from_str(&tx_history.1).unwrap();
+    let tx_history_result = &tx_history_json["result"];
+
+    let mut expected = vec![
+        // https://testnet.qtum.info/tx/45d722e615feb853d608033ffc20fd51c9ee86e2321cfa814ba5961190fb57d2
+        "45d722e615feb853d608033ffc20fd51c9ee86e2321cfa814ba5961190fb57d200000000000000020000000000000000",
+        // https://testnet.qtum.info/tx/45d722e615feb853d608033ffc20fd51c9ee86e2321cfa814ba5961190fb57d2
+        "45d722e615feb853d608033ffc20fd51c9ee86e2321cfa814ba5961190fb57d200000000000000020000000000000001",
+        // https://testnet.qtum.info/tx/abcb51963e720fdfed7b889cea79947ba3cabd7b8b384f6b5adb41a3f4b5d61b
+        "abcb51963e720fdfed7b889cea79947ba3cabd7b8b384f6b5adb41a3f4b5d61b00000000000000020000000000000000",
+        // https://testnet.qtum.info/tx/4ea5392d03a9c35126d2d5a8294c3c3102cfc6d65235897c92ca04c5515f6be5
+        "4ea5392d03a9c35126d2d5a8294c3c3102cfc6d65235897c92ca04c5515f6be500000000000000020000000000000000",
+        // https://testnet.qtum.info/tx/9156f5f1d3652c27dca0216c63177da38de5c9e9f03a5cfa278bf82882d2d3d8
+        "9156f5f1d3652c27dca0216c63177da38de5c9e9f03a5cfa278bf82882d2d3d800000000000000020000000000000000",
+        // https://testnet.qtum.info/tx/35e03bc529528a853ee75dde28f27eec8ed7b152b6af7ab6dfa5d55ea46f25ac
+        "35e03bc529528a853ee75dde28f27eec8ed7b152b6af7ab6dfa5d55ea46f25ac00000000000000010000000000000000",
+        // https://testnet.qtum.info/tx/39104d29d77ba83c5c6c63ab7a0f096301c443b4538dc6b30140453a40caa80a
+        "39104d29d77ba83c5c6c63ab7a0f096301c443b4538dc6b30140453a40caa80a00000000000000000000000000000000",
+        // https://testnet.qtum.info/tx/d9965e3496a8a4af2d462424b989694b3146d78c61654b99bbadba64464f75cb
+        "d9965e3496a8a4af2d462424b989694b3146d78c61654b99bbadba64464f75cb00000000000000000000000000000000",
+        // https://testnet.qtum.info/tx/c2f346d3d2aadc35f5343d0d493a139b2579175496d685ec30734d161e62f7a1
+        "c2f346d3d2aadc35f5343d0d493a139b2579175496d685ec30734d161e62f7a100000000000000000000000000000000",
+    ];
+
+    assert_eq!(tx_history_result["total"].as_u64().unwrap(), expected.len() as u64);
+    for tx in tx_history_result["transactions"].as_array().unwrap() {
+        // pop front item
+        let expected_tx = expected.remove(0);
+        assert_eq!(tx["internal_id"].as_str().unwrap(), expected_tx);
     }
 }

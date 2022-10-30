@@ -3,8 +3,8 @@ use common::executor::{spawn, Timer};
 use common::log::wasm_log::register_wasm_log;
 use mm2_core::mm_ctx::MmArc;
 use mm2_test_helpers::electrums::{morty_electrums, rick_electrums};
-use mm2_test_helpers::for_tests::{enable_electrum_json, morty_conf, rick_conf, start_swaps, MarketMakerIt,
-                                  Mm2TestConf, MORTY, RICK};
+use mm2_test_helpers::for_tests::{enable_electrum_json, morty_conf, rick_conf, start_swaps, test_qrc20_history_impl,
+                                  MarketMakerIt, Mm2TestConf, MORTY, RICK};
 use mm2_test_helpers::get_passphrase;
 use serde_json::json;
 use wasm_bindgen_test::wasm_bindgen_test;
@@ -75,6 +75,9 @@ async fn test_mm2_stops_immediately() {
     let pairs: &[_] = &[("RICK", "MORTY")];
     test_mm2_stops_impl(pairs, 1, 1, 0.0001, STOP_TIMEOUT_MS).await;
 }
+
+#[wasm_bindgen_test]
+async fn test_qrc20_tx_history() { test_qrc20_history_impl(Some(wasm_start)).await }
 
 #[wasm_bindgen_test]
 async fn trade_test_rick_and_morty() {
