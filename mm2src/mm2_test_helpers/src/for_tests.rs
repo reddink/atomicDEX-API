@@ -105,21 +105,11 @@ pub const RICK_ELECTRUM_ADDRS: &[&str] = &[
     "electrum2.cipig.net:10017",
     "electrum3.cipig.net:10017",
 ];
-pub const RICK_ELECTRUMS_WS: &[&str] = &[
-    "electrum1.cipig.net:30017",
-    "electrum2.cipig.net:30017",
-    "electrum3.cipig.net:30017",
-];
 pub const MORTY: &str = "MORTY";
 pub const MORTY_ELECTRUM_ADDRS: &[&str] = &[
     "electrum1.cipig.net:10018",
     "electrum2.cipig.net:10018",
     "electrum3.cipig.net:10018",
-];
-pub const MORTY_ELECTRUMS_WS: &[&str] = &[
-    "electrum1.cipig.net:30018",
-    "electrum2.cipig.net:30018",
-    "electrum3.cipig.net:30018",
 ];
 pub const ZOMBIE_TICKER: &str = "ZOMBIE";
 pub const ARRR: &str = "ARRR";
@@ -2095,17 +2085,21 @@ pub async fn start_swaps(
 pub async fn wait_for_swaps_finish_and_check_status(
     maker: &mut MarketMakerIt,
     taker: &mut MarketMakerIt,
-    uuids: &[&str],
+    uuids: &[impl AsRef<str>],
     volume: f64,
 ) {
     for uuid in uuids.iter() {
         maker
-            .wait_for_log(900., |log| log.contains(&format!("[swap uuid={}] Finished", uuid)))
+            .wait_for_log(900., |log| {
+                log.contains(&format!("[swap uuid={}] Finished", uuid.as_ref()))
+            })
             .await
             .unwrap();
 
         taker
-            .wait_for_log(900., |log| log.contains(&format!("[swap uuid={}] Finished", uuid)))
+            .wait_for_log(900., |log| {
+                log.contains(&format!("[swap uuid={}] Finished", uuid.as_ref()))
+            })
             .await
             .unwrap();
 
@@ -2115,7 +2109,7 @@ pub async fn wait_for_swaps_finish_and_check_status(
         log!("Checking taker status..");
         check_my_swap_status(
             taker,
-            uuid,
+            uuid.as_ref(),
             &TAKER_SUCCESS_EVENTS,
             &TAKER_ERROR_EVENTS,
             BigDecimal::try_from(volume).unwrap(),
@@ -2126,7 +2120,7 @@ pub async fn wait_for_swaps_finish_and_check_status(
         log!("Checking maker status..");
         check_my_swap_status(
             maker,
-            uuid,
+            uuid.as_ref(),
             &MAKER_SUCCESS_EVENTS,
             &MAKER_ERROR_EVENTS,
             BigDecimal::try_from(volume).unwrap(),

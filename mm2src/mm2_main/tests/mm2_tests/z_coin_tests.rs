@@ -2,6 +2,7 @@ use crate::integration_tests_common::*;
 use common::executor::Timer;
 use common::{block_on, log, now_ms};
 use mm2_number::BigDecimal;
+use mm2_test_helpers::electrums::rick_electrums;
 use mm2_test_helpers::for_tests::{init_withdraw, pirate_conf, rick_conf, send_raw_transaction, withdraw_status,
                                   z_coin_tx_history, zombie_conf, MarketMakerIt, Mm2TestConf, ARRR, PIRATE_ELECTRUMS,
                                   PIRATE_LIGHTWALLETD_URLS, RICK, ZOMBIE_ELECTRUMS, ZOMBIE_LIGHTWALLETD_URLS,

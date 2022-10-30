@@ -6,19 +6,18 @@ use http::{HeaderMap, StatusCode};
 use mm2::mm2::lp_ordermatch::MIN_ORDER_KEEP_ALIVE_INTERVAL;
 use mm2_metrics::{MetricType, MetricsJson};
 use mm2_number::{BigDecimal, BigRational, Fraction, MmNumber};
+use mm2_test_helpers::electrums::*;
 #[cfg(all(feature = "zhtlc-native-tests", not(target_arch = "wasm32")))]
 use mm2_test_helpers::for_tests::init_z_coin_native;
-use mm2_test_helpers::for_tests::{btc_with_spv_conf, check_my_swap_status, check_recent_swaps,
-                                  check_stats_swap_status, enable_qrc20, find_metrics_in_json, from_env_file, mm_spat,
-                                  morty_conf, rick_conf, sign_message, start_swaps, tbtc_with_spv_conf,
-                                  verify_message, wait_for_swaps_finish_and_check_status,
-                                  wait_till_history_has_records, MarketMakerIt, Mm2TestConf, RaiiDump,
-                                  ETH_MAINNET_NODE, ETH_MAINNET_SWAP_CONTRACT, MAKER_ERROR_EVENTS,
-                                  MAKER_SUCCESS_EVENTS, MORTY, RICK, TAKER_ERROR_EVENTS, TAKER_SUCCESS_EVENTS};
+use mm2_test_helpers::for_tests::{btc_with_spv_conf, check_recent_swaps, check_stats_swap_status, enable_qrc20,
+                                  find_metrics_in_json, from_env_file, mm_spat, morty_conf, rick_conf, sign_message,
+                                  start_swaps, tbtc_with_spv_conf, verify_message,
+                                  wait_for_swaps_finish_and_check_status, wait_till_history_has_records,
+                                  MarketMakerIt, Mm2TestConf, RaiiDump, ETH_MAINNET_NODE, ETH_MAINNET_SWAP_CONTRACT,
+                                  MAKER_SUCCESS_EVENTS, MORTY, RICK, TAKER_SUCCESS_EVENTS};
 use mm2_test_helpers::get_passphrase;
 use serde_json::{self as json, json, Value as Json};
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::env::{self, var};
 use std::str::FromStr;
 use std::thread;
@@ -855,7 +854,7 @@ async fn trade_base_rel_electrum(
             .unwrap()
     }
 
-    wait_for_swaps_finish_and_check_status();
+    wait_for_swaps_finish_and_check_status(&mut mm_bob, &mut mm_alice, &uuids, volume).await;
 
     log!("Waiting 3 seconds for nodes to broadcast their swaps data..");
     Timer::sleep(3.).await;

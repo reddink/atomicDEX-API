@@ -2,8 +2,9 @@ use super::lp_init;
 use common::executor::{spawn, Timer};
 use common::log::wasm_log::register_wasm_log;
 use mm2_core::mm_ctx::MmArc;
-use mm2_test_helpers::for_tests::{enable_electrum, morty_conf, rick_conf, start_swaps, MarketMakerIt, Mm2TestConf,
-                                  MORTY, MORTY_ELECTRUMS_WS, RICK, RICK_ELECTRUMS_WS};
+use mm2_test_helpers::electrums::{morty_electrums, rick_electrums};
+use mm2_test_helpers::for_tests::{enable_electrum_json, morty_conf, rick_conf, start_swaps, MarketMakerIt,
+                                  Mm2TestConf, MORTY, RICK};
 use mm2_test_helpers::get_passphrase;
 use serde_json::json;
 use wasm_bindgen_test::wasm_bindgen_test;
@@ -43,17 +44,17 @@ async fn test_mm2_stops_impl(
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
 
     // Enable coins on Bob side. Print the replies in case we need the address.
-    let rc = enable_electrum(&mm_bob, RICK, true, RICK_ELECTRUMS_WS).await;
+    let rc = enable_electrum_json(&mm_bob, RICK, true, rick_electrums()).await;
     log!("enable RICK (bob): {:?}", rc);
 
-    let rc = enable_electrum(&mm_bob, MORTY, true, MORTY_ELECTRUMS_WS).await;
+    let rc = enable_electrum_json(&mm_bob, MORTY, true, morty_electrums()).await;
     log!("enable MORTY (bob): {:?}", rc);
 
     // Enable coins on Alice side. Print the replies in case we need the address.
-    let rc = enable_electrum(&mm_alice, RICK, true, RICK_ELECTRUMS_WS).await;
+    let rc = enable_electrum_json(&mm_alice, RICK, true, rick_electrums()).await;
     log!("enable RICK (bob): {:?}", rc);
 
-    let rc = enable_electrum(&mm_alice, MORTY, true, MORTY_ELECTRUMS_WS).await;
+    let rc = enable_electrum_json(&mm_alice, MORTY, true, morty_electrums()).await;
     log!("enable MORTY (bob): {:?}", rc);
 
     start_swaps(&mut mm_bob, &mut mm_alice, pairs, maker_price, taker_price, volume).await;
