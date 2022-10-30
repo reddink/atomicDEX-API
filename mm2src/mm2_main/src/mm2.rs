@@ -51,7 +51,7 @@ use std::ptr::null;
 use std::str;
 
 #[path = "lp_native_dex.rs"] mod lp_native_dex;
-pub use self::lp_native_dex::lp_init;
+use self::lp_native_dex::lp_init;
 use coins::update_coins_config;
 use mm2_err_handle::prelude::*;
 
@@ -67,6 +67,8 @@ pub mod database;
 #[path = "lp_stats.rs"] pub mod lp_stats;
 #[path = "lp_swap.rs"] pub mod lp_swap;
 #[path = "rpc.rs"] pub mod rpc;
+
+#[cfg(all(target_arch = "wasm32", test))] mod wasm_tests;
 
 pub const MM_DATETIME: &str = env!("MM_DATETIME");
 pub const MM_VERSION: &str = env!("MM_VERSION");

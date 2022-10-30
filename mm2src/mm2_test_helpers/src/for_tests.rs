@@ -105,11 +105,21 @@ pub const RICK_ELECTRUM_ADDRS: &[&str] = &[
     "electrum2.cipig.net:10017",
     "electrum3.cipig.net:10017",
 ];
+pub const RICK_ELECTRUMS_WS: &[&str] = &[
+    "electrum1.cipig.net:30017",
+    "electrum2.cipig.net:30017",
+    "electrum3.cipig.net:30017",
+];
 pub const MORTY: &str = "MORTY";
 pub const MORTY_ELECTRUM_ADDRS: &[&str] = &[
     "electrum1.cipig.net:10018",
     "electrum2.cipig.net:10018",
     "electrum3.cipig.net:10018",
+];
+pub const MORTY_ELECTRUMS_WS: &[&str] = &[
+    "electrum1.cipig.net:30018",
+    "electrum2.cipig.net:30018",
+    "electrum3.cipig.net:30018",
 ];
 pub const ZOMBIE_TICKER: &str = "ZOMBIE";
 pub const ARRR: &str = "ARRR";
@@ -1074,14 +1084,6 @@ pub fn mm_spat() -> (&'static str, MarketMakerIt, RaiiDump, RaiiDump) {
     (passphrase, mm, dump_log, dump_dashboard)
 }
 
-#[cfg(target_arch = "wasm32")]
-pub fn mm_spat(
-    _local_start: LocalStart,
-    _conf_mod: &dyn Fn(Json) -> Json,
-) -> (&'static str, MarketMakerIt, RaiiDump, RaiiDump) {
-    unimplemented!()
-}
-
 /// Asks MM to enable the given currency in electrum mode
 /// fresh list of servers at https://github.com/jl777/coins/blob/master/electrums/.
 pub async fn enable_electrum(mm: &MarketMakerIt, coin: &str, tx_history: bool, urls: &[&str]) -> Json {
@@ -2030,7 +2032,7 @@ pub async fn start_swaps(
 
     // issue sell request on Bob side by setting base/rel price
     for (base, rel) in pairs.iter() {
-        log!("Issue maker {}/{} sell request", base, rel);
+        common::log::info!("Issue maker {}/{} sell request", base, rel);
         let rc = maker
             .rpc(&json!({
                 "userpass": maker.userpass,

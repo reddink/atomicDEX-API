@@ -10,7 +10,6 @@
 #[macro_use] extern crate ser_error_derive;
 
 #[path = "mm2.rs"] mod mm2;
-#[cfg(all(target_arch = "wasm32", test))] mod wasm_tests;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
 #[global_allocator]
