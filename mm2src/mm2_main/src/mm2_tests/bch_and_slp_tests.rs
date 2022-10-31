@@ -635,6 +635,7 @@ fn test_sign_verify_message_slp() {
 
 /// Tested via [Electron-Cash-SLP](https://github.com/simpleledger/Electron-Cash-SLP).
 #[test]
+#[cfg(not(target_arch = "wasm32"))]
 fn test_bch_and_slp_with_hd_account_id() {
     const TX_HISTORY: bool = false;
 
