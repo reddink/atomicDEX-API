@@ -1,7 +1,7 @@
 use super::*;
 use itertools::Itertools;
-use mm2_test_helpers::for_tests::{enable_bch_with_tokens, enable_slp, my_tx_history_v2, sign_message, tbch_for_slp_conf,
-                                  tbch_usdf_conf, verify_message, UtxoRpcMode};
+use mm2_test_helpers::for_tests::{enable_bch_with_tokens, enable_slp, my_tx_history_v2, sign_message,
+                                  tbch_for_slp_conf, tbch_usdf_conf, verify_message, UtxoRpcMode};
 
 cfg_wasm32! {
     use wasm_bindgen_test::*;
