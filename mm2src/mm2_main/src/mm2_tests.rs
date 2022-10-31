@@ -10,12 +10,13 @@ use mm2_metrics::{MetricType, MetricsJson};
 use mm2_number::{BigDecimal, BigRational, Fraction, MmNumber};
 use mm2_test_helpers::for_tests::{btc_with_spv_conf, check_my_swap_status, check_recent_swaps,
                                   check_stats_swap_status, enable_native as enable_native_impl, enable_qrc20,
-                                  find_metrics_in_json, from_env_file, init_utxo_electrum, init_utxo_status,
-                                  init_z_coin_light, init_z_coin_status, mm_spat, morty_conf, rick_conf, sign_message,
-                                  tbtc_with_spv_conf, verify_message, wait_till_history_has_records, LocalStart,
-                                  MarketMakerIt, Mm2TestConf, RaiiDump, ETH_MAINNET_NODE, ETH_MAINNET_SWAP_CONTRACT,
-                                  MAKER_ERROR_EVENTS, MAKER_SUCCESS_EVENTS, MORTY, RICK, TAKER_ERROR_EVENTS,
-                                  TAKER_SUCCESS_EVENTS};
+                                  eth_jst_testnet_conf, eth_testnet_conf, find_metrics_in_json, from_env_file,
+                                  init_utxo_electrum, init_utxo_status, init_z_coin_light, init_z_coin_status,
+                                  mm_spat, morty_conf, rick_conf, sign_message, tbtc_with_spv_conf, tqrc20_conf,
+                                  verify_message, wait_till_history_has_records, LocalStart, MarketMakerIt,
+                                  Mm2TestConf, RaiiDump, ETH_MAINNET_NODE, ETH_MAINNET_SWAP_CONTRACT,
+                                  MAKER_ERROR_EVENTS, MAKER_SUCCESS_EVENTS, MORTY, QRC20_ELECTRUMS, RICK,
+                                  RICK_ELECTRUM_ADDRS, TAKER_ERROR_EVENTS, TAKER_SUCCESS_EVENTS};
 use mm2_test_helpers::get_passphrase;
 use serde_json::{self as json, Value as Json};
 use std::collections::HashMap;
@@ -7934,6 +7935,55 @@ fn test_tbtc_block_header_sync() {
     log!("enable UTXO bob {:?}", utxo_bob);
 
     block_on(mm_bob.stop()).unwrap();
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn test_enable_coins_with_hd_account_id() {
+    const TX_HISTORY: bool = false;
+    const PASSPHRASE: &str = "tank abandon bind salon remove wisdom net size aspect direct source fossil";
+
+    let coins = json!([eth_testnet_conf(), eth_jst_testnet_conf(), rick_conf(), tqrc20_conf()]);
+
+    let hd_account_id = 0;
+    let conf_0 = Mm2TestConf::seednode_with_hd_account(PASSPHRASE, hd_account_id, &coins);
+    let mm_hd_0 = MarketMakerIt::start(conf_0.conf, conf_0.rpc_password, local_start!("bob")).unwrap();
+    let (_dump_log, _dump_dashboard) = mm_hd_0.mm_dump();
+    log!("log path: {}", mm_hd_0.log_path.display());
+
+    let eth = block_on(enable_native(&mm_hd_0, "ETH", &["http://195.201.0.6:8565"]));
+    assert_eq!(eth.address, "0x1737F1FaB40c6Fd3dc729B51C0F97DB3297CCA93");
+    let jst = block_on(enable_native(&mm_hd_0, "JST", &["http://195.201.0.6:8565"]));
+    assert_eq!(jst.address, "0x1737F1FaB40c6Fd3dc729B51C0F97DB3297CCA93");
+    let rick = block_on(enable_electrum(&mm_hd_0, "RICK", TX_HISTORY, RICK_ELECTRUM_ADDRS));
+    assert_eq!(rick.address, "RXNtAyDSsY3DS3VxTpJegzoHU9bUX54j56");
+    let qrc20 = block_on(enable_qrc20(
+        &mm_hd_0,
+        "QRC20",
+        QRC20_ELECTRUMS,
+        "0xd362e096e873eb7907e205fadc6175c6fec7bc44",
+    ));
+    assert_eq!(qrc20["address"].as_str(), Some("qRtCTiPHW9e6zH9NcRhjMVfq7sG37SvgrL"));
+
+    let hd_account_id = 1;
+    let conf_1 = Mm2TestConf::seednode_with_hd_account(PASSPHRASE, hd_account_id, &coins);
+    let mm_hd_1 = MarketMakerIt::start(conf_1.conf, conf_1.rpc_password, local_start!("alice")).unwrap();
+    let (_dump_log, _dump_dashboard) = mm_hd_1.mm_dump();
+    log!("log path: {}", mm_hd_1.log_path.display());
+
+    let eth = block_on(enable_native(&mm_hd_1, "ETH", &["http://195.201.0.6:8565"]));
+    assert_eq!(eth.address, "0xDe841899aB4A22E23dB21634e54920aDec402397");
+    let jst = block_on(enable_native(&mm_hd_1, "JST", &["http://195.201.0.6:8565"]));
+    assert_eq!(jst.address, "0xDe841899aB4A22E23dB21634e54920aDec402397");
+    let rick = block_on(enable_electrum(&mm_hd_1, "RICK", TX_HISTORY, RICK_ELECTRUM_ADDRS));
+    assert_eq!(rick.address, "RVyndZp3ZrhGKSwHryyM3Kcz9aq2EJrW1z");
+    let qrc20 = block_on(enable_qrc20(
+        &mm_hd_1,
+        "QRC20",
+        QRC20_ELECTRUMS,
+        "0xd362e096e873eb7907e205fadc6175c6fec7bc44",
+    ));
+    assert_eq!(qrc20["address"].as_str(), Some("qY8FNq2ZDUh52BjNvaroFoeHdr3AAhqsxW"));
 }
 
 /// This function runs Alice and Bob nodes, activates coins, starts swaps,

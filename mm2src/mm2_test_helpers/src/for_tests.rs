@@ -119,6 +119,11 @@ pub const ZOMBIE_LIGHTWALLETD_URLS: &[&str] = &["http://zombie.sirseven.me:443"]
 pub const PIRATE_ELECTRUMS: &[&str] = &["pirate.sirseven.me:10032"];
 pub const PIRATE_LIGHTWALLETD_URLS: &[&str] = &["http://pirate.sirseven.me:443"];
 const DEFAULT_RPC_PASSWORD: &str = "pass";
+pub const QRC20_ELECTRUMS: &[&str] = &[
+    "electrum1.cipig.net:10071",
+    "electrum2.cipig.net:10071",
+    "electrum3.cipig.net:10071",
+];
 
 pub const ETH_MAINNET_NODE: &str = "https://mainnet.infura.io/v3/c01c1b4cf66642528547624e1d6d9d6b";
 pub const ETH_MAINNET_SWAP_CONTRACT: &str = "0x24abe4c71fc658c91313b6552cd40cd808b3ea80";
@@ -153,6 +158,21 @@ impl Mm2TestConf {
                 "rpc_password": DEFAULT_RPC_PASSWORD,
                 "i_am_seed": true,
                 "use_watchers": true,
+            }),
+            rpc_password: DEFAULT_RPC_PASSWORD.into(),
+        }
+    }
+
+    pub fn seednode_with_hd_account(passphrase: &str, hd_account_id: u32, coins: &Json) -> Self {
+        Mm2TestConf {
+            conf: json!({
+                "gui": "nogui",
+                "netid": 9998,
+                "passphrase": passphrase,
+                "coins": coins,
+                "rpc_password": DEFAULT_RPC_PASSWORD,
+                "i_am_seed": true,
+                "hd_account_id": hd_account_id,
             }),
             rpc_password: DEFAULT_RPC_PASSWORD.into(),
         }
@@ -278,6 +298,7 @@ pub fn rick_conf() -> Json {
         "required_confirmations":0,
         "txversion":4,
         "overwintered":1,
+        "derivation_path": "m/44'/141'",
         "protocol":{
             "type":"UTXO"
         }
@@ -291,6 +312,7 @@ pub fn morty_conf() -> Json {
         "required_confirmations":0,
         "txversion":4,
         "overwintered":1,
+        "derivation_path": "m/44'/141'",
         "protocol":{
             "type":"UTXO"
         }
@@ -363,10 +385,37 @@ pub fn tbtc_with_spv_conf() -> Json {
     })
 }
 
+pub fn eth_testnet_conf() -> Json {
+    json!({
+        "coin": "ETH",
+        "name": "ethereum",
+        "derivation_path": "m/44'/60'",
+        "protocol": {
+            "type": "ETH"
+        }
+    })
+}
+
+pub fn eth_jst_testnet_conf() -> Json {
+    json!({
+        "coin": "JST",
+        "name": "jst",
+        "derivation_path": "m/44'/60'",
+        "protocol": {
+            "type": "ERC20",
+            "protocol_data": {
+                "platform": "ETH",
+                "contract_address": "0x2b294F029Fde858b2c62184e8390591755521d8E"
+            }
+        }
+    })
+}
+
 pub fn iris_testnet_conf() -> Json {
     json!({
-        "coin":"IRIS-TEST",
+        "coin": "IRIS-TEST",
         "avg_block_time": 5,
+        "derivation_path": "m/44'/566'",
         "protocol":{
             "type":"TENDERMINT",
             "protocol_data": {
@@ -380,9 +429,11 @@ pub fn iris_testnet_conf() -> Json {
 }
 
 pub fn iris_nimda_testnet_conf() -> Json {
-    json!({"coin":"IRIS-NIMDA",
-        "protocol":{
-            "type":"TENDERMINTTOKEN",
+    json!({
+        "coin": "IRIS-NIMDA",
+        "derivation_path": "m/44'/566'",
+        "protocol": {
+            "type": "TENDERMINTTOKEN",
             "protocol_data": {
                 "platform": "IRIS-TEST",
                 "decimals": 6,
@@ -406,6 +457,42 @@ pub fn usdc_ibc_iris_testnet_conf() -> Json {
     })
 }
 
+/// `245` is SLP coin type within the derivation path.
+pub fn tbch_for_slp_conf() -> Json {
+    json!({
+        "coin": "tBCH",
+        "pubtype": 0,
+        "p2shtype": 5,
+        "mm2": 1,
+        "derivation_path": "m/44'/245'",
+        "protocol": {
+            "type": "BCH",
+            "protocol_data": {
+                "slp_prefix": "slptest"
+            }
+        },
+        "address_format": {
+            "format": "cashaddress",
+            "network": "bchtest"
+        }
+    })
+}
+
+pub fn tbch_usdf_conf() -> Json {
+    json!({
+        "coin": "USDF",
+        "protocol": {
+            "type": "SLPTOKEN",
+            "protocol_data": {
+                "decimals": 4,
+                "token_id": "bb309e48930671582bea508f9a1d9b491e49b69be3d6f372dc08da2ac6e90eb7",
+                "platform": "tBCH",
+                "required_confirmations": 1
+            }
+        }
+    })
+}
+
 pub fn tbnb_conf() -> Json {
     json!({
         "coin": "tBNB",
@@ -416,6 +503,27 @@ pub fn tbnb_conf() -> Json {
         "required_confirmations": 0,
         "protocol": {
             "type": "ETH"
+        }
+    })
+}
+
+pub fn tqrc20_conf() -> Json {
+    json!({
+        "coin": "QRC20",
+        "required_confirmations": 0,
+        "pubtype": 120,
+        "p2shtype": 50,
+        "wiftype": 128,
+        "txfee": 0,
+        "mm2": 1,
+        "mature_confirmations": 2000,
+        "derivation_path": "m/44'/2301'",
+        "protocol": {
+            "type": "QRC20",
+            "protocol_data": {
+                "platform": "QTUM",
+                "contract_address": "0xd362e096e873eb7907e205fadc6175c6fec7bc44"
+            }
         }
     })
 }
