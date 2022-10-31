@@ -1530,7 +1530,7 @@ pub async fn wait_for_swap_contract_negotiation(mm: &MarketMakerIt, swap: &str, 
             panic!("Timed out");
         }
 
-        let swap_status = my_swap_status(&mm, swap).await;
+        let swap_status = my_swap_status(mm, swap).await;
         let events = swap_status["result"]["events"].as_array().unwrap();
         if events.len() < 2 {
             Timer::sleep(1.).await;
@@ -1556,7 +1556,7 @@ pub async fn wait_for_swap_negotiation_failure(mm: &MarketMakerIt, swap: &str, u
             panic!("Timed out");
         }
 
-        let swap_status = my_swap_status(&mm, swap).await;
+        let swap_status = my_swap_status(mm, swap).await;
         let events = swap_status["result"]["events"].as_array().unwrap();
         if events.len() < 2 {
             Timer::sleep(1.).await;
