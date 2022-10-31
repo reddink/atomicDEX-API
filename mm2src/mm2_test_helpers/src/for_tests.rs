@@ -2,9 +2,9 @@
 
 use crate::electrums::qtum_electrums;
 use common::executor::Timer;
-use common::log;
 use common::log::debug;
 use common::{cfg_native, now_float, now_ms, PagingOptionsEnum};
+use common::{get_utc_timestamp, log};
 use gstuff::{try_s, ERR, ERRL};
 use http::{HeaderMap, StatusCode};
 use lazy_static::lazy_static;
@@ -123,6 +123,9 @@ const DEFAULT_RPC_PASSWORD: &str = "pass";
 
 pub const ETH_MAINNET_NODE: &str = "https://mainnet.infura.io/v3/c01c1b4cf66642528547624e1d6d9d6b";
 pub const ETH_MAINNET_SWAP_CONTRACT: &str = "0x24abe4c71fc658c91313b6552cd40cd808b3ea80";
+
+pub const ETH_DEV_NODES: &[&str] = &["http://195.201.0.6:8565"];
+pub const ETH_DEV_SWAP_CONTRACT: &str = "0xa09ad3cd7e96586ebd05a2607ee56b56fb2db8fd";
 
 pub struct Mm2TestConf {
     pub conf: Json,
@@ -1200,7 +1203,13 @@ pub async fn enable_native(mm: &MarketMakerIt, coin: &str, urls: &[&str]) -> Jso
     json::from_str(&native.1).unwrap()
 }
 
-pub async fn enable_eth_coin(mm: &MarketMakerIt, coin: &str, urls: &[&str], swap_contract_address: &str) -> Json {
+pub async fn enable_eth_coin(
+    mm: &MarketMakerIt,
+    coin: &str,
+    urls: &[&str],
+    swap_contract_address: &str,
+    fallback_swap_contract: Option<&str>,
+) -> Json {
     let enable = mm
         .rpc(&json!({
             "userpass": mm.userpass,
@@ -1208,6 +1217,7 @@ pub async fn enable_eth_coin(mm: &MarketMakerIt, coin: &str, urls: &[&str], swap
             "coin": coin,
             "urls": urls,
             "swap_contract_address": swap_contract_address,
+            "fallback_swap_contract": fallback_swap_contract,
             "mm2": 1,
         }))
         .await
@@ -1499,15 +1509,7 @@ pub fn find_metrics_in_json(
     })
 }
 
-/// Helper function requesting my swap status and checking it's events
-pub async fn check_my_swap_status(
-    mm: &MarketMakerIt,
-    uuid: &str,
-    expected_success_events: &[&str],
-    expected_error_events: &[&str],
-    maker_amount: BigDecimal,
-    taker_amount: BigDecimal,
-) {
+pub async fn my_swap_status(mm: &MarketMakerIt, uuid: &str) -> Json {
     let response = mm
         .rpc(&json!({
             "userpass": mm.userpass,
@@ -1519,7 +1521,63 @@ pub async fn check_my_swap_status(
         .await
         .unwrap();
     assert!(response.0.is_success(), "!status of {}: {}", uuid, response.1);
-    let status_response: Json = json::from_str(&response.1).unwrap();
+    json::from_str(&response.1).unwrap()
+}
+
+pub async fn wait_for_swap_contract_negotiation(mm: &MarketMakerIt, swap: &str, expected_contract: Json, until: i64) {
+    let events = loop {
+        if get_utc_timestamp() > until {
+            panic!("Timed out");
+        }
+
+        let swap_status = my_swap_status(&mm, swap).await;
+        let events = swap_status["result"]["events"].as_array().unwrap();
+        if events.len() < 2 {
+            Timer::sleep(1.).await;
+            continue;
+        }
+
+        break events.clone();
+    };
+    assert_eq!(events[1]["event"]["type"], Json::from("Negotiated"));
+    assert_eq!(
+        events[1]["event"]["data"]["maker_coin_swap_contract_addr"],
+        expected_contract
+    );
+    assert_eq!(
+        events[1]["event"]["data"]["taker_coin_swap_contract_addr"],
+        expected_contract
+    );
+}
+
+pub async fn wait_for_swap_negotiation_failure(mm: &MarketMakerIt, swap: &str, until: i64) {
+    let events = loop {
+        if get_utc_timestamp() > until {
+            panic!("Timed out");
+        }
+
+        let swap_status = my_swap_status(&mm, swap).await;
+        let events = swap_status["result"]["events"].as_array().unwrap();
+        if events.len() < 2 {
+            Timer::sleep(1.).await;
+            continue;
+        }
+
+        break events.clone();
+    };
+    assert_eq!(events[1]["event"]["type"], Json::from("NegotiateFailed"));
+}
+
+/// Helper function requesting my swap status and checking it's events
+pub async fn check_my_swap_status(
+    mm: &MarketMakerIt,
+    uuid: &str,
+    expected_success_events: &[&str],
+    expected_error_events: &[&str],
+    maker_amount: BigDecimal,
+    taker_amount: BigDecimal,
+) {
+    let status_response = my_swap_status(mm, uuid).await;
     let success_events: Vec<String> = json::from_value(status_response["result"]["success_events"].clone()).unwrap();
     assert_eq!(expected_success_events, success_events.as_slice());
     let error_events: Vec<String> = json::from_value(status_response["result"]["error_events"].clone()).unwrap();
@@ -1541,18 +1599,7 @@ pub async fn check_my_swap_status_amounts(
     maker_amount: BigDecimal,
     taker_amount: BigDecimal,
 ) {
-    let response = mm
-        .rpc(&json!({
-            "userpass": mm.userpass,
-            "method": "my_swap_status",
-            "params": {
-                "uuid": uuid,
-            }
-        }))
-        .await
-        .unwrap();
-    assert!(response.0.is_success(), "!status of {}: {}", uuid, response.1);
-    let status_response: Json = json::from_str(&response.1).unwrap();
+    let status_response = my_swap_status(mm, &uuid.to_string()).await;
 
     let events_array = status_response["result"]["events"].as_array().unwrap();
     let actual_maker_amount = json::from_value(events_array[0]["event"]["data"]["maker_amount"].clone()).unwrap();

@@ -1,6 +1,6 @@
 use crate::integration_tests_common::*;
 use common::executor::Timer;
-use common::{cfg_native, cfg_wasm32, log};
+use common::{cfg_native, cfg_wasm32, get_utc_timestamp, log};
 use crypto::privkey::key_pair_from_seed;
 use http::{HeaderMap, StatusCode};
 use mm2::mm2::lp_ordermatch::MIN_ORDER_KEEP_ALIVE_INTERVAL;
@@ -9,11 +9,13 @@ use mm2_number::{BigDecimal, BigRational, Fraction, MmNumber};
 use mm2_test_helpers::electrums::*;
 #[cfg(all(feature = "zhtlc-native-tests", not(target_arch = "wasm32")))]
 use mm2_test_helpers::for_tests::init_z_coin_native;
-use mm2_test_helpers::for_tests::{btc_with_spv_conf, check_recent_swaps, check_stats_swap_status, enable_qrc20,
-                                  find_metrics_in_json, from_env_file, mm_spat, morty_conf, rick_conf, sign_message,
-                                  start_swaps, tbtc_with_spv_conf, test_qrc20_history_impl, verify_message,
-                                  wait_for_swaps_finish_and_check_status, wait_till_history_has_records,
-                                  MarketMakerIt, Mm2TestConf, RaiiDump, ETH_MAINNET_NODE, ETH_MAINNET_SWAP_CONTRACT,
+use mm2_test_helpers::for_tests::{btc_with_spv_conf, check_recent_swaps, check_stats_swap_status, enable_eth_coin,
+                                  enable_qrc20, find_metrics_in_json, from_env_file, mm_spat, morty_conf, rick_conf,
+                                  sign_message, start_swaps, tbtc_with_spv_conf, test_qrc20_history_impl,
+                                  verify_message, wait_for_swap_contract_negotiation,
+                                  wait_for_swap_negotiation_failure, wait_for_swaps_finish_and_check_status,
+                                  wait_till_history_has_records, MarketMakerIt, Mm2TestConf, RaiiDump, ETH_DEV_NODES,
+                                  ETH_DEV_SWAP_CONTRACT, ETH_MAINNET_NODE, ETH_MAINNET_SWAP_CONTRACT,
                                   MAKER_SUCCESS_EVENTS, MORTY, RICK, TAKER_SUCCESS_EVENTS};
 use mm2_test_helpers::get_passphrase;
 use mm2_test_helpers::structs::*;
@@ -832,11 +834,11 @@ async fn trade_base_rel_electrum(
         log!("enable ZOMBIE alice {:?}", zombie_alice);
     }
     // Enable coins on Bob side. Print the replies in case we need the address.
-    let rc = enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]).await;
+    let rc = enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES).await;
     log!("enable_coins (bob): {:?}", rc);
 
     // Enable coins on Alice side. Print the replies in case we need the address.
-    let rc = enable_coins_eth_electrum(&mm_alice, &["http://195.201.0.6:8565"]).await;
+    let rc = enable_coins_eth_electrum(&mm_alice, ETH_DEV_NODES).await;
     log!("enable_coins (alice): {:?}", rc);
 
     let uuids = start_swaps(&mut mm_bob, &mut mm_alice, pairs, maker_price, taker_price, volume).await;
@@ -1004,7 +1006,7 @@ fn test_withdraw_and_send() {
     // wait until RPC API is active
 
     // Enable coins. Print the replies in case we need the address.
-    let mut enable_res = block_on(enable_coins_eth_electrum(&mm_alice, &["http://195.201.0.6:8565"]));
+    let mut enable_res = block_on(enable_coins_eth_electrum(&mm_alice, ETH_DEV_NODES));
     enable_res.insert(
         "MORTY_SEGWIT",
         block_on(enable_electrum(&mm_alice, "MORTY_SEGWIT", false, &[
@@ -2147,7 +2149,7 @@ fn test_show_priv_key() {
     log!("Log path: {}", mm.log_path.display());
     log!(
         "enable_coins: {:?}",
-        block_on(enable_coins_eth_electrum(&mm, &["http://195.201.0.6:8565"]))
+        block_on(enable_coins_eth_electrum(&mm, ETH_DEV_NODES))
     );
 
     check_priv_key(&mm, "RICK", "UvCjJf4dKSs2vFGVtCnUTAhR5FTZGdg43DDRa9s7s5DV1sSDX14g");
@@ -2340,7 +2342,7 @@ fn setprice_buy_sell_too_low_volume() {
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
     log!("Log path: {}", mm.log_path.display());
 
-    let enable = block_on(enable_coins_eth_electrum(&mm, &["http://195.201.0.6:8565"]));
+    let enable = block_on(enable_coins_eth_electrum(&mm, ETH_DEV_NODES));
     log!("{:?}", enable);
 
     check_too_low_volume_order_creation_fails(&mm, "MORTY", "ETH");
@@ -2381,10 +2383,7 @@ fn test_fill_or_kill_taker_order_should_not_transform_to_maker() {
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
 
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob ETH/JST sell request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -2453,10 +2452,7 @@ fn test_gtc_taker_order_should_transform_to_maker() {
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob ETH/JST sell request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -2531,10 +2527,7 @@ fn test_set_price_must_save_order_to_db() {
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob ETH/JST sell request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -2589,10 +2582,7 @@ fn test_set_price_response_format() {
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob ETH/JST sell request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -3252,7 +3242,7 @@ fn test_convert_eth_address() {
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
     log!("log path: {}", mm.log_path.display());
 
-    block_on(enable_native(&mm, "ETH", &["http://195.201.0.6:8565"]));
+    block_on(enable_native(&mm, "ETH", ETH_DEV_NODES));
 
     // test single-case to mixed-case
     let rc = block_on(mm.rpc(&json! ({
@@ -3703,10 +3693,7 @@ fn test_validateaddress() {
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
     log!("Log path: {}", mm.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm, ETH_DEV_NODES)));
 
     // test valid RICK address
 
@@ -4661,10 +4648,7 @@ fn test_buy_conf_settings() {
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob buy request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -4738,10 +4722,7 @@ fn test_buy_response_format() {
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob buy request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -4793,10 +4774,7 @@ fn test_sell_response_format() {
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob sell request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -4848,10 +4826,7 @@ fn test_my_orders_response_format() {
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob buy request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -4942,10 +4917,10 @@ fn test_my_orders_after_matched() {
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
 
     // Enable coins on Bob side. Print the replies in case we need the address.
-    let rc = block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]));
+    let rc = block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES));
     log!("enable_coins (bob): {:?}", rc);
     // Enable coins on Alice side. Print the replies in case we need the address.
-    let rc = block_on(enable_coins_eth_electrum(&mm_alice, &["http://195.201.0.6:8565"]));
+    let rc = block_on(enable_coins_eth_electrum(&mm_alice, ETH_DEV_NODES));
     log!("enable_coins (alice): {:?}", rc);
 
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -5018,10 +4993,7 @@ fn test_sell_conf_settings() {
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob sell request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -5095,10 +5067,7 @@ fn test_set_price_conf_settings() {
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob sell request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -5528,10 +5497,10 @@ fn test_update_maker_order_after_matched() {
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
 
     // Enable coins on Bob side. Print the replies in case we need the address.
-    let rc = block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]));
+    let rc = block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES));
     log!("enable_coins (bob): {:?}", rc);
     // Enable coins on Alice side. Print the replies in case we need the address.
-    let rc = block_on(enable_coins_eth_electrum(&mm_alice, &["http://195.201.0.6:8565"]));
+    let rc = block_on(enable_coins_eth_electrum(&mm_alice, ETH_DEV_NODES));
     log!("enable_coins (alice): {:?}", rc);
 
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -5850,10 +5819,7 @@ fn test_sell_min_volume() {
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     let min_volume: BigDecimal = "0.1".parse().unwrap();
     log!("Issue bob ETH/JST sell request");
@@ -6027,10 +5993,7 @@ fn test_buy_min_volume() {
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     let min_volume: BigDecimal = "0.1".parse().unwrap();
     log!("Issue bob ETH/JST sell request");
@@ -6142,7 +6105,7 @@ fn test_orderbook_depth() {
     log!("Bob log path: {}", mm_bob.log_path.display());
 
     // Enable coins on Bob side. Print the replies in case we need the "address".
-    let bob_coins = block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]));
+    let bob_coins = block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES));
     log!("enable_coins (bob): {:?}", bob_coins);
     // issue sell request on Bob side by setting base/rel price
     log!("Issue bob sell requests");
@@ -6849,7 +6812,7 @@ fn test_sign_verify_message_eth() {
     // Enable coins on Bob side. Print the replies in case we need the "address".
     log!(
         "enable_coins (bob): {:?}",
-        block_on(enable_native(&mm_bob, "ETH", &["http://195.201.0.6:8565"]))
+        block_on(enable_native(&mm_bob, "ETH", ETH_DEV_NODES))
     );
 
     let response = block_on(sign_message(&mm_bob, "ETH"));
@@ -7330,4 +7293,152 @@ fn test_tbtc_block_header_sync() {
     log!("enable UTXO bob {:?}", utxo_bob);
 
     block_on(mm_bob.stop()).unwrap();
+}
+
+#[test]
+fn test_eth_swap_contract_addr_negotiation_same_fallback() {
+    let bob_passphrase = get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap();
+    let alice_passphrase = get_passphrase!(".env.client", "ALICE_PASSPHRASE").unwrap();
+
+    let coins = json!([
+       {"coin":"ETH","name":"ethereum","protocol":{"type":"ETH"}},
+       {"coin":"JST","name":"jst","protocol":{"type":"ERC20","protocol_data":{"platform":"ETH","contract_address":"0x2b294F029Fde858b2c62184e8390591755521d8E"}}},
+    ]);
+
+    let bob_conf = Mm2TestConf::seednode(&bob_passphrase, &coins);
+    let mut mm_bob = MarketMakerIt::start(bob_conf.conf, bob_conf.rpc_password, None).unwrap();
+
+    let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
+    log!("Bob log path: {}", mm_bob.log_path.display());
+
+    let alice_conf = Mm2TestConf::light_node(&alice_passphrase, &coins, &[&mm_bob.ip.to_string()]);
+    let mut mm_alice = MarketMakerIt::start(alice_conf.conf, alice_conf.rpc_password, None).unwrap();
+
+    let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
+    log!("Alice log path: {}", mm_alice.log_path.display());
+
+    dbg!(block_on(enable_eth_coin(
+        &mm_bob,
+        "ETH",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        "0x2b294F029Fde858b2c62184e8390591755521d8E",
+        Some(ETH_DEV_SWAP_CONTRACT)
+    )));
+
+    dbg!(block_on(enable_eth_coin(
+        &mm_bob,
+        "JST",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        "0x2b294F029Fde858b2c62184e8390591755521d8E",
+        Some(ETH_DEV_SWAP_CONTRACT)
+    )));
+
+    dbg!(block_on(enable_eth_coin(
+        &mm_alice,
+        "ETH",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        ETH_MAINNET_SWAP_CONTRACT,
+        Some(ETH_DEV_SWAP_CONTRACT)
+    )));
+
+    dbg!(block_on(enable_eth_coin(
+        &mm_alice,
+        "JST",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        ETH_MAINNET_SWAP_CONTRACT,
+        Some(ETH_DEV_SWAP_CONTRACT)
+    )));
+
+    let uuids = block_on(start_swaps(&mut mm_bob, &mut mm_alice, &[("ETH", "JST")], 1, 1, 0.001));
+
+    // give few seconds for swap statuses to be saved
+    thread::sleep(Duration::from_secs(3));
+
+    let wait_until = get_utc_timestamp() + 30;
+    let expected_contract = Json::from(ETH_DEV_SWAP_CONTRACT.trim_start_matches("0x"));
+
+    block_on(wait_for_swap_contract_negotiation(
+        &mm_bob,
+        &uuids[0],
+        expected_contract.clone(),
+        wait_until,
+    ));
+    block_on(wait_for_swap_contract_negotiation(
+        &mm_alice,
+        &uuids[0],
+        expected_contract,
+        wait_until,
+    ));
+}
+
+#[test]
+fn test_eth_swap_negotiation_fails_maker_no_fallback() {
+    let bob_passphrase = get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap();
+    let alice_passphrase = get_passphrase!(".env.client", "ALICE_PASSPHRASE").unwrap();
+
+    let coins = json!([
+       {"coin":"ETH","name":"ethereum","protocol":{"type":"ETH"}},
+       {"coin":"JST","name":"jst","protocol":{"type":"ERC20","protocol_data":{"platform":"ETH","contract_address":"0x2b294F029Fde858b2c62184e8390591755521d8E"}}},
+    ]);
+
+    let bob_conf = Mm2TestConf::seednode(&bob_passphrase, &coins);
+    let mut mm_bob = MarketMakerIt::start(bob_conf.conf, bob_conf.rpc_password, None).unwrap();
+
+    let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
+    log!("Bob log path: {}", mm_bob.log_path.display());
+
+    let alice_conf = Mm2TestConf::light_node(&alice_passphrase, &coins, &[&mm_bob.ip.to_string()]);
+    let mut mm_alice = MarketMakerIt::start(alice_conf.conf, alice_conf.rpc_password, None).unwrap();
+
+    let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
+    log!("Alice log path: {}", mm_alice.log_path.display());
+
+    dbg!(block_on(enable_eth_coin(
+        &mm_bob,
+        "ETH",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        "0x2b294F029Fde858b2c62184e8390591755521d8E",
+        None,
+    )));
+
+    dbg!(block_on(enable_eth_coin(
+        &mm_bob,
+        "JST",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        "0x2b294F029Fde858b2c62184e8390591755521d8E",
+        None,
+    )));
+
+    dbg!(block_on(enable_eth_coin(
+        &mm_alice,
+        "ETH",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        ETH_MAINNET_SWAP_CONTRACT,
+        Some(ETH_DEV_SWAP_CONTRACT)
+    )));
+
+    dbg!(block_on(enable_eth_coin(
+        &mm_alice,
+        "JST",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        ETH_MAINNET_SWAP_CONTRACT,
+        Some(ETH_DEV_SWAP_CONTRACT)
+    )));
+
+    let uuids = block_on(start_swaps(&mut mm_bob, &mut mm_alice, &[("ETH", "JST")], 1, 1, 0.001));
+
+    // give few seconds for swap statuses to be saved
+    thread::sleep(Duration::from_secs(3));
+
+    let wait_until = get_utc_timestamp() + 30;
+    block_on(wait_for_swap_negotiation_failure(&mm_bob, &uuids[0], wait_until));
+    block_on(wait_for_swap_negotiation_failure(&mm_alice, &uuids[0], wait_until));
 }
