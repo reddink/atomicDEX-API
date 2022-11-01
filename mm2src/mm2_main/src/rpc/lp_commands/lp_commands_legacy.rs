@@ -43,7 +43,9 @@ async fn find_active_platform_tokens(ctx: &MmArc, coin: MmCoinEnum) -> Result<Ve
 
     let platform_tokens = match coin {
         MmCoinEnum::SlpToken(slp) => get_tokens(slp.platform_ticker()).await?,
+        #[cfg(not(target_arch = "wasm32"))]
         MmCoinEnum::SplToken(spl) => get_tokens(spl.platform_coin.ticker()).await?,
+        #[cfg(not(target_arch = "wasm32"))]
         MmCoinEnum::LightningCoin(lightning) => get_tokens(lightning.platform.coin.platform_ticker()).await?,
         MmCoinEnum::Bch(ref bch) => get_tokens(bch.platform_ticker()).await?,
         _ => vec![],
