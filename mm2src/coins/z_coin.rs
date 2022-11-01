@@ -771,11 +771,9 @@ impl<'a> UtxoCoinBuilder for ZCoinBuilder<'a> {
             None => match utxo_arc.priv_key_policy {
                 PrivKeyPolicy::KeyPair(key_pair) => ExtendedSpendingKey::master(key_pair.private_ref()),
                 PrivKeyPolicy::Trezor => {
-                    // TODO consider adding `UtxoCoinBuildError::PrivKeyPolicyNotAllowed`.
+                    let priv_key_err = PrivKeyPolicyNotAllowed::HardwareWalletNotSupported;
                     return MmError::err(ZCoinBuildError::UtxoBuilderError(
-                        UtxoCoinBuildError::UnexpectedDerivationMethod(
-                            PrivKeyPolicyNotAllowed::HardwareWalletNotSupported.to_string(),
-                        ),
+                        UtxoCoinBuildError::PrivKeyPolicyNotAllowed(priv_key_err),
                     ));
                 },
             },

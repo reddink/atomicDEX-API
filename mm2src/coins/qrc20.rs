@@ -280,10 +280,8 @@ impl<'a> UtxoCoinBuilder for Qrc20CoinBuilder<'a> {
                 self.build_utxo_fields_with_global_hd(global_hd_ctx).await?
             },
             PrivKeyBuildPolicy::Trezor => {
-                // TODO consider adding `UtxoCoinBuildError::PrivKeyPolicyNotAllowed`.
-                return MmError::err(UtxoCoinBuildError::UnexpectedDerivationMethod(
-                    PrivKeyPolicyNotAllowed::HardwareWalletNotSupported.to_string(),
-                ));
+                let priv_key_err = PrivKeyPolicyNotAllowed::HardwareWalletNotSupported;
+                return MmError::err(UtxoCoinBuildError::PrivKeyPolicyNotAllowed(priv_key_err));
             },
         };
 

@@ -10,7 +10,7 @@ use std::num::TryFromIntError;
 pub type EnableLightningResult<T> = Result<T, MmError<EnableLightningError>>;
 pub type SaveChannelClosingResult<T> = Result<T, MmError<SaveChannelClosingError>>;
 
-#[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
+#[derive(Debug, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum EnableLightningError {
     #[display(fmt = "Invalid request: {}", _0)]
@@ -26,7 +26,7 @@ pub enum EnableLightningError {
     #[display(fmt = "Invalid path: {}", _0)]
     InvalidPath(String),
     #[display(fmt = "Private key policy is not allowed: {}", _0)]
-    PrivKeyPolicyNotAllowed(String),
+    PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed),
     #[display(fmt = "System time error {}", _0)]
     SystemTimeError(String),
     #[display(fmt = "RPC error {}", _0)]
@@ -67,7 +67,7 @@ impl From<UtxoRpcError> for EnableLightningError {
 }
 
 impl From<PrivKeyPolicyNotAllowed> for EnableLightningError {
-    fn from(e: PrivKeyPolicyNotAllowed) -> Self { EnableLightningError::PrivKeyPolicyNotAllowed(e.to_string()) }
+    fn from(e: PrivKeyPolicyNotAllowed) -> Self { EnableLightningError::PrivKeyPolicyNotAllowed(e) }
 }
 
 #[derive(Display, PartialEq)]

@@ -19,7 +19,7 @@ pub enum EthActivationV2Error {
     DerivationPathIsNotSet,
     #[display(fmt = "Error deserializing 'derivation_path': {}", _0)]
     ErrorDeserializingDerivationPath(String),
-    PrivKeyPolicyNotAllowed(String),
+    PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed),
     InternalError(String),
 }
 
@@ -286,9 +286,8 @@ pub(crate) fn key_pair_from_priv_key_policy(
                 .mm_err(|e| EthActivationV2Error::InternalError(e.to_string()))?
         },
         PrivKeyBuildPolicy::Trezor => {
-            return MmError::err(EthActivationV2Error::PrivKeyPolicyNotAllowed(
-                PrivKeyPolicyNotAllowed::HardwareWalletNotSupported.to_string(),
-            ))
+            let priv_key_err = PrivKeyPolicyNotAllowed::HardwareWalletNotSupported;
+            return MmError::err(EthActivationV2Error::PrivKeyPolicyNotAllowed(priv_key_err));
         },
     };
     KeyPair::from_secret_slice(priv_key.as_slice()).map_to_mm(|e| EthActivationV2Error::InternalError(e.to_string()))

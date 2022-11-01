@@ -160,7 +160,7 @@ pub enum BchWithTokensActivationError {
         prefix: String,
         error: String,
     },
-    PrivKeyPolicyNotAllowed(String),
+    PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed),
     UnexpectedDerivationMethod(String),
     Transport(String),
     Internal(String),
@@ -177,7 +177,7 @@ impl From<UnexpectedDerivationMethod> for BchWithTokensActivationError {
 }
 
 impl From<PrivKeyPolicyNotAllowed> for BchWithTokensActivationError {
-    fn from(e: PrivKeyPolicyNotAllowed) -> Self { BchWithTokensActivationError::PrivKeyPolicyNotAllowed(e.to_string()) }
+    fn from(e: PrivKeyPolicyNotAllowed) -> Self { BchWithTokensActivationError::PrivKeyPolicyNotAllowed(e) }
 }
 
 #[async_trait]

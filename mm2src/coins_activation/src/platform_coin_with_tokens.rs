@@ -2,7 +2,7 @@ use crate::prelude::*;
 use async_trait::async_trait;
 use coins::my_tx_history_v2::TxHistoryStorage;
 use coins::tx_history_storage::{CreateTxHistoryStorageError, TxHistoryStorageBuilder};
-use coins::{lp_coinfind, CoinProtocol, CoinsContext, MmCoinEnum, PrivKeyBuildPolicy};
+use coins::{lp_coinfind, CoinProtocol, CoinsContext, MmCoinEnum, PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed};
 use common::{log, HttpStatusCode, StatusCode};
 use crypto::{CryptoCtx, CryptoCtxError};
 use derive_more::Display;
@@ -208,7 +208,7 @@ pub enum EnablePlatformCoinWithTokensError {
         error: String,
     },
     #[display(fmt = "Private key is not allowed: {}", _0)]
-    PrivKeyPolicyNotAllowed(String),
+    PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed),
     #[display(fmt = "Unexpected derivation method: {}", _0)]
     UnexpectedDerivationMethod(String),
     Transport(String),
