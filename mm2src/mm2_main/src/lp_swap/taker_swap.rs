@@ -408,6 +408,12 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
                             event.clone().into(),
                         )
                     }
+
+                    #[cfg(target_arch = "wasm32")]
+                    if event.is_error() {
+                        error!("[swap uuid={uuid}] {event:?}");
+                    }
+
                     status.status(&[&"swap", &("uuid", uuid.as_str())], &event.status_str());
                     running_swap.apply_event(event);
                 }
@@ -827,7 +833,28 @@ impl TakerSwap {
         taker_coin_swap_contract: Vec<u8>,
     ) -> NegotiationDataMsg {
         let r = self.r();
-        if r.data.maker_coin_htlc_pubkey != r.data.taker_coin_htlc_pubkey {
+
+        let maker_coin_has_persistent_pub = r
+            .data
+            .maker_coin_htlc_pubkey
+            .map(|maker_pub| maker_pub == r.data.my_persistent_pub)
+            .unwrap_or(true);
+        let taker_coin_has_persistent_pub = r
+            .data
+            .taker_coin_htlc_pubkey
+            .map(|taker_pub| taker_pub == r.data.my_persistent_pub)
+            .unwrap_or(true);
+
+        if maker_coin_has_persistent_pub && taker_coin_has_persistent_pub {
+            NegotiationDataMsg::V2(NegotiationDataV2 {
+                started_at: r.data.started_at,
+                secret_hash,
+                payment_locktime: r.data.taker_payment_lock,
+                persistent_pubkey: self.my_persistent_pub.to_vec(),
+                maker_coin_swap_contract,
+                taker_coin_swap_contract,
+            })
+        } else {
             NegotiationDataMsg::V3(NegotiationDataV3 {
                 started_at: r.data.started_at,
                 payment_locktime: r.data.taker_payment_lock,
@@ -836,15 +863,6 @@ impl TakerSwap {
                 taker_coin_swap_contract,
                 maker_coin_htlc_pub: self.my_maker_coin_htlc_pub().into(),
                 taker_coin_htlc_pub: self.my_taker_coin_htlc_pub().into(),
-            })
-        } else {
-            NegotiationDataMsg::V2(NegotiationDataV2 {
-                started_at: r.data.started_at,
-                secret_hash,
-                payment_locktime: r.data.taker_payment_lock,
-                persistent_pubkey: self.my_persistent_pub.to_vec(),
-                maker_coin_swap_contract,
-                taker_coin_swap_contract,
             })
         }
     }
