@@ -93,12 +93,9 @@ pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, St
                 .map_err(|e| ERRL!("{}", e));
         }
         let (cancelled, still_matching) = try_s!(
-            cancel_orders_by(
-                &ctx,
-                CancelBy::Coin {
-                    ticker: ticker.to_string()
-                }
-            )
+            cancel_orders_by(&ctx, CancelBy::Coin {
+                ticker: ticker.to_string()
+            })
             .await
         );
 
@@ -312,9 +309,7 @@ pub async fn sim_panic(req: Json) -> Result<Response<Vec<u8>>, String> {
     Ok(try_s!(Response::builder().body(js)))
 }
 
-pub fn version() -> HyRes {
-    rpc_response(200, MmVersionResult::new().to_json().to_string())
-}
+pub fn version() -> HyRes { rpc_response(200, MmVersionResult::new().to_json().to_string()) }
 
 pub async fn get_peers_info(ctx: MmArc) -> Result<Response<Vec<u8>>, String> {
     use crate::mm2::lp_network::P2PContext;
