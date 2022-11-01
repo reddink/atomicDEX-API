@@ -37,42 +37,63 @@ use crate::mm2::lp_ordermatch::{cancel_orders_by, CancelBy};
 use crate::mm2::lp_swap::{active_swaps_using_coin, tx_helper_topic, watcher_topic};
 use crate::mm2::MmVersionResult;
 
-async fn find_active_platform_tokens(ctx: &MmArc, coin: MmCoinEnum) -> Result<Vec<String>, String> {
-    let ctx = CoinsContext::from_ctx(ctx).unwrap();
-    let get_tokens = |ticker| async move { ctx.get_platform_tokens(ticker).await.map_err(|err| ERRL!("{:?}", err)) };
+const INTERNAL_SERVER_ERROR_CODE: u16 = 500;
 
-    let platform_tokens = match coin {
-        MmCoinEnum::SlpToken(slp) => get_tokens(slp.platform_ticker()).await?,
-        #[cfg(not(target_arch = "wasm32"))]
-        MmCoinEnum::SplToken(spl) => get_tokens(spl.platform_coin.ticker()).await?,
-        #[cfg(not(target_arch = "wasm32"))]
-        MmCoinEnum::LightningCoin(lightning) => get_tokens(lightning.platform.coin.platform_ticker()).await?,
-        MmCoinEnum::Bch(ref bch) => get_tokens(bch.platform_ticker()).await?,
-        _ => vec![],
+/// Get enabled `platform coin` tokens if `mm2` receives a request to disable a `platform token`.
+async fn get_enabled_platform_coin_tokens(ctx: &MmArc, coin: MmCoinEnum) -> Result<Vec<String>, String> {
+    let ctx = CoinsContext::from_ctx(ctx).map_err(|err| ERRL!("{}", err))?;
+    let get_tokens = |ticker| async move {
+        ctx.get_platform_coin_tokens(ticker)
+            .await
+            .map_err(|err| ERRL!("{:?}", err))
     };
 
-    Ok(platform_tokens.into_iter().map(|c| c.ticker().to_string()).collect())
+    match coin {
+        MmCoinEnum::SlpToken(slp) => Ok(get_tokens(slp.platform_ticker()).await?),
+        #[cfg(not(target_arch = "wasm32"))]
+        MmCoinEnum::SplToken(spl) => Ok(get_tokens(spl.platform_coin.ticker()).await?),
+        #[cfg(not(target_arch = "wasm32"))]
+        MmCoinEnum::LightningCoin(lightning) => Ok(get_tokens(lightning.platform.coin.platform_ticker()).await?),
+        MmCoinEnum::Bch(ref bch) => Ok(get_tokens(bch.platform_ticker()).await?),
+        _ => Ok(vec![]),
+    }
 }
 
-async fn disable_coin_with_tokens(ctx: &MmArc, platform_tokens: Vec<String>) -> Result<Response<Vec<u8>>, String> {
-    let mut tickers = vec![];
+/// Attempts to disable the coin
+pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
+    let ticker = try_s!(req["coin"].as_str().ok_or("No 'coin' field")).to_owned();
+    let coin = match lp_coinfind(&ctx, &ticker).await {
+        Ok(Some(t)) => t,
+        Ok(None) => return ERR!("No such coin: {}", ticker),
+        Err(err) => return ERR!("!lp_coinfind({}): ", err),
+    };
+
+    // Get all enabled tokens with platform coin.
+    let mut coins_to_disable = get_enabled_platform_coin_tokens(&ctx, coin).await?;
+    // For some reasons the said token might not be a platform coin so we need to add it to the list of coins we want
+    // to disable. If it's a platform coin then it's should already be included but still we need to check for our
+    // sanity
+    if !coins_to_disable.contains(&ticker) {
+        coins_to_disable.push(ticker)
+    };
+
+    let mut disabled_tokens_tickers = vec![];
     let mut cancelled_orders = vec![];
-    let platform_tokens = platform_tokens.clone();
-    for ticker in &platform_tokens {
-        log!("disabling {} coin", &ticker);
-        let swaps = try_s!(active_swaps_using_coin(ctx, ticker));
+    for ticker in &coins_to_disable {
+        log!("disabling {ticker} coin");
+        let swaps = try_s!(active_swaps_using_coin(&ctx, ticker));
         if !swaps.is_empty() {
             let err = json!({
                 "error": format!("There're active swaps using {}", ticker),
                 "swaps": swaps,
             });
             return Response::builder()
-                .status(500)
+                .status(INTERNAL_SERVER_ERROR_CODE)
                 .body(json::to_vec(&err).unwrap())
                 .map_err(|e| ERRL!("{}", e));
         }
         let (cancelled, still_matching) = try_s!(
-            cancel_orders_by(ctx, CancelBy::Coin {
+            cancel_orders_by(&ctx, CancelBy::Coin {
                 ticker: ticker.to_string()
             })
             .await
@@ -87,7 +108,7 @@ async fn disable_coin_with_tokens(ctx: &MmArc, platform_tokens: Vec<String>) -> 
                 }
             });
             return Response::builder()
-                .status(500)
+                .status(INTERNAL_SERVER_ERROR_CODE)
                 .body(json::to_vec(&err).unwrap())
                 .map_err(|e| ERRL!("{}", e));
         }
@@ -97,81 +118,17 @@ async fn disable_coin_with_tokens(ctx: &MmArc, platform_tokens: Vec<String>) -> 
         #[cfg(not(target_arch = "wasm32"))]
         ctx.background_processors.lock().unwrap().remove(ticker);
 
-        try_s!(disable_coin_impl(ctx, ticker).await);
-        cancelled_orders.push(cancelled);
-        tickers.push(ticker);
+        try_s!(disable_coin_impl(&ctx, ticker).await);
+        // Combine all orders to a single vector
+        cancelled_orders.extend(cancelled);
+        disabled_tokens_tickers.push(ticker);
     }
 
     ctx.abortable_system.abort_all();
     let res = json!({
         "result": {
-            "coins": tickers,
+            "coins": disabled_tokens_tickers,
             "cancelled_orders": cancelled_orders,
-        }
-    });
-    Response::builder()
-        .body(json::to_vec(&res).unwrap())
-        .map_err(|e| ERRL!("{}", e))
-}
-
-/// Attempts to disable the coin
-pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
-    let ticker = try_s!(req["coin"].as_str().ok_or("No 'coin' field")).to_owned();
-    let coin = match lp_coinfind(&ctx, &ticker).await {
-        Ok(Some(t)) => t,
-        Ok(None) => return ERR!("No such coin: {}", ticker),
-        Err(err) => return ERR!("!lp_coinfind({}): ", err),
-    };
-
-    // Get all active tokens with platform coin.
-    let platform_tokens = find_active_platform_tokens(&ctx, coin).await?;
-    // If we get any, we then proceed with disabling all alongside the platform token itself.
-    if platform_tokens.len() > 1 {
-        return disable_coin_with_tokens(&ctx, platform_tokens).await;
-    };
-
-    let swaps = try_s!(active_swaps_using_coin(&ctx, &ticker));
-    if !swaps.is_empty() {
-        let err = json!({
-            "error": format!("There're active swaps using {}", ticker),
-            "swaps": swaps,
-        });
-        return Response::builder()
-            .status(500)
-            .body(json::to_vec(&err).unwrap())
-            .map_err(|e| ERRL!("{}", e));
-    }
-    let (cancelled, still_matching) = try_s!(
-        cancel_orders_by(&ctx, CancelBy::Coin {
-            ticker: ticker.to_string()
-        })
-        .await
-    );
-    if !still_matching.is_empty() {
-        let err = json!({
-            "error": format!("There're currently matching orders using {}", ticker),
-            "orders": {
-                "matching": still_matching,
-                "cancelled": cancelled,
-            }
-        });
-        return Response::builder()
-            .status(500)
-            .body(json::to_vec(&err).unwrap())
-            .map_err(|e| ERRL!("{}", e));
-    }
-
-    ctx.abortable_system.abort_all();
-    // If the coin is a Lightning Coin, we need to drop it's background processor first to
-    // persist the latest state to the filesystem.
-    #[cfg(not(target_arch = "wasm32"))]
-    ctx.background_processors.lock().unwrap().remove(&ticker);
-
-    try_s!(disable_coin_impl(&ctx, &ticker).await);
-    let res = json!({
-        "result": {
-            "coin": ticker,
-            "cancelled_orders": cancelled,
         }
     });
     Response::builder()
@@ -242,7 +199,7 @@ pub async fn enable(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> 
 #[cfg(target_arch = "wasm32")]
 pub fn help() -> HyRes {
     rpc_response(
-        500,
+        INTERNAL_SERVER_ERROR_CODE,
         json!({
             "error":"'help' is only supported in native mode"
         })
@@ -276,7 +233,7 @@ pub fn help() -> HyRes {
 pub fn metrics(ctx: MmArc) -> HyRes {
     match ctx.metrics.collect_json().map(|value| value.to_string()) {
         Ok(response) => rpc_response(200, response),
-        Err(err) => rpc_err_response(500, &err.to_string()),
+        Err(err) => rpc_err_response(INTERNAL_SERVER_ERROR_CODE, &err.to_string()),
     }
 }
 

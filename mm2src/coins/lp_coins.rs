@@ -2065,10 +2065,11 @@ impl CoinsContext {
         Ok(())
     }
 
-    pub async fn get_platform_tokens(
+    /// Get enabled `platform coin` tokens.
+    pub async fn get_platform_coin_tokens(
         &self,
         platform_ticker: &str,
-    ) -> Result<Vec<MmCoinEnum>, MmError<PlatformIsNotActivatedErr>> {
+    ) -> Result<Vec<String>, MmError<PlatformIsNotActivatedErr>> {
         let coins = self.coins.lock().await;
         if !coins.contains_key(platform_ticker) {
             return MmError::err(PlatformIsNotActivatedErr {
@@ -2076,13 +2077,12 @@ impl CoinsContext {
             });
         }
 
-        let mut platform_coin_tokens = vec![];
-        for (_, coin) in coins.iter() {
-            if coin.platform_ticker() == platform_ticker {
-                platform_coin_tokens.push(coin.clone());
-            }
-        }
-        Ok(platform_coin_tokens)
+        Ok(coins
+            .clone()
+            .iter()
+            .filter(|(_, coin)| coin.platform_ticker() == platform_ticker)
+            .map(|(_, coin)| coin.ticker().to_owned())
+            .collect())
     }
 
     #[cfg(target_arch = "wasm32")]
