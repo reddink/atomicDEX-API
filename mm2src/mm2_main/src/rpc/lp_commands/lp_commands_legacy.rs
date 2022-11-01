@@ -19,7 +19,7 @@
 //  marketmaker
 //
 
-use coins::{disable_coin as disable_coin_impl, lp_coinfind, lp_coininit, MarketCoinOps, MmCoinEnum};
+use coins::{disable_coin as disable_coin_impl, lp_coinfind, lp_coininit, CoinsContext, MarketCoinOps, MmCoinEnum};
 use common::executor::{AbortableSystem, Timer};
 use common::log::error;
 use common::{rpc_err_response, rpc_response, HyRes};
@@ -37,6 +37,84 @@ use crate::mm2::lp_ordermatch::{cancel_orders_by, CancelBy};
 use crate::mm2::lp_swap::{active_swaps_using_coin, tx_helper_topic, watcher_topic};
 use crate::mm2::MmVersionResult;
 
+async fn find_active_platform_tokens(ctx: &MmArc, coin: MmCoinEnum) -> Result<Vec<String>, String> {
+    let ctx = CoinsContext::from_ctx(ctx).unwrap();
+    let get_tokens = |ticker| async move { ctx.get_platform_tokens(ticker).await.map_err(|err| ERRL!("{:?}", err)) };
+
+    let platform_tokens = match coin {
+        MmCoinEnum::SlpToken(slp) => get_tokens(slp.platform_ticker()).await?,
+        MmCoinEnum::SplToken(spl) => get_tokens(spl.platform_coin.ticker()).await?,
+        MmCoinEnum::LightningCoin(lightning) => get_tokens(lightning.platform.coin.platform_ticker()).await?,
+        MmCoinEnum::Bch(ref bch) => get_tokens(bch.platform_ticker()).await?,
+        _ => vec![],
+    };
+
+    Ok(platform_tokens.into_iter().map(|c| c.ticker().to_string()).collect())
+}
+
+async fn disable_coin_with_tokens(ctx: &MmArc, platform_tokens: Vec<String>) -> Result<Response<Vec<u8>>, String> {
+    let mut tickers = vec![];
+    let mut cancelled_orders = vec![];
+    let platform_tokens = platform_tokens.clone();
+    for ticker in &platform_tokens {
+        log!("disabling {} coin", &ticker);
+        let swaps = try_s!(active_swaps_using_coin(ctx, ticker));
+        if !swaps.is_empty() {
+            let err = json!({
+                "error": format!("There're active swaps using {}", ticker),
+                "swaps": swaps,
+            });
+            return Response::builder()
+                .status(500)
+                .body(json::to_vec(&err).unwrap())
+                .map_err(|e| ERRL!("{}", e));
+        }
+        let (cancelled, still_matching) = try_s!(
+            cancel_orders_by(
+                ctx,
+                CancelBy::Coin {
+                    ticker: ticker.to_string()
+                }
+            )
+            .await
+        );
+
+        if !still_matching.is_empty() {
+            let err = json!({
+                "error": format!("There're currently matching orders using {}", ticker),
+                "orders": {
+                    "matching": still_matching,
+                    "cancelled": &cancelled,
+                }
+            });
+            return Response::builder()
+                .status(500)
+                .body(json::to_vec(&err).unwrap())
+                .map_err(|e| ERRL!("{}", e));
+        }
+
+        // If the coin is a Lightning Coin, we need to drop it's background processor first to
+        // persist the latest state to the filesystem.
+        #[cfg(not(target_arch = "wasm32"))]
+        ctx.background_processors.lock().unwrap().remove(ticker);
+
+        try_s!(disable_coin_impl(ctx, ticker).await);
+        cancelled_orders.push(cancelled);
+        tickers.push(ticker);
+    }
+
+    ctx.abortable_system.abort_all();
+    let res = json!({
+        "result": {
+            "coins": tickers,
+            "cancelled_orders": cancelled_orders,
+        }
+    });
+    Response::builder()
+        .body(json::to_vec(&res).unwrap())
+        .map_err(|e| ERRL!("{}", e))
+}
+
 /// Attempts to disable the coin
 pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
     let ticker = try_s!(req["coin"].as_str().ok_or("No 'coin' field")).to_owned();
@@ -45,11 +123,12 @@ pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, St
         Ok(None) => return ERR!("No such coin: {}", ticker),
         Err(err) => return ERR!("!lp_coinfind({}): ", err),
     };
-    let platform_coin = match coin {
-        MmCoinEnum::SlpToken(ref slp) => Some(slp.platform_ticker()),
-        MmCoinEnum::SplToken(ref spl) => Some(spl.platform_coin.ticker()),
-        MmCoinEnum::LightningCoin(ref lightning) => Some(lightning.platform.coin.platform_ticker()),
-        _ => None,
+
+    // Get all active tokens with platform coin.
+    let platform_tokens = find_active_platform_tokens(&ctx, coin).await?;
+    // If we get any, we then proceed with disabling all alongside the platform token itself.
+    if platform_tokens.len() > 1 {
+        return disable_coin_with_tokens(&ctx, platform_tokens).await;
     };
 
     let swaps = try_s!(active_swaps_using_coin(&ctx, &ticker));
@@ -63,7 +142,15 @@ pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, St
             .body(json::to_vec(&err).unwrap())
             .map_err(|e| ERRL!("{}", e));
     }
-    let (cancelled, still_matching) = try_s!(cancel_orders_by(&ctx, CancelBy::Coin { ticker: ticker.clone() }).await);
+    let (cancelled, still_matching) = try_s!(
+        cancel_orders_by(
+            &ctx,
+            CancelBy::Coin {
+                ticker: ticker.to_string()
+            }
+        )
+        .await
+    );
     if !still_matching.is_empty() {
         let err = json!({
             "error": format!("There're currently matching orders using {}", ticker),
@@ -269,7 +356,9 @@ pub async fn sim_panic(req: Json) -> Result<Response<Vec<u8>>, String> {
     Ok(try_s!(Response::builder().body(js)))
 }
 
-pub fn version() -> HyRes { rpc_response(200, MmVersionResult::new().to_json().to_string()) }
+pub fn version() -> HyRes {
+    rpc_response(200, MmVersionResult::new().to_json().to_string())
+}
 
 pub async fn get_peers_info(ctx: MmArc) -> Result<Response<Vec<u8>>, String> {
     use crate::mm2::lp_network::P2PContext;
