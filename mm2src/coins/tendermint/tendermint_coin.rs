@@ -11,8 +11,8 @@ use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal,
             FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr,
             PaymentInstructions, PaymentInstructionsErr, RawTransactionError, RawTransactionFut,
             RawTransactionRequest, RawTransactionRes, SearchForSwapTxSpendInput, SignatureResult, SwapOps, TradeFee,
-            TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum,
-            TransactionErr, TransactionFut, TransactionType, TxFeeDetails, TxMarshalingErr,
+            TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails,
+            TransactionEnum, TransactionErr, TransactionFut, TransactionType, TxFeeDetails, TxMarshalingErr,
             UnexpectedDerivationMethod, ValidateAddressResult, ValidateInstructionsErr, ValidateOtherPubKeyErr,
             ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherOps,
             WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WithdrawError, WithdrawFut, WithdrawRequest};
@@ -21,7 +21,7 @@ use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
 use common::executor::Timer;
 use common::executor::{abortable_queue::AbortableQueue, AbortableSystem};
-use common::{get_utc_timestamp, log, now_ms, Future01CompatExt};
+use common::{get_utc_timestamp, log, now_ms, Future01CompatExt, DEX_FEE_ADDR_PUBKEY};
 use cosmrs::bank::MsgSend;
 use cosmrs::crypto::secp256k1::SigningKey;
 use cosmrs::proto::cosmos::auth::v1beta1::{BaseAccount, QueryAccountRequest, QueryAccountResponse};
@@ -48,6 +48,7 @@ use mm2_err_handle::prelude::*;
 use mm2_number::MmNumber;
 use parking_lot::Mutex as PaMutex;
 use prost::{DecodeError, Message};
+use rand::{thread_rng, Rng};
 use rpc::v1::types::Bytes as BytesJson;
 use serde_json::Value as Json;
 use std::collections::HashMap;
@@ -1244,16 +1245,76 @@ impl MmCoin for TendermintCoin {
 
     fn get_trade_fee(&self) -> Box<dyn Future<Item = TradeFee, Error = String> + Send> { todo!() }
 
-    // TODO
-    // !! This function includes dummy implementation for P.O.C work
     async fn get_sender_trade_fee(
         &self,
         value: TradePreimageValue,
         stage: FeeApproxStage,
     ) -> TradePreimageResult<TradeFee> {
+        const TIME_LOCK: u64 = 1750;
+        let sec: [u8; 32] = thread_rng().gen();
+        let to_address = account_id_from_pubkey_hex(&self.account_prefix, DEX_FEE_ADDR_PUBKEY)
+            .map_err(|e| MmError::new(TradePreimageError::InternalError(e.into_inner().to_string())))?;
+
+        let amount = match value {
+            TradePreimageValue::Exact(decimal) | TradePreimageValue::UpperBound(decimal) => {
+                sat_from_big_decimal(&decimal, self.decimals())?
+            },
+        };
+
+        let create_htlc_tx = self
+            .gen_create_htlc_tx(
+                self.denom.clone(),
+                &to_address,
+                amount.into(),
+                sha256(&sec).as_slice(),
+                TIME_LOCK,
+            )
+            .map_err(|e| {
+                MmError::new(TradePreimageError::InternalError(format!(
+                    "Could not create HTLC. {:?}",
+                    e.into_inner()
+                )))
+            })?;
+
+        let current_block = self.current_block().compat().await.map_err(|e| {
+            MmError::new(TradePreimageError::InternalError(format!(
+                "Could not get current_block. {}",
+                e
+            )))
+        })?;
+        let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
+
+        let account_info = self.my_account_info().await.map_err(|e| {
+            MmError::new(TradePreimageError::InternalError(format!(
+                "Could not get account_info. {}",
+                e
+            )))
+        })?;
+
+        let simulated_tx = self
+            .gen_simulated_tx(
+                account_info.clone(),
+                create_htlc_tx.msg_payload.clone(),
+                timeout_height,
+                TX_DEFAULT_MEMO.into(),
+            )
+            .map_err(|e| {
+                MmError::new(TradePreimageError::InternalError(format!(
+                    "Tx simulation failed. {:?}",
+                    e
+                )))
+            })?;
+
+        let fee_uamount = self
+            .calculate_fee_amount_as_u64(simulated_tx)
+            .await
+            .map_err(|e| MmError::new(TradePreimageError::Transport(format!("{:?}", e.into_inner()))))?;
+
+        let fee_amount = big_decimal_from_sat_unsigned(fee_uamount, self.decimals);
+
         Ok(TradeFee {
             coin: self.ticker().to_string(),
-            amount: MmNumber::from(1_u64),
+            amount: fee_amount.into(),
             paid_from_trading_vol: false,
         })
     }
@@ -1861,7 +1922,6 @@ pub mod tendermint_coin_tests {
     use crate::tendermint::htlc_proto::ClaimHtlcProtoRep;
     use common::{block_on, DEX_FEE_ADDR_RAW_PUBKEY};
     use cosmrs::proto::cosmos::tx::v1beta1::{GetTxRequest, GetTxResponse, GetTxsEventResponse};
-    use rand::{thread_rng, Rng};
     use std::mem::discriminant;
 
     pub const IRIS_TESTNET_HTLC_PAIR1_SEED: &str = "iris test seed";
