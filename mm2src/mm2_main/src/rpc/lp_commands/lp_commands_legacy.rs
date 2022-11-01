@@ -50,7 +50,7 @@ async fn get_enabled_platform_coin_tokens(ctx: &MmArc, coin: MmCoinEnum) -> Resu
 
     match coin {
         MmCoinEnum::SlpToken(slp) => Ok(get_tokens(slp.platform_ticker()).await?),
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
         MmCoinEnum::SplToken(spl) => Ok(get_tokens(spl.platform_coin.ticker()).await?),
         #[cfg(not(target_arch = "wasm32"))]
         MmCoinEnum::LightningCoin(lightning) => Ok(get_tokens(lightning.platform.coin.platform_ticker()).await?),
@@ -93,9 +93,12 @@ pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, St
                 .map_err(|e| ERRL!("{}", e));
         }
         let (cancelled, still_matching) = try_s!(
-            cancel_orders_by(&ctx, CancelBy::Coin {
-                ticker: ticker.to_string()
-            })
+            cancel_orders_by(
+                &ctx,
+                CancelBy::Coin {
+                    ticker: ticker.to_string()
+                }
+            )
             .await
         );
 
@@ -309,7 +312,9 @@ pub async fn sim_panic(req: Json) -> Result<Response<Vec<u8>>, String> {
     Ok(try_s!(Response::builder().body(js)))
 }
 
-pub fn version() -> HyRes { rpc_response(200, MmVersionResult::new().to_json().to_string()) }
+pub fn version() -> HyRes {
+    rpc_response(200, MmVersionResult::new().to_json().to_string())
+}
 
 pub async fn get_peers_info(ctx: MmArc) -> Result<Response<Vec<u8>>, String> {
     use crate::mm2::lp_network::P2PContext;
