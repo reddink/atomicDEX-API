@@ -156,7 +156,7 @@ impl PlatformWithTokensActivationOps for TendermintCoin {
         protocol_conf: Self::PlatformProtocolInfo,
         priv_key_policy: PrivKeyBuildPolicy,
     ) -> Result<Self, MmError<Self::ActivationError>> {
-        let conf = TendermintConf::parse(&ticker, &coin_conf)?;
+        let conf = TendermintConf::try_from_json(&ticker, &coin_conf)?;
         TendermintCoin::init(
             &ctx,
             ticker,

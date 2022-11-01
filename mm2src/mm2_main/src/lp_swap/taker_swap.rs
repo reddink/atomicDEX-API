@@ -1721,7 +1721,6 @@ impl TakerSwap {
         }
 
         let crypto_ctx = try_s!(CryptoCtx::from_ctx(&ctx));
-        // TODO consider removing
         let my_persistent_pub = H264::from(&**crypto_ctx.mm2_internal_key_pair().public());
 
         let mut maker = bits256::from([0; 32]);

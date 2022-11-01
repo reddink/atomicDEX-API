@@ -33,5 +33,5 @@ ser_error_derive = { path = "../derives/ser_error_derive" }
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-trezor = { path = "../trezor" }
 tiny-bip39 = "0.8.0"
+trezor = { path = "../trezor" }

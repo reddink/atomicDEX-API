@@ -1165,7 +1165,6 @@ impl MakerSwap {
         taker.bytes = data.taker.0;
 
         let crypto_ctx = try_s!(CryptoCtx::from_ctx(&ctx));
-        // TODO consider removing
         let my_persistent_pub = H264::from(&**crypto_ctx.mm2_internal_key_pair().public());
 
         let conf_settings = SwapConfirmationsSettings {

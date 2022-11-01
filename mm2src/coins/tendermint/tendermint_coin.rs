@@ -116,7 +116,7 @@ pub struct TendermintConf {
 }
 
 impl TendermintConf {
-    pub fn parse(ticker: &str, conf: &Json) -> MmResult<Self, TendermintInitError> {
+    pub fn try_from_json(ticker: &str, conf: &Json) -> MmResult<Self, TendermintInitError> {
         let avg_block_time = conf["avg_block_time"].as_i64().unwrap_or(0);
 
         // `avg_block_time` can not be less than 1 OR bigger than 255(u8::MAX)
