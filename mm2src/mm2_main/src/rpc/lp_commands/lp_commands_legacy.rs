@@ -58,12 +58,10 @@ pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, St
     };
 
     // Get all enabled tokens with platform coin.
-    let mut coins_to_disable = get_enabled_platform_coin_tokens(&ctx, coin.platform_ticker()).await?;
-    // For some reasons the said token might not be a platform coin so we need to add it to the list of coins we want
-    // to disable. If it's a platform coin then it's should already be included but still we need to check for our
-    // sanity
-    if !coins_to_disable.contains(&ticker) {
-        coins_to_disable.push(ticker)
+    let coins_to_disable = if ticker == coin.platform_ticker() {
+        get_enabled_platform_coin_tokens(&ctx, coin.platform_ticker()).await?
+    } else {
+        vec![ticker]
     };
 
     let mut disabled_tokens_tickers = vec![];
