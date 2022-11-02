@@ -20,7 +20,7 @@
 //
 
 use coins::{disable_coin as disable_coin_impl, lp_coinfind, lp_coininit, CoinsContext, MmCoinEnum};
-use common::executor::{AbortableSystem, Timer};
+use common::executor::Timer;
 use common::log::error;
 use common::{rpc_err_response, rpc_response, HyRes};
 use futures::compat::Future01CompatExt;
@@ -111,7 +111,6 @@ pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, St
         disabled_tokens_tickers.push(ticker);
     }
 
-    ctx.abortable_system.abort_all();
     let res = json!({
         "result": {
             "coins": disabled_tokens_tickers,
