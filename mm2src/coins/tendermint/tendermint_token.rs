@@ -608,33 +608,38 @@ impl MmCoin for TendermintToken {
     async fn get_sender_trade_fee(
         &self,
         value: TradePreimageValue,
-        stage: FeeApproxStage,
+        _stage: FeeApproxStage,
     ) -> TradePreimageResult<TradeFee> {
-        Ok(TradeFee {
-            coin: self.platform_coin.ticker().into(),
-            amount: "0.0002".into(),
-            paid_from_trading_vol: false,
-        })
+        let amount = match value {
+            TradePreimageValue::Exact(decimal) | TradePreimageValue::UpperBound(decimal) => decimal,
+        };
+
+        self.platform_coin
+            .get_sender_trade_fee_for_denom(self.ticker.clone(), self.denom.clone(), self.decimals, amount)
+            .await
     }
 
-    fn get_receiver_trade_fee(&self, stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
-        Box::new(futures01::future::ok(TradeFee {
-            coin: self.platform_coin.ticker().into(),
-            amount: "0.0002".into(),
-            paid_from_trading_vol: false,
-        }))
+    fn get_receiver_trade_fee(&self, send_amount: BigDecimal, _stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
+        let token = self.clone();
+        let fut = async move {
+            // We can't simulate Claim Htlc without having information about broadcasted htlc tx.
+            // Since create and claim htlc fees are almost same, we can simply simulate create htlc tx.
+            token
+                .platform_coin
+                .get_sender_trade_fee_for_denom(token.ticker.clone(), token.denom.clone(), token.decimals, send_amount)
+                .await
+        };
+        Box::new(fut.boxed().compat())
     }
 
     async fn get_fee_to_send_taker_fee(
         &self,
         dex_fee_amount: BigDecimal,
-        stage: FeeApproxStage,
+        _stage: FeeApproxStage,
     ) -> TradePreimageResult<TradeFee> {
-        Ok(TradeFee {
-            coin: self.platform_coin.ticker().into(),
-            amount: "0.0002".into(),
-            paid_from_trading_vol: false,
-        })
+        self.platform_coin
+            .get_fee_to_send_taker_fee_for_denom(self.ticker.clone(), self.denom.clone(), self.decimals, dex_fee_amount)
+            .await
     }
 
     fn required_confirmations(&self) -> u64 { self.platform_coin.required_confirmations() }

@@ -979,6 +979,132 @@ impl TendermintCoin {
         Box::new(fut.boxed().compat())
     }
 
+    pub(super) async fn get_sender_trade_fee_for_denom(
+        &self,
+        ticker: String,
+        denom: Denom,
+        decimals: u8,
+        amount: BigDecimal,
+    ) -> TradePreimageResult<TradeFee> {
+        const TIME_LOCK: u64 = 1750;
+        let sec: [u8; 32] = thread_rng().gen();
+        let to_address = account_id_from_pubkey_hex(&self.account_prefix, DEX_FEE_ADDR_PUBKEY)
+            .map_err(|e| MmError::new(TradePreimageError::InternalError(e.into_inner().to_string())))?;
+
+        let amount = sat_from_big_decimal(&amount, decimals)?;
+
+        let create_htlc_tx = self
+            .gen_create_htlc_tx(denom, &to_address, amount.into(), sha256(&sec).as_slice(), TIME_LOCK)
+            .map_err(|e| {
+                MmError::new(TradePreimageError::InternalError(format!(
+                    "Could not create HTLC. {:?}",
+                    e.into_inner()
+                )))
+            })?;
+
+        let current_block = self.current_block().compat().await.map_err(|e| {
+            MmError::new(TradePreimageError::InternalError(format!(
+                "Could not get current_block. {}",
+                e
+            )))
+        })?;
+        let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
+
+        let account_info = self.my_account_info().await.map_err(|e| {
+            MmError::new(TradePreimageError::InternalError(format!(
+                "Could not get account_info. {}",
+                e
+            )))
+        })?;
+
+        let simulated_tx = self
+            .gen_simulated_tx(
+                account_info.clone(),
+                create_htlc_tx.msg_payload.clone(),
+                timeout_height,
+                TX_DEFAULT_MEMO.into(),
+            )
+            .map_err(|e| {
+                MmError::new(TradePreimageError::InternalError(format!(
+                    "Tx simulation failed. {:?}",
+                    e
+                )))
+            })?;
+
+        let fee_uamount = self
+            .calculate_fee_amount_as_u64(simulated_tx)
+            .await
+            .map_err(|e| MmError::new(TradePreimageError::Transport(format!("{:?}", e.into_inner()))))?;
+
+        let fee_amount = big_decimal_from_sat_unsigned(fee_uamount, self.decimals);
+
+        Ok(TradeFee {
+            coin: ticker,
+            amount: fee_amount.into(),
+            paid_from_trading_vol: false,
+        })
+    }
+
+    pub(super) async fn get_fee_to_send_taker_fee_for_denom(
+        &self,
+        ticker: String,
+        denom: Denom,
+        decimals: u8,
+        dex_fee_amount: BigDecimal,
+    ) -> TradePreimageResult<TradeFee> {
+        let to_address = account_id_from_pubkey_hex(&self.account_prefix, DEX_FEE_ADDR_PUBKEY)
+            .map_err(|e| MmError::new(TradePreimageError::InternalError(e.into_inner().to_string())))?;
+        let amount = sat_from_big_decimal(&dex_fee_amount, decimals)?;
+
+        let current_block = self.current_block().compat().await.map_err(|e| {
+            MmError::new(TradePreimageError::InternalError(format!(
+                "Could not get current_block. {}",
+                e
+            )))
+        })?;
+        let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
+
+        let account_info = self.my_account_info().await.map_err(|e| {
+            MmError::new(TradePreimageError::InternalError(format!(
+                "Could not get account_info. {}",
+                e
+            )))
+        })?;
+
+        let msg_send = MsgSend {
+            from_address: self.account_id.clone(),
+            to_address: to_address.clone(),
+            amount: vec![Coin {
+                denom,
+                amount: amount.into(),
+            }],
+        }
+        .to_any()
+        .map_err(|e| MmError::new(TradePreimageError::InternalError(e.to_string())))?;
+
+        let simulated_tx = self
+            .gen_simulated_tx(account_info.clone(), msg_send, timeout_height, TX_DEFAULT_MEMO.into())
+            .map_err(|e| {
+                MmError::new(TradePreimageError::InternalError(format!(
+                    "Tx simulation failed. {:?}",
+                    e
+                )))
+            })?;
+
+        let fee_uamount = self
+            .calculate_fee_amount_as_u64(simulated_tx)
+            .await
+            .map_err(|e| MmError::new(TradePreimageError::Transport(format!("{:?}", e.into_inner()))))?;
+
+        let fee_amount = big_decimal_from_sat_unsigned(fee_uamount, decimals);
+
+        Ok(TradeFee {
+            coin: ticker,
+            amount: fee_amount.into(),
+            paid_from_trading_vol: false,
+        })
+    }
+
     async fn request_tx(&self, hash: String) -> MmResult<Tx, TendermintCoinRpcError> {
         let path = AbciPath::from_str(ABCI_GET_TX_PATH).expect("valid path");
         let request = GetTxRequest { hash };
@@ -1248,104 +1374,33 @@ impl MmCoin for TendermintCoin {
     async fn get_sender_trade_fee(
         &self,
         value: TradePreimageValue,
-        stage: FeeApproxStage,
+        _stage: FeeApproxStage,
     ) -> TradePreimageResult<TradeFee> {
-        const TIME_LOCK: u64 = 1750;
-        let sec: [u8; 32] = thread_rng().gen();
-        let to_address = account_id_from_pubkey_hex(&self.account_prefix, DEX_FEE_ADDR_PUBKEY)
-            .map_err(|e| MmError::new(TradePreimageError::InternalError(e.into_inner().to_string())))?;
-
         let amount = match value {
-            TradePreimageValue::Exact(decimal) | TradePreimageValue::UpperBound(decimal) => {
-                sat_from_big_decimal(&decimal, self.decimals())?
-            },
+            TradePreimageValue::Exact(decimal) | TradePreimageValue::UpperBound(decimal) => decimal,
         };
-
-        let create_htlc_tx = self
-            .gen_create_htlc_tx(
-                self.denom.clone(),
-                &to_address,
-                amount.into(),
-                sha256(&sec).as_slice(),
-                TIME_LOCK,
-            )
-            .map_err(|e| {
-                MmError::new(TradePreimageError::InternalError(format!(
-                    "Could not create HTLC. {:?}",
-                    e.into_inner()
-                )))
-            })?;
-
-        let current_block = self.current_block().compat().await.map_err(|e| {
-            MmError::new(TradePreimageError::InternalError(format!(
-                "Could not get current_block. {}",
-                e
-            )))
-        })?;
-        let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
-
-        let account_info = self.my_account_info().await.map_err(|e| {
-            MmError::new(TradePreimageError::InternalError(format!(
-                "Could not get account_info. {}",
-                e
-            )))
-        })?;
-
-        let simulated_tx = self
-            .gen_simulated_tx(
-                account_info.clone(),
-                create_htlc_tx.msg_payload.clone(),
-                timeout_height,
-                TX_DEFAULT_MEMO.into(),
-            )
-            .map_err(|e| {
-                MmError::new(TradePreimageError::InternalError(format!(
-                    "Tx simulation failed. {:?}",
-                    e
-                )))
-            })?;
-
-        let fee_uamount = self
-            .calculate_fee_amount_as_u64(simulated_tx)
+        self.get_sender_trade_fee_for_denom(self.ticker.clone(), self.denom.clone(), self.decimals, amount)
             .await
-            .map_err(|e| MmError::new(TradePreimageError::Transport(format!("{:?}", e.into_inner()))))?;
-
-        let fee_amount = big_decimal_from_sat_unsigned(fee_uamount, self.decimals);
-
-        Ok(TradeFee {
-            coin: self.ticker().to_string(),
-            amount: fee_amount.into(),
-            paid_from_trading_vol: false,
-        })
     }
 
-    // TODO
-    // !! This function includes dummy implementation for P.O.C work
-    fn get_receiver_trade_fee(&self, stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
+    fn get_receiver_trade_fee(&self, send_amount: BigDecimal, stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
         let coin = self.clone();
         let fut = async move {
-            Ok(TradeFee {
-                coin: coin.ticker().to_string(),
-                amount: MmNumber::from(1_u64),
-                paid_from_trading_vol: false,
-            })
+            // We can't simulate Claim Htlc without having information about broadcasted htlc tx.
+            // Since create and claim htlc fees are almost same, we can simply simulate create htlc tx.
+            coin.get_sender_trade_fee_for_denom(coin.ticker.clone(), coin.denom.clone(), coin.decimals, send_amount)
+                .await
         };
-
         Box::new(fut.boxed().compat())
     }
 
-    // TODO
-    // !! This function includes dummy implementation for P.O.C work
     async fn get_fee_to_send_taker_fee(
         &self,
         dex_fee_amount: BigDecimal,
-        stage: FeeApproxStage,
+        _stage: FeeApproxStage,
     ) -> TradePreimageResult<TradeFee> {
-        Ok(TradeFee {
-            coin: self.ticker().to_string(),
-            amount: MmNumber::from(1_u64),
-            paid_from_trading_vol: false,
-        })
+        self.get_fee_to_send_taker_fee_for_denom(self.ticker.clone(), self.denom.clone(), self.decimals, dex_fee_amount)
+            .await
     }
 
     fn required_confirmations(&self) -> u64 { 0 }

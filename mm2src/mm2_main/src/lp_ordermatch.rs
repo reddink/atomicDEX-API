@@ -4364,10 +4364,13 @@ struct CoinVolumeInfo {
 
 async fn get_max_volume(ctx: &MmArc, my_coin: &MmCoinEnum, other_coin: &MmCoinEnum) -> Result<CoinVolumeInfo, String> {
     let my_balance = try_s!(my_coin.my_spendable_balance().compat().await);
-    // first check if `rel_coin` balance is sufficient
+
+    let volume = try_s!(calc_max_maker_vol(ctx, my_coin, &my_balance, FeeApproxStage::OrderIssue).await);
+
+    // check if `rel_coin` balance is sufficient
     let other_coin_trade_fee = try_s!(
         other_coin
-            .get_receiver_trade_fee(FeeApproxStage::OrderIssue)
+            .get_receiver_trade_fee(volume.to_decimal(), FeeApproxStage::OrderIssue)
             .compat()
             .await
     );
@@ -4375,7 +4378,7 @@ async fn get_max_volume(ctx: &MmArc, my_coin: &MmCoinEnum, other_coin: &MmCoinEn
     // calculate max maker volume
     // note the `calc_max_maker_vol` returns [`CheckBalanceError::NotSufficientBalance`] error if the balance of `base_coin` is not sufficient
     Ok(CoinVolumeInfo {
-        volume: try_s!(calc_max_maker_vol(ctx, my_coin, &my_balance, FeeApproxStage::OrderIssue).await),
+        volume,
         balance: my_balance,
     })
 }
