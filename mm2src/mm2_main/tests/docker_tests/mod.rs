@@ -1,5 +1,6 @@
 pub mod docker_tests_common;
 
+mod docker_management;
 mod docker_ordermatch_tests;
 mod docker_tests_inner;
 pub mod qrc20_tests;

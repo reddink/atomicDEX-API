@@ -694,7 +694,8 @@ mod tests {
     use super::wasm_impl::{maker_order_to_filtering_history_item, taker_order_to_filtering_history_item};
     use super::*;
     use crate::mm2::lp_ordermatch::ordermatch_wasm_db::{ItemId, MyFilteringHistoryOrdersTable};
-    use crate::mm2::lp_ordermatch::{MatchBy, OrderType, OrdermatchContext, TakerAction, TakerRequest};
+    use crate::mm2::lp_ordermatch::{init_ordermatch_ctx_for_test, MatchBy, OrderType, OrdermatchContext, TakerAction,
+                                    TakerRequest};
     use common::{new_uuid, now_ms};
     use futures::compat::Future01CompatExt;
     use itertools::Itertools;
@@ -771,6 +772,8 @@ mod tests {
     #[wasm_bindgen_test]
     async fn test_delete_my_maker_order() {
         let ctx = MmCtxBuilder::new().with_test_db_namespace().into_mm_arc();
+        init_ordermatch_ctx_for_test(&ctx).unwrap();
+
         let storage = MyOrdersStorage::new(ctx.clone());
 
         let maker1 = maker_order_for_test();
@@ -807,6 +810,8 @@ mod tests {
     #[wasm_bindgen_test]
     async fn test_delete_my_taker_order() {
         let ctx = MmCtxBuilder::new().with_test_db_namespace().into_mm_arc();
+        init_ordermatch_ctx_for_test(&ctx).unwrap();
+
         let storage = MyOrdersStorage::new(ctx.clone());
 
         let taker1 = taker_order_for_test();
@@ -865,6 +870,8 @@ mod tests {
     #[wasm_bindgen_test]
     async fn test_load_active_maker_taker_orders() {
         let ctx = MmCtxBuilder::new().with_test_db_namespace().into_mm_arc();
+        init_ordermatch_ctx_for_test(&ctx).unwrap();
+
         let storage = MyOrdersStorage::new(ctx.clone());
 
         let maker1 = maker_order_for_test();
@@ -912,6 +919,8 @@ mod tests {
     #[wasm_bindgen_test]
     async fn test_filtering_history() {
         let ctx = MmCtxBuilder::new().with_test_db_namespace().into_mm_arc();
+        init_ordermatch_ctx_for_test(&ctx).unwrap();
+
         let storage = MyOrdersStorage::new(ctx.clone());
 
         let maker1 = maker_order_for_test();

@@ -38,7 +38,7 @@ use wasm_timer::{Instant, Interval};
 pub type AdexCmdTx = Sender<AdexBehaviourCmd>;
 pub type AdexEventRx = Receiver<AdexBehaviourEvent>;
 
-#[cfg(test)] mod tests;
+#[cfg(all(test, not(target_arch = "wasm32")))] mod tests;
 
 pub const PEERS_TOPIC: &str = "PEERS";
 const CONNECTED_RELAYS_CHECK_INTERVAL: Duration = Duration::from_secs(30);

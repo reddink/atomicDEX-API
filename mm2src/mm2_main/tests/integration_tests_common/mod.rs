@@ -15,7 +15,6 @@ use std::str::FromStr;
 
 /// This is not a separate test but a helper used by `MarketMakerIt` to run the MarketMaker from the test binary.
 #[test]
-#[cfg(not(target_arch = "wasm32"))]
 fn test_mm_start() { test_mm_start_impl(); }
 
 pub fn test_mm_start_impl() {

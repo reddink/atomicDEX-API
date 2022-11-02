@@ -110,7 +110,6 @@ impl From<std::string::String> for OrderProcessingError {
     fn from(error: std::string::String) -> Self { OrderProcessingError::LegacyError(error) }
 }
 
-#[allow(dead_code)]
 #[derive(Deserialize)]
 pub struct StartSimpleMakerBotRequest {
     cfg: SimpleMakerBotRegistry,

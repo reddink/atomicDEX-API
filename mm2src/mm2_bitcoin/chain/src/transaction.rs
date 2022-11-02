@@ -554,7 +554,7 @@ impl Deserializable for Transaction {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::{Bytes, ExtTransaction, OutPoint, Transaction, TransactionInput, TransactionOutput};
     use hash::{H256, H512};

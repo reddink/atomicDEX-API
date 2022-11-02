@@ -603,7 +603,7 @@ pub fn is_witness_commitment_script(script: &[u8]) -> bool {
         && script[5] == 0xED
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::{Script, ScriptAddress, ScriptType};
     use crypto::ChecksumType;

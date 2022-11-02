@@ -2701,9 +2701,25 @@ pub fn init_ordermatch_context(ctx: &MmArc) -> OrdermatchInitResult<()> {
         .map_to_mm(OrdermatchInitError::Internal)
 }
 
-#[cfg_attr(all(test, not(target_arch = "wasm32")), mockable)]
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn init_ordermatch_ctx_for_test(ctx: &MmArc) -> OrdermatchInitResult<()> {
+    let ordermatch_context = OrdermatchContext {
+        maker_orders_ctx: PaMutex::new(MakerOrdersContext::new(ctx)),
+        my_taker_orders: Default::default(),
+        orderbook: Default::default(),
+        pending_maker_reserved: Default::default(),
+        orderbook_tickers: Default::default(),
+        original_tickers: Default::default(),
+        #[cfg(target_arch = "wasm32")]
+        ordermatch_db: ConstructibleDb::new(ctx),
+    };
+
+    from_ctx(&ctx.ordermatch_ctx, move || Ok(ordermatch_context))
+        .map(|_| ())
+        .map_to_mm(OrdermatchInitError::Internal)
+}
+
 impl OrdermatchContext {
-    /// Obtains a reference to this crate context, creating it if necessary.
     #[cfg(not(test))]
     fn from_ctx(ctx: &MmArc) -> Result<Arc<OrdermatchContext>, String> {
         Ok(try_s!(from_ctx(&ctx.ordermatch_ctx, move || {

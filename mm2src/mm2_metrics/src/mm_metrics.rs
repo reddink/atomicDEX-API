@@ -536,6 +536,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(not(target_arch = "wasm32"))]
     fn test_prometheus_format() {
         let mm_metrics = MetricsArc::new();
 
