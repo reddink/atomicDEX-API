@@ -19,7 +19,7 @@
 //  marketmaker
 //
 
-use coins::{disable_coin as disable_coin_impl, lp_coinfind, lp_coininit, CoinsContext, MarketCoinOps, MmCoinEnum};
+use coins::{disable_coin as disable_coin_impl, lp_coinfind, lp_coininit, CoinsContext, MmCoinEnum};
 use common::executor::{AbortableSystem, Timer};
 use common::log::error;
 use common::{rpc_err_response, rpc_response, HyRes};
@@ -40,23 +40,12 @@ use crate::mm2::MmVersionResult;
 const INTERNAL_SERVER_ERROR_CODE: u16 = 500;
 
 /// Get enabled `platform coin` tokens if `mm2` receives a request to disable a `platform token`.
-async fn get_enabled_platform_coin_tokens(ctx: &MmArc, coin: MmCoinEnum) -> Result<Vec<String>, String> {
-    let ctx = CoinsContext::from_ctx(ctx).map_err(|err| ERRL!("{}", err))?;
-    let get_tokens = |ticker| async move {
-        ctx.get_platform_coin_tokens(ticker)
-            .await
-            .map_err(|err| ERRL!("{:?}", err))
-    };
-
-    match coin {
-        MmCoinEnum::SlpToken(slp) => Ok(get_tokens(slp.platform_ticker()).await?),
-        #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
-        MmCoinEnum::SplToken(spl) => Ok(get_tokens(spl.platform_coin.ticker()).await?),
-        #[cfg(not(target_arch = "wasm32"))]
-        MmCoinEnum::LightningCoin(lightning) => Ok(get_tokens(lightning.platform.coin.platform_ticker()).await?),
-        MmCoinEnum::Bch(ref bch) => Ok(get_tokens(bch.platform_ticker()).await?),
-        _ => Ok(vec![]),
-    }
+async fn get_enabled_platform_coin_tokens(ctx: &MmArc, platform_ticker: &str) -> Result<Vec<String>, String> {
+    let coins_ctx = CoinsContext::from_ctx(ctx).map_err(|err| ERRL!("{}", err))?;
+    coins_ctx
+        .get_platform_coin_tokens(platform_ticker)
+        .await
+        .map_err(|err| ERRL!("{:?}", err))
 }
 
 /// Attempts to disable the coin
@@ -69,7 +58,7 @@ pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, St
     };
 
     // Get all enabled tokens with platform coin.
-    let mut coins_to_disable = get_enabled_platform_coin_tokens(&ctx, coin).await?;
+    let mut coins_to_disable = get_enabled_platform_coin_tokens(&ctx, coin.platform_ticker()).await?;
     // For some reasons the said token might not be a platform coin so we need to add it to the list of coins we want
     // to disable. If it's a platform coin then it's should already be included but still we need to check for our
     // sanity
