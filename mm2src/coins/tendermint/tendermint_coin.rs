@@ -1,7 +1,5 @@
 use super::htlc::{IrisHtlc, MsgCreateHtlc, HTLC_STATE_COMPLETED, HTLC_STATE_OPEN, HTLC_STATE_REFUNDED};
-#[cfg(not(target_arch = "wasm32"))]
-use super::tendermint_native_rpc::*;
-#[cfg(target_arch = "wasm32")] use super::tendermint_wasm_rpc::*;
+use super::rpc::*;
 use crate::coin_errors::{MyAddressError, ValidatePaymentError};
 use crate::tendermint::htlc::MsgClaimHtlc;
 use crate::tendermint::htlc_proto::{CreateHtlcProtoRep, QueryHtlcRequestProto, QueryHtlcResponseProto};
