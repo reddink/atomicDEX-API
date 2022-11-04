@@ -20,12 +20,12 @@ pub use tendermint_rpc::Order;
 use tendermint_rpc::Response;
 
 #[derive(Debug, Clone)]
-pub(super) struct HttpClient {
+pub(crate) struct HttpClient {
     uri: String,
 }
 
 #[derive(Debug, Display)]
-pub(super) enum HttpClientInitError {
+pub(crate) enum HttpClientInitError {
     InvalidUri(InvalidUri),
 }
 
@@ -34,7 +34,7 @@ impl From<InvalidUri> for HttpClientInitError {
 }
 
 #[derive(Debug, Display)]
-pub(super) enum PerformError {
+pub(crate) enum PerformError {
     TendermintRpc(TendermintRpcError),
     Slurp(SlurpError),
     #[display(fmt = "Request failed with status code {}, response {}", status_code, response)]
@@ -53,12 +53,12 @@ impl From<TendermintRpcError> for PerformError {
 }
 
 impl HttpClient {
-    pub(super) fn new(url: &str) -> Result<Self, HttpClientInitError> {
+    pub(crate) fn new(url: &str) -> Result<Self, HttpClientInitError> {
         Uri::from_str(url)?;
         Ok(HttpClient { uri: url.to_owned() })
     }
 
-    pub(super) async fn perform<R>(&self, request: R) -> Result<R::Response, PerformError>
+    pub(crate) async fn perform<R>(&self, request: R) -> Result<R::Response, PerformError>
     where
         R: SimpleRequest,
     {
