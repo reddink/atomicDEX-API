@@ -691,7 +691,13 @@ impl TendermintCoin {
             let response = try_s!(
                 // Search single tx
                 rpc_client
-                    .perform(TxSearchRequest::new(q, false, 1, 1, TendermintResultOrder::Descending))
+                    .perform(TxSearchRequest::new(
+                        q,
+                        false,
+                        1,
+                        1,
+                        TendermintResultOrder::Descending.into()
+                    ))
                     .await
             );
 
@@ -1228,7 +1234,7 @@ impl TendermintCoin {
                 let request = GetTxsEventRequest {
                     events: vec![events_string],
                     pagination: None,
-                    order_by: 0,
+                    order_by: TendermintResultOrder::Ascending.into(),
                 };
                 let encoded_request = request.encode_to_vec();
 
@@ -1674,7 +1680,7 @@ impl MarketCoinOps for TendermintCoin {
         let request = GetTxsEventRequest {
             events: vec![events_string],
             pagination: None,
-            order_by: 0,
+            order_by: TendermintResultOrder::Ascending.into(),
         };
         let encoded_request = request.encode_to_vec();
 
@@ -2296,7 +2302,7 @@ pub mod tendermint_coin_tests {
         let request = GetTxsEventRequest {
             events: vec![events.into()],
             pagination: None,
-            order_by: 0,
+            order_by: TendermintResultOrder::Ascending.into(),
         };
         let path = AbciPath::from_str(ABCI_GET_TXS_EVENT_PATH).unwrap();
         let response = block_on(block_on(coin.rpc_client()).unwrap().abci_query(
