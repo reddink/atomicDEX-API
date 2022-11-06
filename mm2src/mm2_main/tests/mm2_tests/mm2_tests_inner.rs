@@ -1,38 +1,52 @@
-use super::{lp_main, LpMainParams};
-use crate::mm2::lp_ordermatch::MIN_ORDER_KEEP_ALIVE_INTERVAL;
-
+use crate::integration_tests_common::*;
 use common::executor::Timer;
-use common::log::LogLevel;
-use common::now_ms;
+use common::{cfg_native, cfg_wasm32, get_utc_timestamp, log};
 use crypto::privkey::key_pair_from_seed;
 use http::{HeaderMap, StatusCode};
+use mm2::mm2::lp_ordermatch::MIN_ORDER_KEEP_ALIVE_INTERVAL;
 use mm2_metrics::{MetricType, MetricsJson};
 use mm2_number::{BigDecimal, BigRational, Fraction, MmNumber};
-use mm2_test_helpers::for_tests::{btc_with_spv_conf, check_my_swap_status, check_recent_swaps,
-                                  check_stats_swap_status, enable_native as enable_native_impl, enable_qrc20,
-                                  eth_jst_testnet_conf, eth_testnet_conf, find_metrics_in_json, from_env_file,
-                                  init_utxo_electrum, init_utxo_status, init_z_coin_light, init_z_coin_status,
-                                  mm_spat, morty_conf, rick_conf, sign_message, tbtc_with_spv_conf, tqrc20_conf,
-                                  verify_message, wait_till_history_has_records, LocalStart, MarketMakerIt,
-                                  Mm2TestConf, RaiiDump, ETH_MAINNET_NODE, ETH_MAINNET_SWAP_CONTRACT,
-                                  MAKER_ERROR_EVENTS, MAKER_SUCCESS_EVENTS, MORTY, QRC20_ELECTRUMS, RICK,
-                                  RICK_ELECTRUM_ADDRS, TAKER_ERROR_EVENTS, TAKER_SUCCESS_EVENTS};
+use mm2_test_helpers::electrums::*;
+#[cfg(all(feature = "zhtlc-native-tests", not(target_arch = "wasm32")))]
+use mm2_test_helpers::for_tests::init_z_coin_native;
+use mm2_test_helpers::for_tests::{btc_with_spv_conf, check_recent_swaps, check_stats_swap_status, enable_eth_coin,
+                                  enable_qrc20, eth_jst_testnet_conf, eth_testnet_conf, find_metrics_in_json,
+                                  from_env_file, mm_spat, morty_conf, rick_conf, sign_message, start_swaps,
+                                  tbtc_with_spv_conf, test_qrc20_history_impl, tqrc20_conf, verify_message,
+                                  wait_for_swap_contract_negotiation, wait_for_swap_negotiation_failure,
+                                  wait_for_swaps_finish_and_check_status, wait_till_history_has_records,
+                                  MarketMakerIt, Mm2InitPrivKeyPolicy, Mm2TestConf, Mm2TestConfForSwap, RaiiDump,
+                                  ETH_DEV_NODES, ETH_DEV_SWAP_CONTRACT, ETH_MAINNET_NODE, ETH_MAINNET_SWAP_CONTRACT,
+                                  MAKER_SUCCESS_EVENTS, MORTY, QRC20_ELECTRUMS, RICK, RICK_ELECTRUM_ADDRS,
+                                  TAKER_SUCCESS_EVENTS};
 use mm2_test_helpers::get_passphrase;
-use serde_json::{self as json, Value as Json};
+use mm2_test_helpers::structs::*;
+use serde_json::{self as json, json, Value as Json};
 use std::collections::HashMap;
-use std::convert::{identity, TryFrom};
 use std::env::{self, var};
-use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
 
-#[cfg(all(feature = "zhtlc-native-tests", not(target_arch = "wasm32")))]
-use mm2_test_helpers::for_tests::init_z_coin_native;
+cfg_native! {
+    use common::block_on;
+    use mm2_test_helpers::for_tests::{get_passphrase, new_mm2_temp_folder_path};
+    use mm2_io::fs::slurp;
+    use hyper::header::ACCESS_CONTROL_ALLOW_ORIGIN;
+}
+
+cfg_wasm32! {
+    use wasm_bindgen_test::*;
+
+    wasm_bindgen_test_configure!(run_in_browser);
+}
 
 #[cfg(all(feature = "zhtlc-native-tests", not(target_arch = "wasm32")))]
 async fn enable_z_coin(mm: &MarketMakerIt, coin: &str) -> CoinActivationResult {
+    use common::now_ms;
+    use mm2_test_helpers::for_tests::init_z_coin_status;
+
     let init = init_z_coin_native(mm, coin).await;
     let init: RpcV2Response<InitTaskResult> = json::from_value(init).unwrap();
     let timeout = now_ms() + 120000;
@@ -52,189 +66,12 @@ async fn enable_z_coin(mm: &MarketMakerIt, coin: &str) -> CoinActivationResult {
     }
 }
 
-cfg_native! {
-    use common::block_on;
-    use mm2_test_helpers::for_tests::{get_passphrase, new_mm2_temp_folder_path};
-    use mm2_io::fs::slurp;
-    use hyper::header::ACCESS_CONTROL_ALLOW_ORIGIN;
-}
-
-cfg_wasm32! {
-    use wasm_bindgen_test::*;
-
-    wasm_bindgen_test_configure!(run_in_browser);
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-macro_rules! local_start {
-    ($who: expr) => {
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == $who => Some(local_start()),
-            _ => None,
-        }
-    };
-}
-
-#[cfg(target_arch = "wasm32")]
-macro_rules! local_start {
-    ($who: expr) => {
-        Some(local_start())
-    };
-}
-
-#[path = "mm2_tests/bch_and_slp_tests.rs"] mod bch_and_slp_tests;
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[path = "mm2_tests/best_orders_tests.rs"]
-mod best_orders_tests;
-
-#[path = "mm2_tests/electrums.rs"] pub mod electrums;
-use electrums::*;
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[path = "mm2_tests/lightning_tests.rs"]
-mod lightning_tests;
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[path = "mm2_tests/lp_bot_tests.rs"]
-mod lp_bot_tests;
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[path = "mm2_tests/orderbook_sync_tests.rs"]
-mod orderbook_sync_tests;
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[path = "mm2_tests/tendermint_tests.rs"]
-mod tendermint_tests;
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[path = "mm2_tests/z_coin_tests.rs"]
-mod z_coin_tests;
-
-#[path = "mm2_tests/structs.rs"] pub mod structs;
-
-use structs::*;
-
-// TODO: Consider and/or try moving the integration tests into separate Rust files.
-// "Tests in your src files should be unit tests, and tests in tests/ should be integration-style tests."
-// - https://doc.rust-lang.org/cargo/guide/tests.html
-
-/// Ideally, this function should be replaced everywhere with `enable_electrum_json`.
-async fn enable_electrum(mm: &MarketMakerIt, coin: &str, tx_history: bool, urls: &[&str]) -> EnableElectrumResponse {
-    use mm2_test_helpers::for_tests::enable_electrum as enable_electrum_impl;
-
-    let value = enable_electrum_impl(mm, coin, tx_history, urls).await;
-    json::from_value(value).unwrap()
-}
-
-async fn enable_electrum_json(
-    mm: &MarketMakerIt,
-    coin: &str,
-    tx_history: bool,
-    servers: Vec<Json>,
-) -> EnableElectrumResponse {
-    use mm2_test_helpers::for_tests::enable_electrum_json as enable_electrum_impl;
-
-    let value = enable_electrum_impl(mm, coin, tx_history, servers).await;
-    json::from_value(value).unwrap()
-}
-
-async fn enable_native(mm: &MarketMakerIt, coin: &str, urls: &[&str]) -> EnableElectrumResponse {
-    let value = enable_native_impl(mm, coin, urls).await;
-    json::from_value(value).unwrap()
-}
-
-async fn enable_coins_rick_morty_electrum(mm: &MarketMakerIt) -> HashMap<&'static str, EnableElectrumResponse> {
-    let mut replies = HashMap::new();
-    replies.insert("RICK", enable_electrum_json(mm, "RICK", false, rick_electrums()).await);
-    replies.insert(
-        "MORTY",
-        enable_electrum_json(mm, "MORTY", false, morty_electrums()).await,
-    );
-    replies
-}
-
-async fn enable_coins_eth_electrum(
-    mm: &MarketMakerIt,
-    eth_urls: &[&str],
-) -> HashMap<&'static str, EnableElectrumResponse> {
-    let mut replies = HashMap::new();
-    replies.insert("RICK", enable_electrum_json(mm, "RICK", false, rick_electrums()).await);
-    replies.insert(
-        "MORTY",
-        enable_electrum_json(mm, "MORTY", false, morty_electrums()).await,
-    );
-    replies.insert("ETH", enable_native(mm, "ETH", eth_urls).await);
-    replies.insert("JST", enable_native(mm, "JST", eth_urls).await);
-    replies
-}
-
-fn addr_from_enable<'a>(enable_response: &'a HashMap<&str, EnableElectrumResponse>, coin: &str) -> &'a str {
-    &enable_response.get(coin).unwrap().address
-}
-
-fn rmd160_from_passphrase(passphrase: &str) -> [u8; 20] {
-    key_pair_from_seed(passphrase).unwrap().public().address_hash().take()
-}
-
-async fn enable_z_coin_light(
-    mm: &MarketMakerIt,
-    coin: &str,
-    electrums: &[&str],
-    lightwalletd_urls: &[&str],
-) -> CoinActivationResult {
-    let init = init_z_coin_light(mm, coin, electrums, lightwalletd_urls).await;
-    let init: RpcV2Response<InitTaskResult> = json::from_value(init).unwrap();
-    let timeout = now_ms() + 12000000;
-
-    loop {
-        if now_ms() > timeout {
-            panic!("{} initialization timed out", coin);
-        }
-
-        let status = init_z_coin_status(mm, init.result.task_id).await;
-        println!("Status {}", json::to_string(&status).unwrap());
-        let status: RpcV2Response<InitZcoinStatus> = json::from_value(status).unwrap();
-        match status.result {
-            InitZcoinStatus::Ok(result) => break result,
-            InitZcoinStatus::Error(e) => panic!("{} initialization error {:?}", coin, e),
-            _ => Timer::sleep(1.).await,
-        }
-    }
-}
-
-async fn enable_utxo_v2_electrum(
-    mm: &MarketMakerIt,
-    coin: &str,
-    servers: Vec<Json>,
-    timeout: u64,
-) -> UtxoStandardActivationResult {
-    let init = init_utxo_electrum(mm, coin, servers).await;
-    let init: RpcV2Response<InitTaskResult> = json::from_value(init).unwrap();
-    let timeout = now_ms() + (timeout * 1000);
-
-    loop {
-        if now_ms() > timeout {
-            panic!("{} initialization timed out", coin);
-        }
-
-        let status = init_utxo_status(mm, init.result.task_id).await;
-        let status: RpcV2Response<InitUtxoStatus> = json::from_value(status).unwrap();
-        log!("init_utxo_status: {:?}", status);
-        match status.result {
-            InitUtxoStatus::Ok(result) => break result,
-            InitUtxoStatus::Error(e) => panic!("{} initialization error {:?}", coin, e),
-            _ => Timer::sleep(1.).await,
-        }
-    }
-}
-
 /// Integration test for RPC server.
 /// Check that MM doesn't crash in case of invalid RPC requests
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn test_rpc() {
-    let (_, mm, _dump_log, _dump_dashboard) = mm_spat(local_start(), &identity);
+    let (_, mm, _dump_log, _dump_dashboard) = mm_spat();
 
     let no_method = block_on(mm.rpc(&json! ({
         "userpass": mm.userpass,
@@ -280,86 +117,6 @@ fn test_rpc() {
     // TODO (workaround libtorrent hanging in delete) // unwrap! (mm.wait_for_log (9., &|log| log.contains ("LogState] Bye!")));
 }
 
-/// This is not a separate test but a helper used by `MarketMakerIt` to run the MarketMaker from the test binary.
-#[test]
-#[cfg(not(target_arch = "wasm32"))]
-fn test_mm_start() {
-    if let Ok(conf) = var("_MM2_TEST_CONF") {
-        if let Ok(log_var) = var("RUST_LOG") {
-            if let Ok(filter) = LogLevel::from_str(&log_var) {
-                log!("test_mm_start] Starting the MarketMaker...");
-                let conf: Json = json::from_str(&conf).unwrap();
-                let params = LpMainParams::with_conf(conf).log_filter(Some(filter));
-                block_on(lp_main(params, &|_ctx| ())).unwrap()
-            }
-        }
-    }
-}
-
-#[allow(unused_variables)]
-fn chdir(dir: &Path) {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        #[cfg(not(windows))]
-        {
-            use std::ffi::CString;
-            let dir_s = dir.to_str().unwrap();
-            let dir_c = CString::new(dir_s).unwrap();
-            let rc = unsafe { libc::chdir(dir_c.as_ptr()) };
-            assert_eq!(rc, 0, "Can not chdir to {:?}", dir);
-        }
-
-        #[cfg(windows)]
-        {
-            use std::ffi::CString;
-            use winapi::um::processenv::SetCurrentDirectoryA;
-            let dir = dir.to_str().unwrap();
-            let dir = CString::new(dir).unwrap();
-            // https://docs.microsoft.com/en-us/windows/desktop/api/WinBase/nf-winbase-setcurrentdirectory
-            let rc = unsafe { SetCurrentDirectoryA(dir.as_ptr()) };
-            assert_ne!(rc, 0);
-        }
-    }
-}
-
-/// Typically used when the `LOCAL_THREAD_MM` env is set, helping debug the tested MM.  
-/// NB: Accessing `lp_main` this function have to reside in the mm2 binary crate. We pass a pointer to it to subcrates.
-#[cfg(not(target_arch = "wasm32"))]
-fn local_start_impl(folder: PathBuf, log_path: PathBuf, mut conf: Json) {
-    thread::Builder::new()
-        .name("MM".into())
-        .spawn(move || {
-            if conf["log"].is_null() {
-                conf["log"] = log_path.to_str().unwrap().into();
-            } else {
-                let path = Path::new(conf["log"].as_str().expect("log is not a string"));
-                assert_eq!(log_path, path);
-            }
-
-            log!("local_start] MM in a thread, log {:?}.", log_path);
-
-            chdir(&folder);
-
-            let params = LpMainParams::with_conf(conf);
-            block_on(lp_main(params, &|_ctx| ())).unwrap()
-        })
-        .unwrap();
-}
-
-/// Starts the WASM version of MM.
-#[cfg(target_arch = "wasm32")]
-fn wasm_start_impl(ctx: mm2_core::mm_ctx::MmArc) {
-    common::executor::spawn(async move {
-        super::lp_init(ctx).await.unwrap();
-    })
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn local_start() -> LocalStart { local_start_impl }
-
-#[cfg(target_arch = "wasm32")]
-fn local_start() -> LocalStart { wasm_start_impl }
-
 /// https://github.com/KomodoPlatform/atomicDEX-API/issues/886#issuecomment-812489844
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
@@ -383,7 +140,7 @@ fn orders_of_banned_pubkeys_should_not_be_displayed() {
             "i_am_seed": true,
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
@@ -418,7 +175,7 @@ fn orders_of_banned_pubkeys_should_not_be_displayed() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        local_start!("alice"),
+        None,
     )
     .unwrap();
 
@@ -487,7 +244,7 @@ fn test_my_balance() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -562,7 +319,7 @@ fn test_p2wpkh_my_balance() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -671,7 +428,7 @@ fn test_check_balance_on_order_post() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -731,7 +488,7 @@ fn test_rpc_password_from_json() {
             "skip_startup_checks": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     block_on(err_mm1.wait_for_log(5., |log| log.contains("rpc_password must not be empty"))).unwrap();
@@ -748,7 +505,7 @@ fn test_rpc_password_from_json() {
             "skip_startup_checks": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     block_on(err_mm2.wait_for_log(5., |log| log.contains("rpc_password must be string"))).unwrap();
@@ -763,7 +520,7 @@ fn test_rpc_password_from_json() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -854,7 +611,7 @@ fn test_mmrpc_v2() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -963,7 +720,7 @@ fn test_rpc_password_from_json_no_userpass() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -984,62 +741,30 @@ fn test_rpc_password_from_json_no_userpass() {
     );
 }
 
-enum PrivKeyPolicy {
-    Iguana,
-    GlobalHDAccount,
-}
-
-/// Generates Bob and Alice mm2 instances using coins with remote RPC (Electrum, ETH nodes),
-/// it needs only ENV variables to be set.
-async fn get_bob_alice_for_trade(
-    bob_policy: PrivKeyPolicy,
-    alice_policy: PrivKeyPolicy,
-) -> (MarketMakerIt, MarketMakerIt) {
-    const HD_ACCOUNT_ID: Option<u32> = Some(0);
-    // TODO consider moving it to read it from a env file.
-    // ETH - 0x6dF5a71f5296a67561222624b78F79501b982EcF
-    // KMD - RCEYwiEddpPqzKi8gwvTdMKVWFJWcqvGrw
-    const BOB_HD_PASSPHRASE: &str = "involve work eager scene give acoustic tooth mimic dance smoke hold foster";
-    // ETH - 0x1737F1FaB40c6Fd3dc729B51C0F97DB3297CCA93
-    // KMD - RXNtAyDSsY3DS3VxTpJegzoHU9bUX54j56
-    const ALICE_HD_PASSPHRASE: &str = "tank abandon bind salon remove wisdom net size aspect direct source fossil";
-
-    let (bob_passphrase, bob_hd_account_id) = match bob_policy {
-        PrivKeyPolicy::Iguana => (get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap(), None),
-        PrivKeyPolicy::GlobalHDAccount => (BOB_HD_PASSPHRASE.to_string(), HD_ACCOUNT_ID),
-    };
-    let (alice_passphrase, alice_hd_account_id) = match alice_policy {
-        PrivKeyPolicy::Iguana => (get_passphrase!(".env.client", "ALICE_PASSPHRASE").unwrap(), None),
-        PrivKeyPolicy::GlobalHDAccount => (ALICE_HD_PASSPHRASE.to_string(), HD_ACCOUNT_ID),
-    };
-
-    let coins = json! ([
-        {"coin":"RICK","asset":"RICK","required_confirmations":0,"txversion":4,"overwintered":1,"derivation_path":"m/44'/141'","protocol":{"type":"UTXO"}},
-        {"coin":"MORTY","asset":"MORTY","required_confirmations":0,"txversion":4,"overwintered":1,"derivation_path":"m/44'/141'","protocol":{"type":"UTXO"}},
-        {"coin":"ETH","name":"ethereum","derivation_path":"m/44'/60'","protocol":{"type":"ETH"}},
-        {"coin":"ZOMBIE","asset":"ZOMBIE","fname":"ZOMBIE (TESTCOIN)","txversion":4,"overwintered":1,"mm2":1,"derivation_path":"m/44'/141'","protocol":{"type":"ZHTLC"},"required_confirmations":0},
-        {"coin":"JST","name":"jst","derivation_path":"m/44'/60'","protocol":{"type":"ERC20","protocol_data":{"platform":"ETH","contract_address":"0x2b294F029Fde858b2c62184e8390591755521d8E"}}}
+/// Trading test using coins with remote RPC (Electrum, ETH nodes), it needs only ENV variables to be set, coins daemons are not required.
+/// Trades few pairs concurrently to speed up the process and also act like "load" test
+///
+/// Please note that it
+async fn trade_base_rel_electrum(
+    bob_priv_key_policy: Mm2InitPrivKeyPolicy,
+    alice_priv_key_policy: Mm2InitPrivKeyPolicy,
+    pairs: &[(&'static str, &'static str)],
+    maker_price: i32,
+    taker_price: i32,
+    volume: f64,
+) {
+    let coins = json!([
+        rick_conf(),
+        morty_conf(),
+        eth_testnet_conf(),
+        eth_jst_testnet_conf(),
+        {"coin":"ZOMBIE","asset":"ZOMBIE","fname":"ZOMBIE (TESTCOIN)","txversion":4,"overwintered":1,"mm2":1,"protocol":{"type":"ZHTLC"},"required_confirmations":0},
     ]);
 
-    let mm_bob = MarketMakerIt::start_async(
-        json! ({
-            "gui": "nogui",
-            "netid": 8999,
-            "dht": "on",  // Enable DHT without delay.
-            "myipaddr": env::var ("BOB_TRADE_IP") .ok(),
-            "rpcip": env::var ("BOB_TRADE_IP") .ok(),
-            "canbind": env::var ("BOB_TRADE_PORT") .ok().map (|s| s.parse::<i64>().unwrap()),
-            "passphrase": bob_passphrase,
-            "coins": coins,
-            "rpc_password": "password",
-            "i_am_seed": true,
-            "hd_account_id": bob_hd_account_id,
-        }),
-        "password".into(),
-        local_start!("bob"),
-    )
-    .await
-    .unwrap();
+    let bob_conf = Mm2TestConfForSwap::bob_conf_with_policy(bob_priv_key_policy, &coins);
+    let mut mm_bob = MarketMakerIt::start_async(bob_conf.conf, bob_conf.rpc_password, None)
+        .await
+        .unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     #[cfg(not(target_arch = "wasm32"))]
@@ -1049,25 +774,10 @@ async fn get_bob_alice_for_trade(
 
     Timer::sleep(1.).await;
 
-    let mm_alice = MarketMakerIt::start_async(
-        json! ({
-            "gui": "nogui",
-            "netid": 8999,
-            "dht": "on",  // Enable DHT without delay.
-            "myipaddr": env::var ("ALICE_TRADE_IP") .ok(),
-            "rpcip": env::var ("ALICE_TRADE_IP") .ok(),
-            "passphrase": alice_passphrase,
-            "coins": coins,
-            "seednodes": [mm_bob.my_seed_addr()],
-            "rpc_password": "password",
-            "skip_startup_checks": true,
-            "hd_account_id": alice_hd_account_id,
-        }),
-        "password".into(),
-        local_start!("alice"),
-    )
-    .await
-    .unwrap();
+    let alice_conf = Mm2TestConfForSwap::alice_conf_with_policy(alice_priv_key_policy, &coins, &mm_bob.my_seed_addr());
+    let mut mm_alice = MarketMakerIt::start_async(alice_conf.conf, alice_conf.rpc_password, None)
+        .await
+        .unwrap();
 
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
     #[cfg(not(target_arch = "wasm32"))]
@@ -1098,93 +808,15 @@ async fn get_bob_alice_for_trade(
         let zombie_alice = enable_z_coin(&mm_alice, "ZOMBIE").await;
         log!("enable ZOMBIE alice {:?}", zombie_alice);
     }
-
     // Enable coins on Bob side. Print the replies in case we need the address.
-    let rc = enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]).await;
+    let rc = enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES).await;
     log!("enable_coins (bob): {:?}", rc);
 
     // Enable coins on Alice side. Print the replies in case we need the address.
-    let rc = enable_coins_eth_electrum(&mm_alice, &["http://195.201.0.6:8565"]).await;
+    let rc = enable_coins_eth_electrum(&mm_alice, ETH_DEV_NODES).await;
     log!("enable_coins (alice): {:?}", rc);
 
-    (mm_bob, mm_alice)
-}
-
-/// Trades few pairs concurrently to speed up the process and also act like "load" test.
-async fn trade_with_bob_alice(
-    mut mm_bob: MarketMakerIt,
-    mut mm_alice: MarketMakerIt,
-    pairs: &[(&'static str, &'static str)],
-    maker_price: i32,
-    taker_price: i32,
-    volume: f64,
-) {
-    let mut uuids = vec![];
-
-    // issue sell request on Bob side by setting base/rel price
-    for (base, rel) in pairs.iter() {
-        log!("Issue bob {}/{} sell request", base, rel);
-        let rc = mm_bob
-            .rpc(&json! ({
-                "userpass": mm_bob.userpass,
-                "method": "setprice",
-                "base": base,
-                "rel": rel,
-                "price": maker_price,
-                "volume": volume
-            }))
-            .await
-            .unwrap();
-        assert!(rc.0.is_success(), "!setprice: {}", rc.1);
-    }
-
-    for (base, rel) in pairs.iter() {
-        common::log::info!(
-            "Trigger alice subscription to {}/{} orderbook topic first and sleep for 1 second",
-            base,
-            rel
-        );
-        let rc = mm_alice
-            .rpc(&json! ({
-                "userpass": mm_alice.userpass,
-                "method": "orderbook",
-                "base": base,
-                "rel": rel,
-            }))
-            .await
-            .unwrap();
-        assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
-        Timer::sleep(1.).await;
-        common::log::info!("Issue alice {}/{} buy request", base, rel);
-        let rc = mm_alice
-            .rpc(&json! ({
-                "userpass": mm_alice.userpass,
-                "method": "buy",
-                "base": base,
-                "rel": rel,
-                "volume": volume,
-                "price": taker_price
-            }))
-            .await
-            .unwrap();
-        assert!(rc.0.is_success(), "!buy: {}", rc.1);
-        let buy_json: Json = serde_json::from_str(&rc.1).unwrap();
-        uuids.push(buy_json["result"]["uuid"].as_str().unwrap().to_owned());
-    }
-
-    for (base, rel) in pairs.iter() {
-        // ensure the swaps are started
-        let expected_log = format!("Entering the taker_swap_loop {}/{}", base, rel);
-        mm_alice
-            .wait_for_log(5., |log| log.contains(&expected_log))
-            .await
-            .unwrap();
-        let expected_log = format!("Entering the maker_swap_loop {}/{}", base, rel);
-        mm_bob
-            .wait_for_log(5., |log| log.contains(&expected_log))
-            .await
-            .unwrap()
-    }
+    let uuids = start_swaps(&mut mm_bob, &mut mm_alice, pairs, maker_price, taker_price, volume).await;
 
     #[cfg(not(target_arch = "wasm32"))]
     for uuid in uuids.iter() {
@@ -1200,42 +832,7 @@ async fn trade_with_bob_alice(
             .unwrap()
     }
 
-    for uuid in uuids.iter() {
-        mm_bob
-            .wait_for_log(900., |log| log.contains(&format!("[swap uuid={}] Finished", uuid)))
-            .await
-            .unwrap();
-
-        mm_alice
-            .wait_for_log(900., |log| log.contains(&format!("[swap uuid={}] Finished", uuid)))
-            .await
-            .unwrap();
-
-        log!("Waiting a few second for the fresh swap status to be saved..");
-        Timer::sleep(7.77).await;
-
-        log!("Checking alice/taker status..");
-        check_my_swap_status(
-            &mm_alice,
-            uuid,
-            &TAKER_SUCCESS_EVENTS,
-            &TAKER_ERROR_EVENTS,
-            BigDecimal::try_from(volume).unwrap(),
-            BigDecimal::try_from(volume).unwrap(),
-        )
-        .await;
-
-        log!("Checking bob/maker status..");
-        check_my_swap_status(
-            &mm_bob,
-            uuid,
-            &MAKER_SUCCESS_EVENTS,
-            &MAKER_ERROR_EVENTS,
-            BigDecimal::try_from(volume).unwrap(),
-            BigDecimal::try_from(volume).unwrap(),
-        )
-        .await;
-    }
+    wait_for_swaps_finish_and_check_status(&mut mm_bob, &mut mm_alice, &uuids, volume).await;
 
     log!("Waiting 3 seconds for nodes to broadcast their swaps data..");
     Timer::sleep(3.).await;
@@ -1293,26 +890,19 @@ async fn trade_with_bob_alice(
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn trade_test_electrum_and_eth_coins() {
-    let (mm_bob, mm_alice) = block_on(get_bob_alice_for_trade(
-        PrivKeyPolicy::Iguana,
-        PrivKeyPolicy::GlobalHDAccount,
-    ));
-    block_on(trade_with_bob_alice(mm_bob, mm_alice, &[("ETH", "RICK")], 1, 2, 0.1));
+    let bob_policy = Mm2InitPrivKeyPolicy::Iguana;
+    let alice_policy = Mm2InitPrivKeyPolicy::GlobalHDAccount(0);
+    let pairs = &[("ETH", "JST")];
+    block_on(trade_base_rel_electrum(bob_policy, alice_policy, pairs, 1, 2, 0.1));
 }
 
 #[test]
 #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc-native-tests"))]
 fn trade_test_electrum_rick_zombie() {
+    let bob_policy = Mm2InitPrivKeyPolicy::Iguana;
+    let alice_policy = Mm2InitPrivKeyPolicy::Iguana;
     let pairs = &[("RICK", "ZOMBIE")];
-    let (mm_bob, mm_alice) = block_on(get_bob_alice_for_trade(PrivKeyPolicy::Iguana, PrivKeyPolicy::Iguana));
-    block_on(trade_with_bob_alice(mm_bob, mm_alice, pairs, 1, 2, 0.1));
-}
-
-#[wasm_bindgen_test]
-#[cfg(target_arch = "wasm32")]
-async fn trade_test_rick_and_morty() {
-    let (mm_bob, mm_alice) = get_bob_alice_for_trade(PrivKeyPolicy::GlobalHDAccount, PrivKeyPolicy::Iguana).await;
-    trade_with_bob_alice(mm_bob, mm_alice, &[("RICK", "MORTY")], 1, 1, 0.0001).await;
+    block_on(trade_base_rel_electrum(bob_policy, alice_policy, pairs, 1, 2, 0.1));
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1391,10 +981,7 @@ fn test_withdraw_and_send() {
             "i_am_seed": true,
         }),
         "password".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "alice" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -1404,7 +991,7 @@ fn test_withdraw_and_send() {
     // wait until RPC API is active
 
     // Enable coins. Print the replies in case we need the address.
-    let mut enable_res = block_on(enable_coins_eth_electrum(&mm_alice, &["http://195.201.0.6:8565"]));
+    let mut enable_res = block_on(enable_coins_eth_electrum(&mm_alice, ETH_DEV_NODES));
     enable_res.insert(
         "MORTY_SEGWIT",
         block_on(enable_electrum(&mm_alice, "MORTY_SEGWIT", false, &[
@@ -1557,10 +1144,7 @@ fn test_tbtc_withdraw_to_cashaddresses_should_fail() {
             "i_am_seed": true,
         }),
         "password".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "alice" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -1635,10 +1219,7 @@ fn test_withdraw_legacy() {
             "i_am_seed": true,
         }),
         "password".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "alice" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -1725,10 +1306,7 @@ fn test_withdraw_segwit() {
             "i_am_seed": true,
         }),
         "password".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "alice" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -1811,10 +1389,7 @@ fn test_swap_status() {
             "i_am_seed": true,
         }),
         "password".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "alice" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -1867,10 +1442,7 @@ fn test_order_errors_when_base_equal_rel() {
             "i_am_seed": true,
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -1933,10 +1505,7 @@ fn startup_passphrase(passphrase: &str, expected_address: &str) {
             "i_am_seed": true,
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -2003,10 +1572,7 @@ fn test_cancel_order() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
@@ -2044,10 +1610,7 @@ fn test_cancel_order() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "alice" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -2152,10 +1715,7 @@ fn test_cancel_all_orders() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
@@ -2193,10 +1753,7 @@ fn test_cancel_all_orders() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "alice" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -2306,10 +1863,7 @@ fn test_electrum_enable_conn_errors() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
@@ -2355,10 +1909,7 @@ fn test_order_should_not_be_displayed_when_node_is_down() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
@@ -2391,10 +1942,7 @@ fn test_order_should_not_be_displayed_when_node_is_down() {
             "maker_order_timeout": 5,
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "alice" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -2489,10 +2037,7 @@ fn test_own_orders_should_not_be_removed_from_orderbook() {
             "maker_order_timeout": 5,
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
@@ -2581,10 +2126,7 @@ fn test_show_priv_key() {
             "i_am_seed": true,
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -2592,7 +2134,7 @@ fn test_show_priv_key() {
     log!("Log path: {}", mm.log_path.display());
     log!(
         "enable_coins: {:?}",
-        block_on(enable_coins_eth_electrum(&mm, &["http://195.201.0.6:8565"]))
+        block_on(enable_coins_eth_electrum(&mm, ETH_DEV_NODES))
     );
 
     check_priv_key(&mm, "RICK", "UvCjJf4dKSs2vFGVtCnUTAhR5FTZGdg43DDRa9s7s5DV1sSDX14g");
@@ -2625,10 +2167,7 @@ fn test_electrum_and_enable_response() {
             "i_am_seed": true,
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -2781,17 +2320,14 @@ fn setprice_buy_sell_too_low_volume() {
             "i_am_seed": true,
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
     log!("Log path: {}", mm.log_path.display());
 
-    let enable = block_on(enable_coins_eth_electrum(&mm, &["http://195.201.0.6:8565"]));
+    let enable = block_on(enable_coins_eth_electrum(&mm, ETH_DEV_NODES));
     log!("{:?}", enable);
 
     check_too_low_volume_order_creation_fails(&mm, "MORTY", "ETH");
@@ -2825,17 +2361,14 @@ fn test_fill_or_kill_taker_order_should_not_transform_to_maker() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
 
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob ETH/JST sell request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -2898,16 +2431,13 @@ fn test_gtc_taker_order_should_transform_to_maker() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob ETH/JST sell request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -2976,16 +2506,13 @@ fn test_set_price_must_save_order_to_db() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob ETH/JST sell request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -3034,16 +2561,13 @@ fn test_set_price_response_format() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob ETH/JST sell request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -3090,10 +2614,7 @@ fn set_price_with_cancel_previous_should_broadcast_cancelled_message() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
@@ -3129,10 +2650,7 @@ fn set_price_with_cancel_previous_should_broadcast_cancelled_message() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "alice" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -3226,10 +2744,7 @@ fn test_batch_requests() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
@@ -3304,7 +2819,7 @@ fn test_metrics_method() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -3360,7 +2875,7 @@ fn test_electrum_tx_history() {
             "metrics_interval": 30.
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -3420,7 +2935,7 @@ fn spin_n_nodes(seednodes: &[&str], coins: &Json, n: usize) -> Vec<(MarketMakerI
                 "rpc_password": "pass",
             }),
             "pass".into(),
-            local_start!("alice"),
+            None,
         )
         .unwrap();
 
@@ -3454,7 +2969,7 @@ fn test_convert_utxo_address() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -3591,7 +3106,7 @@ fn test_convert_segwit_address() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -3706,16 +3221,13 @@ fn test_convert_eth_address() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
     log!("log path: {}", mm.log_path.display());
 
-    block_on(enable_native(&mm, "ETH", &["http://195.201.0.6:8565"]));
+    block_on(enable_native(&mm, "ETH", ETH_DEV_NODES));
 
     // test single-case to mixed-case
     let rc = block_on(mm.rpc(&json! ({
@@ -3815,10 +3327,7 @@ fn test_add_delegation_qtum() {
             "i_am_seed": true,
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -3903,10 +3412,7 @@ fn test_remove_delegation_qtum() {
             "i_am_seed": true,
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -3966,10 +3472,7 @@ fn test_get_staking_infos_qtum() {
             "i_am_seed": true,
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
         .unwrap();
 
@@ -4019,7 +3522,7 @@ fn test_convert_qrc20_address() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
@@ -4170,18 +3673,12 @@ fn test_validateaddress() {
             "i_am_seed": true,
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
     log!("Log path: {}", mm.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm, ETH_DEV_NODES)));
 
     // test valid RICK address
 
@@ -4342,10 +3839,7 @@ fn test_validateaddress_segwit() {
             "i_am_seed": true,
         }),
         "password".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "alice" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -4451,7 +3945,7 @@ fn qrc20_activate_electrum() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
@@ -4498,7 +3992,7 @@ fn test_qrc20_withdraw() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
@@ -4579,7 +4073,7 @@ fn test_qrc20_withdraw_error() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -4643,120 +4137,6 @@ fn test_qrc20_withdraw_error() {
         .contains("Not enough QTUM to withdraw: available 0, required at least 0.04"));
 }
 
-async fn test_qrc20_history_impl() {
-    let passphrase = "daring blind measure rebuild grab boost fix favorite nurse stereo april rookie";
-    let coins = json!([
-        {"coin":"QRC20","required_confirmations":0,"pubtype": 120,"p2shtype": 50,"wiftype": 128,"txfee": 0,"mm2": 1,"mature_confirmations":2000,
-         "protocol":{"type":"QRC20","protocol_data":{"platform":"QTUM","contract_address":"0xd362e096e873eb7907e205fadc6175c6fec7bc44"}}},
-    ]);
-
-    let mut mm = MarketMakerIt::start_async(
-        json! ({
-            "gui": "nogui",
-            "netid": 9998,
-            "myipaddr": env::var ("BOB_TRADE_IP") .ok(),
-            "rpcip": env::var ("BOB_TRADE_IP") .ok(),
-            "passphrase": passphrase,
-            "coins": coins,
-            "rpc_password": "pass",
-            "metrics_interval": 30.,
-        }),
-        "pass".into(),
-        local_start!("bob"),
-    )
-    .await
-    .unwrap();
-    let (_dump_log, _dump_dashboard) = mm.mm_dump();
-
-    #[cfg(not(target_arch = "wasm32"))]
-    common::log::info!("log path: {}", mm.log_path.display());
-
-    mm.wait_for_log(22., |log| log.contains(">>>>>>>>> DEX stats "))
-        .await
-        .unwrap();
-
-    let electrum = mm
-        .rpc(&json!({
-            "userpass": mm.userpass,
-            "method": "electrum",
-            "coin": "QRC20",
-            "servers": qtum_electrums(),
-            "mm2": 1,
-            "tx_history": true,
-            "swap_contract_address": "0xd362e096e873eb7907e205fadc6175c6fec7bc44",
-        }))
-        .await
-        .unwrap();
-    assert_eq!(
-        electrum.0,
-        StatusCode::OK,
-        "RPC «electrum» failed with status «{}», response «{}»",
-        electrum.0,
-        electrum.1
-    );
-    let electrum_json: Json = json::from_str(&electrum.1).unwrap();
-    assert_eq!(
-        electrum_json["address"].as_str(),
-        Some("qfkXE2cNFEwPFQqvBcqs8m9KrkNa9KV4xi")
-    );
-
-    // Wait till tx_history will not be loaded
-    mm.wait_for_log(22., |log| log.contains("history has been loaded successfully"))
-        .await
-        .unwrap();
-
-    // let the MarketMaker save the history to the file
-    Timer::sleep(1.).await;
-
-    let tx_history = mm
-        .rpc(&json!({
-            "userpass": mm.userpass,
-            "method": "my_tx_history",
-            "coin": "QRC20",
-            "limit": 100,
-        }))
-        .await
-        .unwrap();
-    assert_eq!(
-        tx_history.0,
-        StatusCode::OK,
-        "RPC «my_tx_history» failed with status «{}», response «{}»",
-        tx_history.0,
-        tx_history.1
-    );
-    common::log::debug!("{:?}", tx_history.1);
-    let tx_history_json: Json = json::from_str(&tx_history.1).unwrap();
-    let tx_history_result = &tx_history_json["result"];
-
-    let mut expected = vec![
-        // https://testnet.qtum.info/tx/45d722e615feb853d608033ffc20fd51c9ee86e2321cfa814ba5961190fb57d2
-        "45d722e615feb853d608033ffc20fd51c9ee86e2321cfa814ba5961190fb57d200000000000000020000000000000000",
-        // https://testnet.qtum.info/tx/45d722e615feb853d608033ffc20fd51c9ee86e2321cfa814ba5961190fb57d2
-        "45d722e615feb853d608033ffc20fd51c9ee86e2321cfa814ba5961190fb57d200000000000000020000000000000001",
-        // https://testnet.qtum.info/tx/abcb51963e720fdfed7b889cea79947ba3cabd7b8b384f6b5adb41a3f4b5d61b
-        "abcb51963e720fdfed7b889cea79947ba3cabd7b8b384f6b5adb41a3f4b5d61b00000000000000020000000000000000",
-        // https://testnet.qtum.info/tx/4ea5392d03a9c35126d2d5a8294c3c3102cfc6d65235897c92ca04c5515f6be5
-        "4ea5392d03a9c35126d2d5a8294c3c3102cfc6d65235897c92ca04c5515f6be500000000000000020000000000000000",
-        // https://testnet.qtum.info/tx/9156f5f1d3652c27dca0216c63177da38de5c9e9f03a5cfa278bf82882d2d3d8
-        "9156f5f1d3652c27dca0216c63177da38de5c9e9f03a5cfa278bf82882d2d3d800000000000000020000000000000000",
-        // https://testnet.qtum.info/tx/35e03bc529528a853ee75dde28f27eec8ed7b152b6af7ab6dfa5d55ea46f25ac
-        "35e03bc529528a853ee75dde28f27eec8ed7b152b6af7ab6dfa5d55ea46f25ac00000000000000010000000000000000",
-        // https://testnet.qtum.info/tx/39104d29d77ba83c5c6c63ab7a0f096301c443b4538dc6b30140453a40caa80a
-        "39104d29d77ba83c5c6c63ab7a0f096301c443b4538dc6b30140453a40caa80a00000000000000000000000000000000",
-        // https://testnet.qtum.info/tx/d9965e3496a8a4af2d462424b989694b3146d78c61654b99bbadba64464f75cb
-        "d9965e3496a8a4af2d462424b989694b3146d78c61654b99bbadba64464f75cb00000000000000000000000000000000",
-        // https://testnet.qtum.info/tx/c2f346d3d2aadc35f5343d0d493a139b2579175496d685ec30734d161e62f7a1
-        "c2f346d3d2aadc35f5343d0d493a139b2579175496d685ec30734d161e62f7a100000000000000000000000000000000",
-    ];
-
-    assert_eq!(tx_history_result["total"].as_u64().unwrap(), expected.len() as u64);
-    for tx in tx_history_result["transactions"].as_array().unwrap() {
-        // pop front item
-        let expected_tx = expected.remove(0);
-        assert_eq!(tx["internal_id"].as_str().unwrap(), expected_tx);
-    }
-}
-
 #[test]
 // TODO unignore test.
 #[ignore]
@@ -4777,7 +4157,7 @@ fn test_get_raw_transaction() {
             "metrics_interval": 30.,
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -4956,11 +4336,7 @@ fn test_get_raw_transaction() {
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
-fn test_qrc20_tx_history() { block_on(test_qrc20_history_impl()); }
-
-#[wasm_bindgen_test]
-#[cfg(target_arch = "wasm32")]
-async fn test_qrc20_tx_history() { test_qrc20_history_impl().await }
+fn test_qrc20_tx_history() { block_on(test_qrc20_history_impl(None)); }
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
@@ -4983,7 +4359,7 @@ fn test_tx_history_segwit() {
             "metrics_interval": 30.,
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -5109,7 +4485,7 @@ fn test_tx_history_tbtc_non_segwit() {
             "metrics_interval": 30.,
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
@@ -5251,16 +4627,13 @@ fn test_buy_conf_settings() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob buy request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -5328,16 +4701,13 @@ fn test_buy_response_format() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob buy request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -5383,16 +4753,13 @@ fn test_sell_response_format() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob sell request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -5438,16 +4805,13 @@ fn test_my_orders_response_format() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob buy request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -5538,10 +4902,10 @@ fn test_my_orders_after_matched() {
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
 
     // Enable coins on Bob side. Print the replies in case we need the address.
-    let rc = block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]));
+    let rc = block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES));
     log!("enable_coins (bob): {:?}", rc);
     // Enable coins on Alice side. Print the replies in case we need the address.
-    let rc = block_on(enable_coins_eth_electrum(&mm_alice, &["http://195.201.0.6:8565"]));
+    let rc = block_on(enable_coins_eth_electrum(&mm_alice, ETH_DEV_NODES));
     log!("enable_coins (alice): {:?}", rc);
 
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -5608,16 +4972,13 @@ fn test_sell_conf_settings() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob sell request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -5685,16 +5046,13 @@ fn test_set_price_conf_settings() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     log!("Issue bob sell request");
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -5760,7 +5118,7 @@ fn test_update_maker_order() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
@@ -5900,7 +5258,7 @@ fn test_update_maker_order_fail() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
@@ -6124,10 +5482,10 @@ fn test_update_maker_order_after_matched() {
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
 
     // Enable coins on Bob side. Print the replies in case we need the address.
-    let rc = block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]));
+    let rc = block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES));
     log!("enable_coins (bob): {:?}", rc);
     // Enable coins on Alice side. Print the replies in case we need the address.
-    let rc = block_on(enable_coins_eth_electrum(&mm_alice, &["http://195.201.0.6:8565"]));
+    let rc = block_on(enable_coins_eth_electrum(&mm_alice, ETH_DEV_NODES));
     log!("enable_coins (alice): {:?}", rc);
 
     let rc = block_on(mm_bob.rpc(&json! ({
@@ -6227,10 +5585,7 @@ fn test_trade_fee_returns_numbers_in_various_formats() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
@@ -6272,10 +5627,7 @@ fn test_orderbook_is_mine_orders() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
@@ -6311,10 +5663,7 @@ fn test_orderbook_is_mine_orders() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        match var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "alice" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -6449,16 +5798,13 @@ fn test_sell_min_volume() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     let min_volume: BigDecimal = "0.1".parse().unwrap();
     log!("Issue bob ETH/JST sell request");
@@ -6525,7 +5871,7 @@ fn test_sell_min_volume_dust() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
@@ -6576,7 +5922,7 @@ fn test_setprice_min_volume_dust() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
@@ -6626,16 +5972,13 @@ fn test_buy_min_volume() {
             "i_am_seed": true,
         }),
         "password".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
-    log!(
-        "{:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]))
-    );
+    log!("{:?}", block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES)));
 
     let min_volume: BigDecimal = "0.1".parse().unwrap();
     log!("Issue bob ETH/JST sell request");
@@ -6740,14 +6083,14 @@ fn test_orderbook_depth() {
             "i_am_seed": true,
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
 
     // Enable coins on Bob side. Print the replies in case we need the "address".
-    let bob_coins = block_on(enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]));
+    let bob_coins = block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES));
     log!("enable_coins (bob): {:?}", bob_coins);
     // issue sell request on Bob side by setting base/rel price
     log!("Issue bob sell requests");
@@ -6789,7 +6132,7 @@ fn test_orderbook_depth() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        local_start!("alice"),
+        None,
     )
     .unwrap();
 
@@ -7301,7 +6644,7 @@ fn test_sign_verify_message_utxo() {
             "i_am_seed": true,
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
@@ -7368,7 +6711,7 @@ fn test_sign_verify_message_utxo_segwit() {
             "i_am_seed": true,
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
@@ -7445,7 +6788,7 @@ fn test_sign_verify_message_eth() {
             "i_am_seed": true,
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
@@ -7454,7 +6797,7 @@ fn test_sign_verify_message_eth() {
     // Enable coins on Bob side. Print the replies in case we need the "address".
     log!(
         "enable_coins (bob): {:?}",
-        block_on(enable_native(&mm_bob, "ETH", &["http://195.201.0.6:8565"]))
+        block_on(enable_native(&mm_bob, "ETH", ETH_DEV_NODES))
     );
 
     let response = block_on(sign_message(&mm_bob, "ETH"));
@@ -7894,7 +7237,7 @@ fn test_btc_block_header_sync() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm_bob.mm_dump();
@@ -7925,7 +7268,7 @@ fn test_tbtc_block_header_sync() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        local_start!("bob"),
+        None,
     )
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm_bob.mm_dump();
@@ -7947,7 +7290,7 @@ fn test_enable_coins_with_hd_account_id() {
 
     let hd_account_id = 0;
     let conf_0 = Mm2TestConf::seednode_with_hd_account(PASSPHRASE, hd_account_id, &coins);
-    let mm_hd_0 = MarketMakerIt::start(conf_0.conf, conf_0.rpc_password, local_start!("bob")).unwrap();
+    let mm_hd_0 = MarketMakerIt::start(conf_0.conf, conf_0.rpc_password, None).unwrap();
     let (_dump_log, _dump_dashboard) = mm_hd_0.mm_dump();
     log!("log path: {}", mm_hd_0.log_path.display());
 
@@ -7967,7 +7310,7 @@ fn test_enable_coins_with_hd_account_id() {
 
     let hd_account_id = 1;
     let conf_1 = Mm2TestConf::seednode_with_hd_account(PASSPHRASE, hd_account_id, &coins);
-    let mm_hd_1 = MarketMakerIt::start(conf_1.conf, conf_1.rpc_password, local_start!("alice")).unwrap();
+    let mm_hd_1 = MarketMakerIt::start(conf_1.conf, conf_1.rpc_password, None).unwrap();
     let (_dump_log, _dump_dashboard) = mm_hd_1.mm_dump();
     log!("log path: {}", mm_hd_1.log_path.display());
 
@@ -7986,137 +7329,150 @@ fn test_enable_coins_with_hd_account_id() {
     assert_eq!(qrc20["address"].as_str(), Some("qY8FNq2ZDUh52BjNvaroFoeHdr3AAhqsxW"));
 }
 
-/// This function runs Alice and Bob nodes, activates coins, starts swaps,
-/// and then immediately stops the nodes to check if `MmArc` is dropped in a short period.
-#[cfg(target_arch = "wasm32")]
-async fn test_mm2_stops_impl(
-    pairs: &[(&'static str, &'static str)],
-    maker_price: i32,
-    taker_price: i32,
-    volume: f64,
-    stop_timeout_ms: u64,
-) {
-    let coins = json! ([
-        {"coin":"RICK","asset":"RICK","required_confirmations":0,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"},"tx_history":true},
-        {"coin":"MORTY","asset":"MORTY","required_confirmations":0,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"},"tx_history":true},
-        {"coin":"ETH","name":"ethereum","protocol":{"type":"ETH"}},
-        {"coin":"JST","name":"jst","protocol":{"type":"ERC20","protocol_data":{"platform":"ETH","contract_address":"0x2b294F029Fde858b2c62184e8390591755521d8E"}}},
-    ]);
-
+#[test]
+fn test_eth_swap_contract_addr_negotiation_same_fallback() {
     let bob_passphrase = get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap();
     let alice_passphrase = get_passphrase!(".env.client", "ALICE_PASSPHRASE").unwrap();
 
+    let coins = json!([
+       {"coin":"ETH","name":"ethereum","protocol":{"type":"ETH"}},
+       {"coin":"JST","name":"jst","protocol":{"type":"ERC20","protocol_data":{"platform":"ETH","contract_address":"0x2b294F029Fde858b2c62184e8390591755521d8E"}}},
+    ]);
+
     let bob_conf = Mm2TestConf::seednode(&bob_passphrase, &coins);
-    let mut mm_bob = MarketMakerIt::start_async(bob_conf.conf, bob_conf.rpc_password, local_start!("bob"))
-        .await
-        .unwrap();
+    let mut mm_bob = MarketMakerIt::start(bob_conf.conf, bob_conf.rpc_password, None).unwrap();
+
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        log!("Bob log path: {}", mm_bob.log_path.display())
-    }
+    log!("Bob log path: {}", mm_bob.log_path.display());
 
-    Timer::sleep(1.).await;
+    let alice_conf = Mm2TestConf::light_node(&alice_passphrase, &coins, &[&mm_bob.ip.to_string()]);
+    let mut mm_alice = MarketMakerIt::start(alice_conf.conf, alice_conf.rpc_password, None).unwrap();
 
-    let alice_conf = Mm2TestConf::light_node(&alice_passphrase, &coins, &[&mm_bob.my_seed_addr()]);
-    let mut mm_alice = MarketMakerIt::start_async(alice_conf.conf, alice_conf.rpc_password, local_start!("alice"))
-        .await
-        .unwrap();
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
+    log!("Alice log path: {}", mm_alice.log_path.display());
 
-    // Enable coins on Bob side. Print the replies in case we need the address.
-    let rc = enable_coins_eth_electrum(&mm_bob, &["http://195.201.0.6:8565"]).await;
-    log!("enable_coins (bob): {:?}", rc);
+    dbg!(block_on(enable_eth_coin(
+        &mm_bob,
+        "ETH",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        "0x2b294F029Fde858b2c62184e8390591755521d8E",
+        Some(ETH_DEV_SWAP_CONTRACT)
+    )));
 
-    // Enable coins on Alice side. Print the replies in case we need the address.
-    let rc = enable_coins_eth_electrum(&mm_alice, &["http://195.201.0.6:8565"]).await;
-    log!("enable_coins (alice): {:?}", rc);
+    dbg!(block_on(enable_eth_coin(
+        &mm_bob,
+        "JST",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        "0x2b294F029Fde858b2c62184e8390591755521d8E",
+        Some(ETH_DEV_SWAP_CONTRACT)
+    )));
 
-    let mut uuids = vec![];
+    dbg!(block_on(enable_eth_coin(
+        &mm_alice,
+        "ETH",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        ETH_MAINNET_SWAP_CONTRACT,
+        Some(ETH_DEV_SWAP_CONTRACT)
+    )));
 
-    // issue sell request on Bob side by setting base/rel price
-    for (base, rel) in pairs.iter() {
-        log!("Issue bob {}/{} sell request", base, rel);
-        let rc = mm_bob
-            .rpc(&json! ({
-                "userpass": mm_bob.userpass,
-                "method": "setprice",
-                "base": base,
-                "rel": rel,
-                "price": maker_price,
-                "volume": volume
-            }))
-            .await
-            .unwrap();
-        assert!(rc.0.is_success(), "!setprice: {}", rc.1);
-    }
+    dbg!(block_on(enable_eth_coin(
+        &mm_alice,
+        "JST",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        ETH_MAINNET_SWAP_CONTRACT,
+        Some(ETH_DEV_SWAP_CONTRACT)
+    )));
 
-    for (base, rel) in pairs.iter() {
-        common::log::info!(
-            "Trigger alice subscription to {}/{} orderbook topic first and sleep for 1 second",
-            base,
-            rel
-        );
-        let rc = mm_alice
-            .rpc(&json! ({
-                "userpass": mm_alice.userpass,
-                "method": "orderbook",
-                "base": base,
-                "rel": rel,
-            }))
-            .await
-            .unwrap();
-        assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
-        Timer::sleep(1.).await;
-        common::log::info!("Issue alice {}/{} buy request", base, rel);
-        let rc = mm_alice
-            .rpc(&json! ({
-                "userpass": mm_alice.userpass,
-                "method": "buy",
-                "base": base,
-                "rel": rel,
-                "volume": volume,
-                "price": taker_price
-            }))
-            .await
-            .unwrap();
-        assert!(rc.0.is_success(), "!buy: {}", rc.1);
-        let buy_json: Json = serde_json::from_str(&rc.1).unwrap();
-        uuids.push(buy_json["result"]["uuid"].as_str().unwrap().to_owned());
-    }
+    let uuids = block_on(start_swaps(&mut mm_bob, &mut mm_alice, &[("ETH", "JST")], 1, 1, 0.001));
 
-    for (base, rel) in pairs.iter() {
-        // ensure the swaps are started
-        let expected_log = format!("Entering the taker_swap_loop {}/{}", base, rel);
-        mm_alice
-            .wait_for_log(5., |log| log.contains(&expected_log))
-            .await
-            .unwrap();
-        let expected_log = format!("Entering the maker_swap_loop {}/{}", base, rel);
-        mm_bob
-            .wait_for_log(5., |log| log.contains(&expected_log))
-            .await
-            .unwrap()
-    }
+    // give few seconds for swap statuses to be saved
+    thread::sleep(Duration::from_secs(3));
 
-    mm_alice
-        .stop_and_wait_for_ctx_is_dropped(stop_timeout_ms)
-        .await
-        .unwrap();
-    mm_bob.stop_and_wait_for_ctx_is_dropped(stop_timeout_ms).await.unwrap();
+    let wait_until = get_utc_timestamp() + 30;
+    let expected_contract = Json::from(ETH_DEV_SWAP_CONTRACT.trim_start_matches("0x"));
+
+    block_on(wait_for_swap_contract_negotiation(
+        &mm_bob,
+        &uuids[0],
+        expected_contract.clone(),
+        wait_until,
+    ));
+    block_on(wait_for_swap_contract_negotiation(
+        &mm_alice,
+        &uuids[0],
+        expected_contract,
+        wait_until,
+    ));
 }
 
-#[wasm_bindgen_test]
-#[cfg(target_arch = "wasm32")]
-async fn test_mm2_stops_immediately() {
-    const STOP_TIMEOUT_MS: u64 = 1000;
+#[test]
+fn test_eth_swap_negotiation_fails_maker_no_fallback() {
+    let bob_passphrase = get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap();
+    let alice_passphrase = get_passphrase!(".env.client", "ALICE_PASSPHRASE").unwrap();
 
-    common::log::wasm_log::register_wasm_log();
+    let coins = json!([
+       {"coin":"ETH","name":"ethereum","protocol":{"type":"ETH"}},
+       {"coin":"JST","name":"jst","protocol":{"type":"ERC20","protocol_data":{"platform":"ETH","contract_address":"0x2b294F029Fde858b2c62184e8390591755521d8E"}}},
+    ]);
 
-    let pairs: &[_] = &[("RICK", "MORTY")];
-    test_mm2_stops_impl(pairs, 1, 1, 0.0001, STOP_TIMEOUT_MS).await;
+    let bob_conf = Mm2TestConf::seednode(&bob_passphrase, &coins);
+    let mut mm_bob = MarketMakerIt::start(bob_conf.conf, bob_conf.rpc_password, None).unwrap();
+
+    let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
+    log!("Bob log path: {}", mm_bob.log_path.display());
+
+    let alice_conf = Mm2TestConf::light_node(&alice_passphrase, &coins, &[&mm_bob.ip.to_string()]);
+    let mut mm_alice = MarketMakerIt::start(alice_conf.conf, alice_conf.rpc_password, None).unwrap();
+
+    let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
+    log!("Alice log path: {}", mm_alice.log_path.display());
+
+    dbg!(block_on(enable_eth_coin(
+        &mm_bob,
+        "ETH",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        "0x2b294F029Fde858b2c62184e8390591755521d8E",
+        None,
+    )));
+
+    dbg!(block_on(enable_eth_coin(
+        &mm_bob,
+        "JST",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        "0x2b294F029Fde858b2c62184e8390591755521d8E",
+        None,
+    )));
+
+    dbg!(block_on(enable_eth_coin(
+        &mm_alice,
+        "ETH",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        ETH_MAINNET_SWAP_CONTRACT,
+        Some(ETH_DEV_SWAP_CONTRACT)
+    )));
+
+    dbg!(block_on(enable_eth_coin(
+        &mm_alice,
+        "JST",
+        ETH_DEV_NODES,
+        // using arbitrary address
+        ETH_MAINNET_SWAP_CONTRACT,
+        Some(ETH_DEV_SWAP_CONTRACT)
+    )));
+
+    let uuids = block_on(start_swaps(&mut mm_bob, &mut mm_alice, &[("ETH", "JST")], 1, 1, 0.001));
+
+    // give few seconds for swap statuses to be saved
+    thread::sleep(Duration::from_secs(3));
+
+    let wait_until = get_utc_timestamp() + 30;
+    block_on(wait_for_swap_negotiation_failure(&mm_bob, &uuids[0], wait_until));
+    block_on(wait_for_swap_negotiation_failure(&mm_alice, &uuids[0], wait_until));
 }
-
-#[cfg(not(target_arch = "wasm32"))] pub mod iris_swap_poc;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod tendermint_ibc_asset_tests;

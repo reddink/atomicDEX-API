@@ -22,8 +22,8 @@ use crate::{BalanceError, BalanceFut, CoinBalance, CoinFutSpawner, FeeApproxStag
             TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum,
             TransactionErr, TransactionFut, TransactionType, TxMarshalingErr, UnexpectedDerivationMethod,
             ValidateAddressResult, ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentFut,
-            ValidatePaymentInput, VerificationResult, WatcherOps, WatcherSearchForSwapTxSpendInput,
-            WatcherValidatePaymentInput, WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult};
+            ValidatePaymentInput, VerificationResult, WatcherOps, WatcherValidatePaymentInput, WithdrawError,
+            WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult};
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
 use chain::TransactionOutput;
@@ -343,7 +343,7 @@ pub struct Qrc20Coin(Arc<Qrc20CoinFields>);
 
 impl Deref for Qrc20Coin {
     type Target = Qrc20CoinFields;
-    fn deref(&self) -> &Qrc20CoinFields { &*self.0 }
+    fn deref(&self) -> &Qrc20CoinFields { &self.0 }
 }
 
 impl AsRef<UtxoCoinFields> for Qrc20Coin {
@@ -1138,13 +1138,6 @@ impl WatcherOps for Qrc20Coin {
     fn watcher_validate_taker_payment(&self, _input: WatcherValidatePaymentInput) -> ValidatePaymentFut<()> {
         unimplemented!();
     }
-
-    async fn watcher_search_for_swap_tx_spend(
-        &self,
-        _input: WatcherSearchForSwapTxSpendInput<'_>,
-    ) -> Result<Option<FoundSwapTxSpend>, String> {
-        unimplemented!();
-    }
 }
 
 impl MarketCoinOps for Qrc20Coin {
@@ -1431,6 +1424,10 @@ impl MmCoin for Qrc20Coin {
 
     fn swap_contract_address(&self) -> Option<BytesJson> {
         Some(BytesJson::from(self.swap_contract_address.0.as_ref()))
+    }
+
+    fn fallback_swap_contract(&self) -> Option<BytesJson> {
+        self.fallback_swap_contract.map(|a| BytesJson::from(a.0.as_ref()))
     }
 
     fn mature_confirmations(&self) -> Option<u32> { Some(self.utxo.conf.mature_confirmations) }

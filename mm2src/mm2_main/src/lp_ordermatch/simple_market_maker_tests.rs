@@ -3,6 +3,7 @@ use crate::mm2::{lp_ordermatch::lp_bot::simple_market_maker_bot::vwap,
                  lp_swap::{MakerSavedSwap, SavedSwap}};
 use common::{block_on, log::UnifiedLoggerBuilder};
 use mm2_number::MmNumber;
+use foo;
 
 fn generate_swaps_from_values(swaps_value: Vec<(MmNumber, MmNumber)>) -> Vec<SavedSwap> {
     swaps_value

@@ -27,8 +27,8 @@ use crate::{eth, CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, Delegatio
             PaymentInstructionsErr, PrivKeyBuildPolicy, SearchForSwapTxSpendInput, SignatureResult, StakingInfosFut,
             SwapOps, TradePreimageValue, TransactionFut, TxMarshalingErr, UnexpectedDerivationMethod,
             ValidateAddressResult, ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentFut,
-            ValidatePaymentInput, VerificationResult, WatcherOps, WatcherSearchForSwapTxSpendInput,
-            WatcherValidatePaymentInput, WithdrawFut, WithdrawSenderAddress};
+            ValidatePaymentInput, VerificationResult, WatcherOps, WatcherValidatePaymentInput, WithdrawFut,
+            WithdrawSenderAddress};
 use crypto::Bip44Chain;
 use ethereum_types::H160;
 use futures::{FutureExt, TryFutureExt};
@@ -86,6 +86,7 @@ pub trait QtumDelegationOps {
 
     fn remove_delegation(&self) -> DelegationFut;
 
+    #[allow(clippy::result_large_err)]
     fn generate_pod(&self, addr_hash: AddressHashEnum) -> Result<keys::Signature, MmError<DelegationError>>;
 }
 
@@ -833,14 +834,6 @@ impl WatcherOps for QtumCoin {
     fn watcher_validate_taker_payment(&self, input: WatcherValidatePaymentInput) -> ValidatePaymentFut<()> {
         utxo_common::watcher_validate_taker_payment(self, input)
     }
-
-    #[inline]
-    async fn watcher_search_for_swap_tx_spend(
-        &self,
-        input: WatcherSearchForSwapTxSpendInput<'_>,
-    ) -> Result<Option<FoundSwapTxSpend>, String> {
-        utxo_common::watcher_search_for_swap_tx_spend(self, input, utxo_common::DEFAULT_SWAP_VOUT).await
-    }
 }
 
 impl MarketCoinOps for QtumCoin {
@@ -1002,6 +995,8 @@ impl MmCoin for QtumCoin {
     }
 
     fn swap_contract_address(&self) -> Option<BytesJson> { utxo_common::swap_contract_address() }
+
+    fn fallback_swap_contract(&self) -> Option<BytesJson> { utxo_common::fallback_swap_contract() }
 
     fn mature_confirmations(&self) -> Option<u32> { Some(self.utxo_arc.conf.mature_confirmations) }
 

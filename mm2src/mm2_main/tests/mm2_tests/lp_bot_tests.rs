@@ -1,28 +1,8 @@
-use crate::{mm2::lp_ordermatch::start_simple_market_maker_bot, mm2::lp_ordermatch::stop_simple_market_maker_bot,
-            mm2::lp_ordermatch::StartSimpleMakerBotRequest};
-use common::block_on;
-use http::{HeaderMap, StatusCode};
-use mm2_test_helpers::for_tests::{mm_ctx_with_iguana, MarketMakerIt};
-use serde_json::Value as Json;
-
-#[test]
-#[cfg(not(target_arch = "wasm32"))]
-fn test_start_and_stop_simple_market_maker_bot_from_ctx() {
-    let ctx = mm_ctx_with_iguana(Some(
-        "also shoot benefit prefer juice shell elder veteran woman mimic image kidney",
-    ));
-
-    let mut req = StartSimpleMakerBotRequest::new();
-    let cloned_ctx = ctx.clone();
-    let another_cloned_ctx = ctx.clone();
-    let answer = block_on(start_simple_market_maker_bot(ctx, req)).unwrap();
-    assert_eq!(answer.get_result(), "Success");
-    req = StartSimpleMakerBotRequest::new();
-    let answer = block_on(start_simple_market_maker_bot(cloned_ctx, req));
-    assert!(answer.is_err());
-    let answer = block_on(stop_simple_market_maker_bot(another_cloned_ctx, Json::default())).unwrap();
-    assert_eq!(answer.get_result(), "Success");
-}
+use common::{block_on, log};
+use http::HeaderMap;
+use http::StatusCode;
+use mm2_test_helpers::for_tests::MarketMakerIt;
+use serde_json::json;
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]

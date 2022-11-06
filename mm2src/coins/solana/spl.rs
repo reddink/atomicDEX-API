@@ -7,8 +7,8 @@ use crate::{BalanceFut, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, Negoti
             SearchForSwapTxSpendInput, SignatureResult, SolanaCoin, TradePreimageFut, TradePreimageResult,
             TradePreimageValue, TransactionDetails, TransactionFut, TransactionType, TxMarshalingErr,
             UnexpectedDerivationMethod, ValidateAddressResult, ValidateInstructionsErr, ValidateOtherPubKeyErr,
-            ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherSearchForSwapTxSpendInput,
-            WatcherValidatePaymentInput, WithdrawError, WithdrawFut, WithdrawRequest, WithdrawResult};
+            ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherValidatePaymentInput, WithdrawError,
+            WithdrawFut, WithdrawRequest, WithdrawResult};
 use async_trait::async_trait;
 use bincode::serialize;
 use common::executor::{abortable_queue::AbortableQueue, AbortableSystem};
@@ -63,7 +63,7 @@ pub struct SplToken {
 }
 
 impl Debug for SplToken {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult { f.write_str(&*self.conf.ticker) }
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult { f.write_str(&self.conf.ticker) }
 }
 
 impl SplToken {
@@ -163,7 +163,7 @@ async fn withdraw_spl_token_impl(coin: SplToken, req: WithdrawRequest) -> Withdr
 }
 
 async fn withdraw_impl(coin: SplToken, req: WithdrawRequest) -> WithdrawResult {
-    let validate_address_result = coin.validate_address(&*req.to);
+    let validate_address_result = coin.validate_address(&req.to);
     if !validate_address_result.is_valid {
         return MmError::err(WithdrawError::InvalidAddress(
             validate_address_result.reason.unwrap_or_else(|| "Unknown".to_string()),
@@ -203,7 +203,7 @@ impl SplToken {
         if token_accounts.is_empty() {
             return MmError::err(AccountError::NotFundedError("account_not_funded".to_string()));
         }
-        Ok(Pubkey::from_str(&*token_accounts[0].pubkey)?)
+        Ok(Pubkey::from_str(&token_accounts[0].pubkey)?)
     }
 
     fn my_balance_impl(&self) -> BalanceFut<CoinBalance> {
@@ -497,13 +497,6 @@ impl WatcherOps for SplToken {
     fn watcher_validate_taker_payment(&self, _input: WatcherValidatePaymentInput) -> ValidatePaymentFut<()> {
         unimplemented!();
     }
-
-    async fn watcher_search_for_swap_tx_spend(
-        &self,
-        input: WatcherSearchForSwapTxSpendInput<'_>,
-    ) -> Result<Option<FoundSwapTxSpend>, String> {
-        unimplemented!();
-    }
 }
 
 #[allow(clippy::forget_ref, clippy::forget_copy, clippy::cast_ref_to_mut)]
@@ -559,6 +552,8 @@ impl MmCoin for SplToken {
     fn set_requires_notarization(&self, _requires_nota: bool) { unimplemented!() }
 
     fn swap_contract_address(&self) -> Option<BytesJson> { unimplemented!() }
+
+    fn fallback_swap_contract(&self) -> Option<BytesJson> { unimplemented!() }
 
     fn mature_confirmations(&self) -> Option<u32> { Some(1) }
 

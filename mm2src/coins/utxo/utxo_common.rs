@@ -15,10 +15,10 @@ use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, GetWithdrawSen
             RawTransactionError, RawTransactionRequest, RawTransactionRes, SearchForSwapTxSpendInput, SignatureError,
             SignatureResult, SwapOps, TradePreimageValue, TransactionFut, TxFeeDetails, TxMarshalingErr,
             ValidateAddressResult, ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput,
-            VerificationError, VerificationResult, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
-            WithdrawFrom, WithdrawResult, WithdrawSenderAddress};
-use bitcrypto::dhash256;
+            VerificationError, VerificationResult, WatcherValidatePaymentInput, WithdrawFrom, WithdrawResult,
+            WithdrawSenderAddress};
 pub use bitcrypto::{dhash160, sha256, ChecksumType};
+use bitcrypto::{dhash256, ripemd160};
 use chain::constants::SEQUENCE_FINAL;
 use chain::{OutPoint, TransactionOutput};
 use common::executor::Timer;
@@ -1775,7 +1775,7 @@ pub fn watcher_validate_taker_fee<T: UtxoCommonOps>(
                 },
             };
 
-            match check_all_inputs_signed_by_pub(&*taker_fee_tx, &verified_pub) {
+            match check_all_inputs_signed_by_pub(&taker_fee_tx, &verified_pub) {
                 Ok(is_valid) if !is_valid => {
                     return MmError::err(ValidatePaymentError::WrongPaymentTx(
                         "Taker fee does not belong to the verified public key".to_string(),
@@ -2005,24 +2005,6 @@ pub fn check_if_my_payment_sent<T: UtxoCommonOps + SwapOps>(
     Box::new(fut.boxed().compat())
 }
 
-pub async fn watcher_search_for_swap_tx_spend<T: AsRef<UtxoCoinFields> + SwapOps>(
-    coin: &T,
-    input: WatcherSearchForSwapTxSpendInput<'_>,
-    output_index: usize,
-) -> Result<Option<FoundSwapTxSpend>, String> {
-    search_for_swap_output_spend(
-        coin.as_ref(),
-        input.time_lock,
-        &try_s!(Public::from_slice(input.taker_pub)),
-        &try_s!(Public::from_slice(input.maker_pub)),
-        input.secret_hash,
-        input.tx,
-        output_index,
-        input.search_from_block,
-    )
-    .await
-}
-
 pub async fn search_for_swap_tx_spend_my<T: AsRef<UtxoCoinFields> + SwapOps>(
     coin: &T,
     input: SearchForSwapTxSpendInput<'_>,
@@ -2095,15 +2077,16 @@ pub fn extract_secret(secret_hash: &[u8], spend_tx: &[u8]) -> Result<Vec<u8>, St
             },
         };
 
-        let actual_secret_hash = if secret_hash.len() == 32 {
-            sha256(&secret).to_vec()
+        let expected_secret_hash = if secret_hash.len() == 32 {
+            ripemd160(secret_hash)
         } else {
-            dhash160(&secret).to_vec()
+            H160::from(secret_hash)
         };
-        if actual_secret_hash != secret_hash {
+        let actual_secret_hash = dhash160(&secret);
+        if actual_secret_hash != expected_secret_hash {
             warn!(
                 "Invalid secret hash {:?}, expected {:?}",
-                actual_secret_hash, secret_hash
+                actual_secret_hash, expected_secret_hash
             );
             continue;
         }
@@ -2351,6 +2334,7 @@ where
     }
 }
 
+#[allow(clippy::result_large_err)]
 pub fn get_withdraw_iguana_sender<T: UtxoCommonOps>(
     coin: &T,
     req: &WithdrawRequest,
@@ -2664,7 +2648,7 @@ where
         history_map.retain(|hash, _| requested_ids.contains(hash));
 
         if history_map.len() < history_length {
-            let to_write: Vec<TransactionDetails> = history_map.iter().map(|(_, value)| value.clone()).collect();
+            let to_write: Vec<TransactionDetails> = history_map.values().cloned().collect();
             if let Err(e) = coin.save_history_to_file(&ctx, to_write).compat().await {
                 log_tag!(
                     ctx,
@@ -2741,7 +2725,7 @@ where
                 },
             }
             if updated {
-                let to_write: Vec<TransactionDetails> = history_map.iter().map(|(_, value)| value.clone()).collect();
+                let to_write: Vec<TransactionDetails> = history_map.values().cloned().collect();
                 if let Err(e) = coin.save_history_to_file(&ctx, to_write).compat().await {
                     log_tag!(
                         ctx,
@@ -3272,7 +3256,7 @@ where
 
     // `generate_swap_payment_outputs` may fail due to either invalid `other_pub` or a number conversation error
     let SwapPaymentOutputsResult { outputs, .. } =
-        generate_swap_payment_outputs(&coin, time_lock, my_pub, other_pub, secret_hash, amount)
+        generate_swap_payment_outputs(coin, time_lock, my_pub, other_pub, secret_hash, amount)
             .map_to_mm(TradePreimageError::InternalError)?;
     let gas_fee = None;
     let fee_amount = coin
@@ -3551,6 +3535,10 @@ pub async fn get_verbose_transactions_from_cache_or_rpc(
 #[inline]
 pub fn swap_contract_address() -> Option<BytesJson> { None }
 
+/// Fallback swap contract address is not used by standard UTXO coins.
+#[inline]
+pub fn fallback_swap_contract() -> Option<BytesJson> { None }
+
 /// Convert satoshis to BigDecimal amount of coin units
 #[inline]
 pub fn big_decimal_from_sat(satoshis: i64, decimals: u8) -> BigDecimal {
@@ -3807,16 +3795,16 @@ pub fn payment_script(time_lock: u32, secret_hash: &[u8], pub_0: &Public, pub_1:
         .push_opcode(Opcode::OP_ELSE)
         .push_opcode(Opcode::OP_SIZE)
         .push_bytes(&[32])
-        .push_opcode(Opcode::OP_EQUALVERIFY);
+        .push_opcode(Opcode::OP_EQUALVERIFY)
+        .push_opcode(Opcode::OP_HASH160);
 
     if secret_hash.len() == 32 {
-        builder = builder.push_opcode(Opcode::OP_SHA256);
+        builder = builder.push_bytes(ripemd160(secret_hash).as_slice());
     } else {
-        builder = builder.push_opcode(Opcode::OP_HASH160);
+        builder = builder.push_bytes(secret_hash);
     }
 
     builder
-        .push_bytes(secret_hash)
         .push_opcode(Opcode::OP_EQUALVERIFY)
         .push_bytes(pub_1)
         .push_opcode(Opcode::OP_CHECKSIG)

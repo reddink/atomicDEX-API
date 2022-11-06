@@ -22,8 +22,8 @@ use crate::{BalanceFut, CoinBalance, CoinFutSpawner, DerivationMethod, FeeApprox
             TradePreimageResult, TradePreimageValue, Transaction, TransactionEnum, TransactionErr, TransactionFut,
             TxMarshalingErr, UnexpectedDerivationMethod, UtxoStandardCoin, ValidateAddressResult,
             ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut,
-            ValidatePaymentInput, VerificationError, VerificationResult, WatcherOps, WatcherSearchForSwapTxSpendInput,
-            WatcherValidatePaymentInput, WithdrawError, WithdrawFut, WithdrawRequest};
+            ValidatePaymentInput, VerificationError, VerificationResult, WatcherOps, WatcherValidatePaymentInput,
+            WithdrawError, WithdrawFut, WithdrawRequest};
 use async_trait::async_trait;
 use bitcoin::bech32::ToBase32;
 use bitcoin::hashes::Hash;
@@ -819,13 +819,6 @@ impl WatcherOps for LightningCoin {
     fn watcher_validate_taker_payment(&self, _input: WatcherValidatePaymentInput) -> ValidatePaymentFut<()> {
         unimplemented!();
     }
-
-    async fn watcher_search_for_swap_tx_spend(
-        &self,
-        _input: WatcherSearchForSwapTxSpendInput<'_>,
-    ) -> Result<Option<FoundSwapTxSpend>, String> {
-        unimplemented!();
-    }
 }
 
 impl MarketCoinOps for LightningCoin {
@@ -854,7 +847,7 @@ impl MarketCoinOps for LightningCoin {
             checksum_type: ChecksumType::DSHA256,
         };
         let signature = private.sign_compact(&H256::from(message_hash))?;
-        Ok(zbase32::encode_full_bytes(&*signature))
+        Ok(zbase32::encode_full_bytes(&signature))
     }
 
     fn verify_message(&self, signature: &str, message: &str, pubkey: &str) -> VerificationResult<bool> {
@@ -1142,6 +1135,8 @@ impl MmCoin for LightningCoin {
     fn set_requires_notarization(&self, _requires_nota: bool) {}
 
     fn swap_contract_address(&self) -> Option<BytesJson> { None }
+
+    fn fallback_swap_contract(&self) -> Option<BytesJson> { None }
 
     fn mature_confirmations(&self) -> Option<u32> { None }
 

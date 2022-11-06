@@ -489,16 +489,6 @@ pub struct WatcherValidatePaymentInput {
     pub confirmations: u64,
 }
 
-pub struct WatcherSearchForSwapTxSpendInput<'a> {
-    pub time_lock: u32,
-    pub taker_pub: &'a [u8],
-    pub maker_pub: &'a [u8],
-    pub secret_hash: &'a [u8],
-    pub tx: &'a [u8],
-    pub search_from_block: u64,
-    pub swap_contract_address: &'a Option<BytesJson>,
-}
-
 #[derive(Clone, Debug)]
 pub struct ValidatePaymentInput {
     pub payment_tx: Vec<u8>,
@@ -731,11 +721,6 @@ pub trait WatcherOps {
     fn watcher_validate_taker_fee(&self, _taker_fee_hash: Vec<u8>, _verified_pub: Vec<u8>) -> ValidatePaymentFut<()>;
 
     fn watcher_validate_taker_payment(&self, _input: WatcherValidatePaymentInput) -> ValidatePaymentFut<()>;
-
-    async fn watcher_search_for_swap_tx_spend(
-        &self,
-        input: WatcherSearchForSwapTxSpendInput<'_>,
-    ) -> Result<Option<FoundSwapTxSpend>, String>;
 }
 
 /// Operations that coins have independently from the MarketMaker.
@@ -1938,6 +1923,9 @@ pub trait MmCoin: SwapOps + WatcherOps + MarketCoinOps + Send + Sync + 'static {
 
     /// Get swap contract address if the coin uses it in Atomic Swaps.
     fn swap_contract_address(&self) -> Option<BytesJson>;
+
+    /// Get fallback swap contract address if the coin uses it in Atomic Swaps.
+    fn fallback_swap_contract(&self) -> Option<BytesJson>;
 
     /// The minimum number of confirmations at which a transaction is considered mature.
     fn mature_confirmations(&self) -> Option<u32>;
