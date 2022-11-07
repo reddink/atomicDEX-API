@@ -204,7 +204,7 @@ pub struct SolanaCoinImpl {
     spl_tokens_infos: Arc<Mutex<HashMap<String, SplTokenInfo>>>,
     /// This spawner is used to spawn coin's related futures that should be aborted on coin deactivation
     /// and on [`MmArc::stop`].
-    abortable_system: AbortableQueue,
+    pub abortable_system: AbortableQueue,
 }
 
 #[derive(Clone)]

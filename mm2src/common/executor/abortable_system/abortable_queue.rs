@@ -16,7 +16,7 @@ type FutureId = usize;
 ///
 /// `AbortableQueue` is responsible for storing future handles in `QueueInner`
 /// and deleting them as soon as they complete.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct AbortableQueue {
     inner: InnerShared<QueueInner>,
 }

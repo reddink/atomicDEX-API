@@ -42,10 +42,7 @@ const INTERNAL_SERVER_ERROR_CODE: u16 = 500;
 /// Get enabled `platform coin` tokens if `mm2` receives a request to disable a `platform token`.
 async fn get_enabled_platform_coin_tokens(ctx: &MmArc, platform_ticker: &str) -> Result<Vec<String>, String> {
     let coins_ctx = CoinsContext::from_ctx(ctx).map_err(|err| ERRL!("{}", err))?;
-    coins_ctx
-        .get_platform_coin_tokens(platform_ticker)
-        .await
-        .map_err(|err| ERRL!("{:?}", err))
+    Ok(coins_ctx.get_platform_coin_tokens(platform_ticker).await)
 }
 
 /// Attempts to disable the coin
@@ -111,6 +108,7 @@ pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, St
         disabled_tokens_tickers.push(ticker);
     }
 
+    coin.abort_system();
     let res = json!({
         "result": {
             "coins": disabled_tokens_tickers,

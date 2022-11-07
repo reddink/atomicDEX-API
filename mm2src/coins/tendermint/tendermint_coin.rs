@@ -77,7 +77,7 @@ pub struct TendermintCoinImpl {
     sequence_lock: AsyncMutex<()>,
     /// This spawner is used to spawn coin's related futures that should be aborted on coin deactivation
     /// or on [`MmArc::stop`].
-    abortable_system: AbortableQueue,
+    pub abortable_system: AbortableQueue,
 }
 
 #[derive(Clone)]

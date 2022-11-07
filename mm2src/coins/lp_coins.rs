@@ -1976,6 +1976,28 @@ impl MmCoinEnum {
             _ => false,
         }
     }
+
+    /// Abort all spawned futures related to a coin
+    pub fn abort_system(self) {
+        match self {
+            MmCoinEnum::UtxoCoin(utxo) => drop(utxo.as_ref().abortable_system.clone()),
+            MmCoinEnum::QtumCoin(qtum) => drop(qtum.as_ref().abortable_system.clone()),
+            MmCoinEnum::Qrc20Coin(qrc) => drop(qrc.as_ref().abortable_system.clone()),
+            MmCoinEnum::EthCoin(eth) => drop(eth.abortable_system.clone()),
+            #[cfg(not(target_arch = "wasm32"))]
+            MmCoinEnum::ZCoin(zcoin) => drop(zcoin.as_ref().abortable_system.clone()),
+            MmCoinEnum::Bch(bch) => drop(bch.as_ref().abortable_system.clone()),
+            MmCoinEnum::SlpToken(slp) => drop(slp.as_ref().abortable_system.clone()),
+            MmCoinEnum::Tendermint(tender) => drop(tender.abortable_system.clone()),
+            #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+            MmCoinEnum::SolanaCoin(sol) => drop(sol.abortable_system.clone()),
+            #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+            MmCoinEnum::SplToken(spl) => drop(spl.platform_coin.abortable_system.clone()),
+            #[cfg(not(target_arch = "wasm32"))]
+            MmCoinEnum::LightningCoin(light) => drop(light.platform.abortable_system.clone()),
+            MmCoinEnum::Test(_) => (),
+        };
+    }
 }
 
 #[async_trait]
@@ -2066,23 +2088,15 @@ impl CoinsContext {
     }
 
     /// Get enabled `platform coin` tokens.
-    pub async fn get_platform_coin_tokens(
-        &self,
-        platform_ticker: &str,
-    ) -> Result<Vec<String>, MmError<PlatformIsNotActivatedErr>> {
+    pub async fn get_platform_coin_tokens(&self, platform_ticker: &str) -> Vec<String> {
         let coins = self.coins.lock().await;
-        if !coins.contains_key(platform_ticker) {
-            return MmError::err(PlatformIsNotActivatedErr {
-                ticker: platform_ticker.into(),
-            });
-        }
 
-        Ok(coins
+        coins
             .clone()
             .iter()
             .filter(|(_, coin)| coin.platform_ticker() == platform_ticker)
             .map(|(_, coin)| coin.ticker().to_owned())
-            .collect())
+            .collect()
     }
 
     #[cfg(target_arch = "wasm32")]
