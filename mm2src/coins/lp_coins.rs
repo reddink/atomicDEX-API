@@ -38,7 +38,7 @@ use base58::FromBase58Error;
 use common::executor::{abortable_queue::{AbortableQueue, WeakSpawner},
                        AbortSettings, SpawnAbortable, SpawnFuture};
 use common::{calc_total_pages, now_ms, ten, HttpStatusCode};
-use crypto::{Bip32Error, CryptoCtx, DerivationPath, GlobalHDAccountArc, HwRpcError, KeyPairPolicy, Secp256k1Secret,
+use crypto::{Bip32Error, Bip44PathToCoin, CryptoCtx, DerivationPath, HwRpcError, KeyPairPolicy, Secp256k1Secret,
              WithHwRpcError};
 use derive_more::Display;
 use enum_from::EnumFromTrait;
@@ -250,8 +250,6 @@ use utxo::{BlockchainNetwork, GenerateTxError, UtxoFeeDetails, UtxoTx};
 
 #[cfg(not(target_arch = "wasm32"))] pub mod z_coin;
 #[cfg(not(target_arch = "wasm32"))] use z_coin::ZCoin;
-
-pub type IguanaPrivKey = Secp256k1Secret;
 
 pub type TransactionFut = Box<dyn Future<Item = TransactionEnum, Error = TransactionErr> + Send>;
 pub type BalanceResult<T> = Result<T, MmError<BalanceError>>;
@@ -2220,18 +2218,42 @@ impl<T> PrivKeyPolicy<T> {
 
 #[derive(Clone)]
 pub enum PrivKeyBuildPolicy {
-    IguanaPrivKey(IguanaPrivKey),
-    GlobalHDAccount(GlobalHDAccountArc),
+    Secp256k1Secret(Secp256k1Secret),
     Trezor,
+}
+
+#[derive(Display)]
+pub enum DetectPrivKeyPolicyError {
+    #[display(fmt = "'derivation_path' field is not found in config")]
+    DerivationPathIsNotSet,
+    #[display(fmt = "Error deserializing 'derivation_path': {}", _0)]
+    ErrorDeserializingDerivationPath(String),
+    #[display(fmt = "Error deriving key-pair: {}", _0)]
+    ErrorDerivingKeyPair(String),
+}
+
+impl From<Bip32Error> for DetectPrivKeyPolicyError {
+    fn from(value: Bip32Error) -> Self { DetectPrivKeyPolicyError::ErrorDerivingKeyPair(value.to_string()) }
 }
 
 impl PrivKeyBuildPolicy {
     /// Detects the `PrivKeyBuildPolicy` with which the given `CryptoCtx` is initialized.
-    pub fn detect_priv_key_policy(crypto_ctx: &CryptoCtx) -> Self {
-        match crypto_ctx.key_pair_policy() {
-            KeyPairPolicy::Iguana(iguana) => PrivKeyBuildPolicy::IguanaPrivKey(iguana.secp256k1_privkey_bytes()),
-            KeyPairPolicy::GlobalHDAccount(hd_ctx) => PrivKeyBuildPolicy::GlobalHDAccount(hd_ctx.clone()),
-        }
+    /// Later it will be used to detect `MetaMask` or `Trezor` policy.
+    pub fn detect_priv_key_policy(
+        crypto_ctx: &CryptoCtx,
+        coin_conf: &Json,
+    ) -> MmResult<Self, DetectPrivKeyPolicyError> {
+        let secret = match crypto_ctx.key_pair_policy() {
+            KeyPairPolicy::Iguana(iguana) => iguana.secp256k1_privkey_bytes(),
+            KeyPairPolicy::GlobalHDAccount(hd_ctx) => {
+                let derivation_path: Option<Bip44PathToCoin> =
+                    json::from_value(coin_conf["derivation_path"].clone())
+                        .map_to_mm(|e| DetectPrivKeyPolicyError::ErrorDeserializingDerivationPath(e.to_string()))?;
+                let derivation_path = derivation_path.or_mm_err(|| DetectPrivKeyPolicyError::DerivationPathIsNotSet)?;
+                hd_ctx.derive_secp256k1_secret(&derivation_path)?
+            },
+        };
+        Ok(PrivKeyBuildPolicy::Secp256k1Secret(secret))
     }
 }
 
@@ -2510,7 +2532,7 @@ pub async fn lp_coininit(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoin
 
     let crypto_ctx = try_s!(CryptoCtx::from_ctx(ctx));
     // The legacy electrum/enable RPCs don't support Hardware Wallet policy.
-    let priv_key_policy = PrivKeyBuildPolicy::detect_priv_key_policy(&crypto_ctx);
+    let priv_key_policy = try_s!(PrivKeyBuildPolicy::detect_priv_key_policy(&crypto_ctx, &coins_en));
 
     if coins_en["protocol"].is_null() {
         return ERR!(

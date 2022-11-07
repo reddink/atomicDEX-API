@@ -6,10 +6,11 @@ use coins::utxo::qtum::{qtum_coin_with_priv_key, QtumCoin};
 use coins::utxo::rpc_clients::UtxoRpcClientEnum;
 use coins::utxo::utxo_common::big_decimal_from_sat;
 use coins::utxo::{UtxoActivationParams, UtxoCommonOps};
-use coins::{FeeApproxStage, FoundSwapTxSpend, IguanaPrivKey, MarketCoinOps, MmCoin, SearchForSwapTxSpendInput,
-            SwapOps, TradePreimageValue, TransactionEnum, ValidatePaymentInput};
+use coins::{FeeApproxStage, FoundSwapTxSpend, MarketCoinOps, MmCoin, SearchForSwapTxSpendInput, SwapOps,
+            TradePreimageValue, TransactionEnum, ValidatePaymentInput};
 use common::log::debug;
 use common::{temp_dir, DEX_FEE_ADDR_RAW_PUBKEY};
+use crypto::Secp256k1Secret;
 use ethereum_types::H160;
 use futures01::Future;
 use http::StatusCode;
@@ -51,7 +52,7 @@ impl QtumDockerOps {
         let req = json!({
             "method": "enable",
         });
-        let priv_key = IguanaPrivKey::from("809465b17d0a4ddb3e4c69e8f23c2cabad868f51f8bed5c765ad1d6516c3306f");
+        let priv_key = Secp256k1Secret::from("809465b17d0a4ddb3e4c69e8f23c2cabad868f51f8bed5c765ad1d6516c3306f");
         let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
         let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key)).unwrap();
         QtumDockerOps { ctx, coin }
@@ -818,8 +819,8 @@ fn test_wait_for_tx_spend() {
 
 #[test]
 fn test_check_balance_on_order_post_base_coin_locked() {
-    let bob_priv_key = random_iguana_privkey();
-    let alice_priv_key = random_iguana_privkey();
+    let bob_priv_key = random_secp256k1_secret();
+    let alice_priv_key = random_secp256k1_secret();
     let timeout = 30; // timeout if test takes more than 80 seconds to run
 
     // fill the Bob address by 0.05 Qtum

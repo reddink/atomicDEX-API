@@ -22,12 +22,12 @@ use crate::utxo::utxo_sql_block_header_storage::SqliteBlockHeadersStorage;
 use crate::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
 use crate::utxo::utxo_tx_history_v2::{UtxoTxDetailsParams, UtxoTxHistoryOps};
 #[cfg(not(target_arch = "wasm32"))] use crate::WithdrawFee;
-use crate::{BlockHeightAndTime, CoinBalance, IguanaPrivKey, PrivKeyBuildPolicy, SearchForSwapTxSpendInput,
-            StakingInfosDetails, SwapOps, TradePreimageValue, TxFeeDetails, TxMarshalingErr};
+use crate::{BlockHeightAndTime, CoinBalance, PrivKeyBuildPolicy, SearchForSwapTxSpendInput, StakingInfosDetails,
+            SwapOps, TradePreimageValue, TxFeeDetails, TxMarshalingErr};
 use chain::{BlockHeader, OutPoint};
 use common::executor::Timer;
 use common::{block_on, now_ms, OrdRange, PagingOptionsEnum, DEX_FEE_ADDR_RAW_PUBKEY};
-use crypto::{privkey::key_pair_from_seed, Bip44Chain, RpcDerivationPath};
+use crypto::{privkey::key_pair_from_seed, Bip44Chain, RpcDerivationPath, Secp256k1Secret};
 use db_common::sqlite::rusqlite::Connection;
 use futures::future::join_all;
 use futures::TryFutureExt;
@@ -51,7 +51,7 @@ pub fn electrum_client_for_test(servers: &[&str]) -> ElectrumClient {
         "servers": servers,
     });
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(IguanaPrivKey::default());
+    let priv_key_policy = PrivKeyBuildPolicy::Secp256k1Secret(Secp256k1Secret::default());
     let builder = UtxoArcBuilder::new(
         &ctx,
         TEST_COIN_NAME,
@@ -1334,7 +1334,7 @@ fn test_cashaddresses_in_tx_details_by_hash() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let priv_key = IguanaPrivKey::from([1; 32]);
+    let priv_key = Secp256k1Secret::from([1; 32]);
     let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "BCH", &conf, &params, priv_key)).unwrap();
 
     let tx_details = get_tx_details_eq_for_both_versions(&coin, TX_HASH);
@@ -1373,7 +1373,7 @@ fn test_address_from_str_with_cashaddress_activated() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let priv_key = IguanaPrivKey::from([1; 32]);
+    let priv_key = Secp256k1Secret::from([1; 32]);
     let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "BCH", &conf, &params, priv_key)).unwrap();
 
     // other error on parse
@@ -1411,7 +1411,7 @@ fn test_address_from_str_with_legacy_address_activated() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let priv_key = IguanaPrivKey::from([1; 32]);
+    let priv_key = Secp256k1Secret::from([1; 32]);
     let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "BCH", &conf, &params, priv_key)).unwrap();
 
     let error = UtxoCommonOps::address_from_str(&coin, "bitcoincash:qzxqqt9lh4feptf0mplnk58gnajfepzwcq9f2rxk55")
@@ -1470,7 +1470,7 @@ fn test_unavailable_electrum_proto_version() {
 
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let priv_key = IguanaPrivKey::from([1; 32]);
+    let priv_key = Secp256k1Secret::from([1; 32]);
     let error = block_on(utxo_standard_coin_with_priv_key(&ctx, "RICK", &conf, &params, priv_key))
         .err()
         .unwrap();
@@ -1545,7 +1545,7 @@ fn test_one_unavailable_electrum_proto_version() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let priv_key = IguanaPrivKey::from([1; 32]);
+    let priv_key = Secp256k1Secret::from([1; 32]);
     let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "BTC", &conf, &params, priv_key)).unwrap();
 
     block_on(async { Timer::sleep(0.5).await });
@@ -1555,7 +1555,7 @@ fn test_one_unavailable_electrum_proto_version() {
 
 #[test]
 fn test_qtum_generate_pod() {
-    let priv_key = IguanaPrivKey::from([
+    let priv_key = Secp256k1Secret::from([
         3, 98, 177, 3, 108, 39, 234, 144, 131, 178, 103, 103, 127, 80, 230, 166, 53, 68, 147, 215, 42, 216, 144, 72,
         172, 110, 180, 13, 123, 179, 10, 49,
     ]);
@@ -1744,7 +1744,7 @@ fn test_qtum_my_balance() {
 
     let ctx = MmCtxBuilder::new().into_mm_arc();
 
-    let priv_key = IguanaPrivKey::from([
+    let priv_key = Secp256k1Secret::from([
         184, 199, 116, 240, 113, 222, 8, 199, 253, 143, 98, 185, 127, 26, 87, 38, 246, 206, 159, 27, 207, 20, 27, 112,
         184, 102, 137, 37, 78, 214, 113, 78,
     ]);
@@ -1780,7 +1780,7 @@ fn test_qtum_my_balance_with_check_utxo_maturity_false() {
 
     let ctx = MmCtxBuilder::new().into_mm_arc();
 
-    let priv_key = IguanaPrivKey::from([
+    let priv_key = Secp256k1Secret::from([
         184, 199, 116, 240, 113, 222, 8, 199, 253, 143, 98, 185, 127, 26, 87, 38, 246, 206, 159, 27, 207, 20, 27, 112,
         184, 102, 137, 37, 78, 214, 113, 78,
     ]);
@@ -2673,7 +2673,7 @@ fn test_generate_tx_doge_fee() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&request).unwrap();
 
-    let priv_key = IguanaPrivKey::from([1; 32]);
+    let priv_key = Secp256k1Secret::from([1; 32]);
     let doge = block_on(utxo_standard_coin_with_priv_key(
         &ctx, "DOGE", &config, &params, priv_key,
     ))
@@ -3188,7 +3188,7 @@ fn test_utxo_standard_with_check_utxo_maturity_true() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let priv_key = IguanaPrivKey::from([1; 32]);
+    let priv_key = Secp256k1Secret::from([1; 32]);
     let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "RICK", &conf, &params, priv_key)).unwrap();
 
     let address = Address::from("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW");
@@ -3228,7 +3228,7 @@ fn test_utxo_standard_without_check_utxo_maturity() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let priv_key = IguanaPrivKey::from([1; 32]);
+    let priv_key = Secp256k1Secret::from([1; 32]);
     let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "RICK", &conf, &params, priv_key)).unwrap();
 
     let address = Address::from("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW");
@@ -3263,7 +3263,7 @@ fn test_qtum_without_check_utxo_maturity() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let priv_key = IguanaPrivKey::from([1; 32]);
+    let priv_key = Secp256k1Secret::from([1; 32]);
     let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key)).unwrap();
 
     let address = Address::from("qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE");
@@ -3276,7 +3276,7 @@ fn test_qtum_without_check_utxo_maturity() {
 #[test]
 #[ignore]
 fn test_split_qtum() {
-    let priv_key = IguanaPrivKey::from([
+    let priv_key = Secp256k1Secret::from([
         3, 98, 177, 3, 108, 39, 234, 144, 131, 178, 103, 103, 127, 80, 230, 166, 53, 68, 147, 215, 42, 216, 144, 72,
         172, 110, 180, 13, 123, 179, 10, 49,
     ]);
@@ -3378,7 +3378,7 @@ fn test_qtum_with_check_utxo_maturity_false() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let priv_key = IguanaPrivKey::from([1; 32]);
+    let priv_key = Secp256k1Secret::from([1; 32]);
     let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key)).unwrap();
 
     let address = Address::from("qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE");
@@ -4240,7 +4240,7 @@ fn test_utxo_validate_valid_and_invalid_pubkey() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let priv_key = IguanaPrivKey::from([1; 32]);
+    let priv_key = Secp256k1Secret::from([1; 32]);
     let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "RICK", &conf, &params, priv_key)).unwrap();
     // Test expected to pass at this point as we're using a valid pubkey to validate against a valid pubkey
     assert!(coin

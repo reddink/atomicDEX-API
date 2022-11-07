@@ -18,18 +18,17 @@ use crate::rpc_command::init_scan_for_new_addresses::{self, InitScanAddressesRpc
 use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_builder::{BlockHeaderUtxoArcOps, MergeUtxoArcOps, UtxoCoinBuildError, UtxoCoinBuilder,
-                                UtxoCoinBuilderCommonOps, UtxoFieldsWithGlobalHDBuilder,
-                                UtxoFieldsWithHardwareWalletBuilder, UtxoFieldsWithIguanaSecretBuilder};
+                                UtxoCoinBuilderCommonOps, UtxoFieldsWithHardwareWalletBuilder,
+                                UtxoFieldsWithSecp256k1SecretBuilder};
 use crate::utxo::utxo_tx_history_v2::{UtxoMyAddressesHistoryError, UtxoTxDetailsError, UtxoTxDetailsParams,
                                       UtxoTxHistoryOps};
 use crate::{eth, CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, DelegationError, DelegationFut,
-            GetWithdrawSenderAddress, IguanaPrivKey, NegotiateSwapContractAddrErr, PaymentInstructions,
-            PaymentInstructionsErr, PrivKeyBuildPolicy, SearchForSwapTxSpendInput, SignatureResult, StakingInfosFut,
-            SwapOps, TradePreimageValue, TransactionFut, TxMarshalingErr, UnexpectedDerivationMethod,
-            ValidateAddressResult, ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentFut,
-            ValidatePaymentInput, VerificationResult, WatcherOps, WatcherValidatePaymentInput, WithdrawFut,
-            WithdrawSenderAddress};
-use crypto::Bip44Chain;
+            GetWithdrawSenderAddress, NegotiateSwapContractAddrErr, PaymentInstructions, PaymentInstructionsErr,
+            PrivKeyBuildPolicy, SearchForSwapTxSpendInput, SignatureResult, StakingInfosFut, SwapOps,
+            TradePreimageValue, TransactionFut, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult,
+            ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput,
+            VerificationResult, WatcherOps, WatcherValidatePaymentInput, WithdrawFut, WithdrawSenderAddress};
+use crypto::{Bip44Chain, Secp256k1Secret};
 use ethereum_types::H160;
 use futures::{FutureExt, TryFutureExt};
 use keys::AddressHashEnum;
@@ -214,9 +213,7 @@ impl<'a> UtxoCoinBuilderCommonOps for QtumCoinBuilder<'a> {
     fn check_utxo_maturity(&self) -> bool { self.activation_params().check_utxo_maturity.unwrap_or(true) }
 }
 
-impl<'a> UtxoFieldsWithIguanaSecretBuilder for QtumCoinBuilder<'a> {}
-
-impl<'a> UtxoFieldsWithGlobalHDBuilder for QtumCoinBuilder<'a> {}
+impl<'a> UtxoFieldsWithSecp256k1SecretBuilder for QtumCoinBuilder<'a> {}
 
 impl<'a> UtxoFieldsWithHardwareWalletBuilder for QtumCoinBuilder<'a> {}
 
@@ -295,9 +292,9 @@ pub async fn qtum_coin_with_priv_key(
     ticker: &str,
     conf: &Json,
     activation_params: &UtxoActivationParams,
-    priv_key: IguanaPrivKey,
+    priv_key: Secp256k1Secret,
 ) -> Result<QtumCoin, String> {
-    let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(priv_key);
+    let priv_key_policy = PrivKeyBuildPolicy::Secp256k1Secret(priv_key);
     qtum_coin_with_policy(ctx, ticker, conf, activation_params, priv_key_policy).await
 }
 

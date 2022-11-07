@@ -3,6 +3,7 @@ use crate::utxo::rpc_clients::UnspentInfo;
 use crate::TxFeeDetails;
 use chain::OutPoint;
 use common::{block_on, DEX_FEE_ADDR_RAW_PUBKEY};
+use crypto::Secp256k1Secret;
 use itertools::Itertools;
 use mm2_core::mm_ctx::MmCtxBuilder;
 use mm2_number::bigdecimal::Zero;
@@ -43,7 +44,7 @@ pub fn qrc20_coin_for_test(priv_key: [u8; 32], fallback_swap: Option<&str>) -> (
         "QTUM",
         &conf,
         &params,
-        IguanaPrivKey::from(priv_key),
+        Secp256k1Secret::from(priv_key),
         contract_address,
     ))
     .unwrap();
@@ -801,7 +802,7 @@ fn test_get_sender_trade_fee_preimage_for_correct_ticker() {
         "tQTUM",
         &conf,
         &params,
-        IguanaPrivKey::from(priv_key),
+        Secp256k1Secret::from(priv_key),
         contract_address,
     ))
     .unwrap();
@@ -909,7 +910,7 @@ fn test_coin_from_conf_without_decimals() {
         "QTUM",
         &conf,
         &params,
-        IguanaPrivKey::from(priv_key),
+        Secp256k1Secret::from(priv_key),
         contract_address,
     ))
     .unwrap();

@@ -20,8 +20,9 @@ use coins::utxo::utxo_common::send_outputs_from_my_address;
 use coins::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
 use coins::utxo::{coin_daemon_data_dir, sat_from_big_decimal, zcash_params_path, UtxoActivationParams,
                   UtxoAddressFormat, UtxoCoinFields, UtxoCommonOps};
-use coins::{CoinProtocol, IguanaPrivKey, MarketCoinOps, PrivKeyBuildPolicy, Transaction};
+use coins::{CoinProtocol, MarketCoinOps, PrivKeyBuildPolicy, Transaction};
 use crypto::privkey::key_pair_from_seed;
+use crypto::Secp256k1Secret;
 use ethereum_types::H160 as H160Eth;
 use futures01::Future;
 use http::StatusCode;
@@ -114,7 +115,7 @@ impl UtxoAssetDockerOps {
     pub fn from_ticker(ticker: &str) -> UtxoAssetDockerOps {
         let conf = json!({"asset": ticker, "txfee": 1000, "network": "regtest"});
         let req = json!({"method":"enable"});
-        let priv_key = IguanaPrivKey::from("809465b17d0a4ddb3e4c69e8f23c2cabad868f51f8bed5c765ad1d6516c3306f");
+        let priv_key = Secp256k1Secret::from("809465b17d0a4ddb3e4c69e8f23c2cabad868f51f8bed5c765ad1d6516c3306f");
         let ctx = MmCtxBuilder::new().into_mm_arc();
         let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
@@ -142,7 +143,7 @@ fn eth_distributor() -> EthCoin {
     });
     let keypair =
         key_pair_from_seed("spice describe gravity federal blast come thank unfair canal monkey style afraid").unwrap();
-    let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(keypair.private().secret);
+    let priv_key_policy = PrivKeyBuildPolicy::Secp256k1Secret(keypair.private().secret);
     block_on(eth_coin_from_conf_and_request(
         &MM_CTX,
         "ETH",
@@ -166,7 +167,7 @@ impl BchDockerOps {
     pub fn from_ticker(ticker: &str) -> BchDockerOps {
         let conf = json!({"asset": ticker,"txfee":1000,"network": "regtest","txversion":4,"overwintered":1});
         let req = json!({"method":"enable", "bchd_urls": [], "allow_slp_unsafe_conf": true});
-        let priv_key = IguanaPrivKey::from("809465b17d0a4ddb3e4c69e8f23c2cabad868f51f8bed5c765ad1d6516c3306f");
+        let priv_key = Secp256k1Secret::from("809465b17d0a4ddb3e4c69e8f23c2cabad868f51f8bed5c765ad1d6516c3306f");
         let ctx = MmCtxBuilder::new().into_mm_arc();
         let params = BchActivationRequest::from_legacy_req(&req).unwrap();
 
@@ -265,9 +266,9 @@ pub struct UtxoDockerNode<'a> {
     pub port: u16,
 }
 
-pub fn random_iguana_privkey() -> IguanaPrivKey {
+pub fn random_secp256k1_secret() -> Secp256k1Secret {
     let priv_key = SecretKey::new(&mut rand6::thread_rng());
-    IguanaPrivKey::from(*priv_key.as_ref())
+    Secp256k1Secret::from(*priv_key.as_ref())
 }
 
 pub fn utxo_asset_docker_node<'a>(docker: &'a Cli, ticker: &'static str, port: u16) -> UtxoDockerNode<'a> {
@@ -315,7 +316,7 @@ pub fn utxo_asset_docker_node<'a>(docker: &'a Cli, ticker: &'static str, port: u
     }
 }
 
-pub fn rmd160_from_priv(privkey: IguanaPrivKey) -> H160 {
+pub fn rmd160_from_priv(privkey: Secp256k1Secret) -> H160 {
     let secret = SecretKey::from_slice(privkey.as_slice()).unwrap();
     let public = PublicKey::from_secret_key(&Secp256k1::new(), &secret);
     dhash160(&public.serialize())
@@ -339,7 +340,7 @@ where
 }
 
 /// Build `Qrc20Coin` from ticker and privkey without filling the balance.
-pub fn qrc20_coin_from_privkey(ticker: &str, priv_key: IguanaPrivKey) -> (MmArc, Qrc20Coin) {
+pub fn qrc20_coin_from_privkey(ticker: &str, priv_key: Secp256k1Secret) -> (MmArc, Qrc20Coin) {
     let (contract_address, swap_contract_address) = unsafe {
         let contract_address = match ticker {
             "QICK" => QICK_TOKEN_ADDRESS
@@ -422,7 +423,7 @@ fn qrc20_coin_conf_item(ticker: &str) -> Json {
 }
 
 /// Build asset `UtxoStandardCoin` from ticker and privkey without filling the balance.
-pub fn utxo_coin_from_privkey(ticker: &str, priv_key: IguanaPrivKey) -> (MmArc, UtxoStandardCoin) {
+pub fn utxo_coin_from_privkey(ticker: &str, priv_key: Secp256k1Secret) -> (MmArc, UtxoStandardCoin) {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let conf = json!({"asset":ticker,"txversion":4,"overwintered":1,"txfee":1000,"network":"regtest"});
     let req = json!({"method":"enable"});
@@ -433,7 +434,7 @@ pub fn utxo_coin_from_privkey(ticker: &str, priv_key: IguanaPrivKey) -> (MmArc, 
 }
 
 /// Create a UTXO coin for the given privkey and fill it's address with the specified balance.
-pub fn generate_utxo_coin_with_privkey(ticker: &str, balance: BigDecimal, priv_key: IguanaPrivKey) {
+pub fn generate_utxo_coin_with_privkey(ticker: &str, balance: BigDecimal, priv_key: Secp256k1Secret) {
     let (_, coin) = utxo_coin_from_privkey(ticker, priv_key);
     let timeout = 30; // timeout if test takes more than 30 seconds to run
     let my_address = coin.my_address().expect("!my_address");
@@ -444,8 +445,8 @@ pub fn generate_utxo_coin_with_privkey(ticker: &str, balance: BigDecimal, priv_k
 pub fn generate_utxo_coin_with_random_privkey(
     ticker: &str,
     balance: BigDecimal,
-) -> (MmArc, UtxoStandardCoin, IguanaPrivKey) {
-    let priv_key = random_iguana_privkey();
+) -> (MmArc, UtxoStandardCoin, Secp256k1Secret) {
+    let priv_key = random_secp256k1_secret();
     let (ctx, coin) = utxo_coin_from_privkey(ticker, priv_key);
     let timeout = 30; // timeout if test takes more than 30 seconds to run
     let my_address = coin.my_address().expect("!my_address");
@@ -513,8 +514,8 @@ pub fn generate_qrc20_coin_with_random_privkey(
     ticker: &str,
     qtum_balance: BigDecimal,
     qrc20_balance: BigDecimal,
-) -> (MmArc, Qrc20Coin, IguanaPrivKey) {
-    let priv_key = random_iguana_privkey();
+) -> (MmArc, Qrc20Coin, Secp256k1Secret) {
+    let priv_key = random_secp256k1_secret();
     let (ctx, coin) = qrc20_coin_from_privkey(ticker, priv_key);
 
     let timeout = 30; // timeout if test takes more than 30 seconds to run
@@ -546,7 +547,7 @@ pub fn generate_qtum_coin_with_random_privkey(
         "dust": 72800,
     });
     let req = json!({"method": "enable"});
-    let priv_key = random_iguana_privkey();
+    let priv_key = random_secp256k1_secret();
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
     let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key)).unwrap();
@@ -561,7 +562,7 @@ pub fn generate_segwit_qtum_coin_with_random_privkey(
     ticker: &str,
     balance: BigDecimal,
     txfee: Option<u64>,
-) -> (MmArc, QtumCoin, IguanaPrivKey) {
+) -> (MmArc, QtumCoin, Secp256k1Secret) {
     let confpath = unsafe { QTUM_CONF_PATH.as_ref().expect("Qtum config is not set yet") };
     let conf = json!({
         "coin":ticker,
@@ -584,7 +585,7 @@ pub fn generate_segwit_qtum_coin_with_random_privkey(
         },
     });
     let req = json!({"method": "enable"});
-    let priv_key = random_iguana_privkey();
+    let priv_key = random_secp256k1_secret();
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
     let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key)).unwrap();
@@ -652,7 +653,7 @@ pub fn wait_for_estimate_smart_fee(timeout: u64) -> Result<(), String> {
         EstimateSmartFeeState::Idle => log!("Start wait_for_estimate_smart_fee"),
     }
 
-    let priv_key = random_iguana_privkey();
+    let priv_key = random_secp256k1_secret();
     let (_ctx, coin) = qrc20_coin_from_privkey("QICK", priv_key);
     let timeout = now_ms() / 1000 + timeout;
     let client = match coin.as_ref().rpc_client {
@@ -696,7 +697,7 @@ pub async fn enable_qrc20_native(mm: &MarketMakerIt, coin: &str) -> Json {
 
 pub fn trade_base_rel((base, rel): (&str, &str)) {
     /// Generate a wallet with the random private key and fill the wallet with Qtum (required by gas_fee) and specified in `ticker` coin.
-    fn generate_and_fill_priv_key(ticker: &str) -> IguanaPrivKey {
+    fn generate_and_fill_priv_key(ticker: &str) -> Secp256k1Secret {
         let timeout = 30; // timeout if test takes more than 30 seconds to run
 
         match ticker {
@@ -708,7 +709,7 @@ pub fn trade_base_rel((base, rel): (&str, &str)) {
                 priv_key
             },
             "QICK" | "QORTY" => {
-                let priv_key = random_iguana_privkey();
+                let priv_key = random_secp256k1_secret();
                 let (_ctx, coin) = qrc20_coin_from_privkey(ticker, priv_key);
                 let my_address = coin.my_address().expect("!my_address");
                 fill_address(&coin, &my_address, 10.into(), timeout);
@@ -717,7 +718,7 @@ pub fn trade_base_rel((base, rel): (&str, &str)) {
                 priv_key
             },
             "MYCOIN" | "MYCOIN1" => {
-                let priv_key = random_iguana_privkey();
+                let priv_key = random_secp256k1_secret();
                 let (_ctx, coin) = utxo_coin_from_privkey(ticker, priv_key);
                 let my_address = coin.my_address().expect("!my_address");
                 fill_address(&coin, &my_address, 10.into(), timeout);
@@ -728,8 +729,7 @@ pub fn trade_base_rel((base, rel): (&str, &str)) {
 
                 priv_key
             },
-            "ADEXSLP" => IguanaPrivKey::from(get_prefilled_slp_privkey()),
-            "FORSLP" => IguanaPrivKey::from(get_prefilled_slp_privkey()),
+            "ADEXSLP" | "FORSLP" => Secp256k1Secret::from(get_prefilled_slp_privkey()),
             _ => panic!("Expected either QICK or QORTY or MYCOIN or MYCOIN1, found {}", ticker),
         }
     }

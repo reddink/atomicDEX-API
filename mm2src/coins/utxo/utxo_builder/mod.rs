@@ -4,6 +4,5 @@ mod utxo_conf_builder;
 
 pub use utxo_arc_builder::{BlockHeaderUtxoArcOps, MergeUtxoArcOps, UtxoArcBuilder};
 pub use utxo_coin_builder::{UtxoCoinBuildError, UtxoCoinBuildResult, UtxoCoinBuilder, UtxoCoinBuilderCommonOps,
-                            UtxoFieldsWithGlobalHDBuilder, UtxoFieldsWithHardwareWalletBuilder,
-                            UtxoFieldsWithIguanaSecretBuilder};
+                            UtxoFieldsWithHardwareWalletBuilder, UtxoFieldsWithSecp256k1SecretBuilder};
 pub use utxo_conf_builder::{UtxoConfBuilder, UtxoConfError, UtxoConfResult};

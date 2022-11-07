@@ -20,13 +20,13 @@ use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_builder::{UtxoArcBuilder, UtxoCoinBuilder};
 use crate::utxo::utxo_tx_history_v2::{UtxoMyAddressesHistoryError, UtxoTxDetailsError, UtxoTxDetailsParams,
                                       UtxoTxHistoryOps};
-use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, GetWithdrawSenderAddress, IguanaPrivKey,
+use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, GetWithdrawSenderAddress,
             NegotiateSwapContractAddrErr, PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy,
             SearchForSwapTxSpendInput, SignatureResult, SwapOps, TradePreimageValue, TransactionFut, TxMarshalingErr,
             ValidateAddressResult, ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentFut,
             ValidatePaymentInput, VerificationResult, WatcherOps, WatcherValidatePaymentInput, WithdrawFut,
             WithdrawSenderAddress};
-use crypto::Bip44Chain;
+use crypto::{Bip44Chain, Secp256k1Secret};
 use futures::{FutureExt, TryFutureExt};
 use mm2_metrics::MetricsArc;
 use mm2_number::MmNumber;
@@ -76,9 +76,9 @@ pub async fn utxo_standard_coin_with_priv_key(
     ticker: &str,
     conf: &Json,
     activation_params: &UtxoActivationParams,
-    priv_key: IguanaPrivKey,
+    priv_key: Secp256k1Secret,
 ) -> Result<UtxoStandardCoin, String> {
-    let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(priv_key);
+    let priv_key_policy = PrivKeyBuildPolicy::Secp256k1Secret(priv_key);
     utxo_standard_coin_with_policy(ctx, ticker, conf, activation_params, priv_key_policy).await
 }
 

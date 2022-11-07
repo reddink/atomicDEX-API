@@ -1,6 +1,6 @@
 use crate::integration_tests_common::*;
 use crate::{fill_address, fill_eth, generate_utxo_coin_with_privkey, generate_utxo_coin_with_random_privkey,
-            random_iguana_privkey, rmd160_from_priv, utxo_coin_from_privkey};
+            random_secp256k1_secret, rmd160_from_priv, utxo_coin_from_privkey};
 use bitcrypto::dhash160;
 use chain::OutPoint;
 use coins::utxo::rpc_clients::UnspentInfo;
@@ -811,7 +811,7 @@ fn test_watcher_spends_taker_spends_maker_payment() {
     let (_ctx, _, alice_priv_key) = generate_utxo_coin_with_random_privkey("MYCOIN1", 100.into());
     generate_utxo_coin_with_privkey("MYCOIN", 100.into(), alice_priv_key);
 
-    let watcher_priv_key = random_iguana_privkey();
+    let watcher_priv_key = random_secp256k1_secret();
 
     let coins = json!([
         {"coin":"MYCOIN","asset":"MYCOIN","txversion":4,"overwintered":1,"txfee":1000,"protocol":{"type":"UTXO"}},
@@ -1455,7 +1455,7 @@ fn test_buy_max() {
 
 #[test]
 fn test_maker_trade_preimage() {
-    let priv_key = random_iguana_privkey();
+    let priv_key = random_secp256k1_secret();
 
     let (_ctx, mycoin) = utxo_coin_from_privkey("MYCOIN", priv_key);
     let my_address = mycoin.my_address().expect("!my_address");
@@ -1595,7 +1595,7 @@ fn test_maker_trade_preimage() {
 
 #[test]
 fn test_taker_trade_preimage() {
-    let priv_key = random_iguana_privkey();
+    let priv_key = random_secp256k1_secret();
 
     let (_ctx, mycoin) = utxo_coin_from_privkey("MYCOIN", priv_key);
     let my_address = mycoin.my_address().expect("!my_address");
@@ -1742,7 +1742,7 @@ fn test_trade_preimage_not_sufficient_balance() {
         assert_eq!(actual.error_data, Some(expected));
     }
 
-    let priv_key = random_iguana_privkey();
+    let priv_key = random_secp256k1_secret();
     let fill_balance_functor = |amount: BigDecimal| {
         let (_ctx, mycoin) = utxo_coin_from_privkey("MYCOIN", priv_key);
         let my_address = mycoin.my_address().expect("!my_address");
@@ -1860,7 +1860,7 @@ fn test_trade_preimage_not_sufficient_balance() {
 /// https://github.com/KomodoPlatform/atomicDEX-API/issues/902
 #[test]
 fn test_trade_preimage_additional_validation() {
-    let priv_key = random_iguana_privkey();
+    let priv_key = random_secp256k1_secret();
 
     let (_ctx, mycoin1) = utxo_coin_from_privkey("MYCOIN1", priv_key);
     let my_address = mycoin1.my_address().expect("!my_address");
@@ -2005,7 +2005,7 @@ fn test_trade_preimage_additional_validation() {
 
 #[test]
 fn test_trade_preimage_legacy() {
-    let priv_key = random_iguana_privkey();
+    let priv_key = random_secp256k1_secret();
     let (_ctx, mycoin) = utxo_coin_from_privkey("MYCOIN", priv_key);
     let my_address = mycoin.my_address().expect("!my_address");
     fill_address(&mycoin, &my_address, 10.into(), 30);
@@ -3130,7 +3130,7 @@ fn test_utxo_merge_max_merge_at_once() {
 
 #[test]
 fn test_withdraw_not_sufficient_balance() {
-    let privkey = random_iguana_privkey();
+    let privkey = random_secp256k1_secret();
     let coins = json!([
         {"coin":"MYCOIN","asset":"MYCOIN","txversion":4,"overwintered":1,"txfee":1000,"protocol":{"type":"UTXO"}},
         {"coin":"MYCOIN1","asset":"MYCOIN1","txversion":4,"overwintered":1,"txfee":1000,"protocol":{"type":"UTXO"}},
