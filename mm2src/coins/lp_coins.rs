@@ -2015,11 +2015,6 @@ pub struct PlatformIsAlreadyActivatedErr {
     pub ticker: String,
 }
 
-#[derive(Debug)]
-pub struct PlatformIsNotActivatedErr {
-    pub ticker: String,
-}
-
 impl CoinsContext {
     /// Obtains a reference to this crate context, creating it if necessary.
     pub fn from_ctx(ctx: &MmArc) -> Result<Arc<CoinsContext>, String> {
@@ -2047,7 +2042,6 @@ impl CoinsContext {
                 ticker: coin.ticker().into(),
             });
         }
-
         coins.insert(coin.ticker().into(), coin);
         Ok(())
     }
@@ -2885,10 +2879,7 @@ pub async fn disable_coin(ctx: &MmArc, ticker: &str, platform: &str) -> Result<(
 
     //  Finally, remove coin from coin list
     match coins.remove(ticker) {
-        Some(_) => {
-            coin.on_token_deactivated(ticker)?;
-            Ok(())
-        },
+        Some(_) => Ok(()),
         None => ERR!("{} is disabled already", ticker),
     }
 }
