@@ -25,7 +25,7 @@ use crate::{BalanceError, BalanceFut, CoinBalance, CoinFutSpawner, FeeApproxStag
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
 use chain::TransactionOutput;
-use common::executor::Timer;
+use common::executor::{AbortableSystem, Timer};
 use common::jsonrpc_client::{JsonRpcClient, JsonRpcRequest, RpcRes};
 use common::log::{error, warn};
 use common::now_ms;
@@ -1170,7 +1170,7 @@ impl MarketCoinOps for Qrc20Coin {
         MmNumber::from(1) / MmNumber::from(10u64.pow(pow as u32))
     }
 
-    fn on_token_deactivated(&self, _ticker: &str) {}
+    fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String> { Ok(()) }
 }
 
 #[async_trait]
@@ -1340,6 +1340,8 @@ impl MmCoin for Qrc20Coin {
     fn is_coin_protocol_supported(&self, info: &Option<Vec<u8>>) -> bool {
         utxo_common::is_coin_protocol_supported(self, info)
     }
+
+    fn on_disabled(&self) { AbortableSystem::abort_all(&self.as_ref().abortable_system); }
 }
 
 pub fn qrc20_swap_id(time_lock: u32, secret_hash: &[u8]) -> Vec<u8> {

@@ -94,7 +94,7 @@ impl MarketCoinOps for TestCoin {
 
     fn min_trading_vol(&self) -> MmNumber { MmNumber::from("0.00777") }
 
-    fn on_token_deactivated(&self, ticker: &str) {}
+    fn on_token_deactivated(&self, ticker: &str) -> Result<(), String> { Ok(()) }
 }
 
 #[async_trait]
@@ -315,4 +315,6 @@ impl MmCoin for TestCoin {
     fn coin_protocol_info(&self) -> Vec<u8> { Vec::new() }
 
     fn is_coin_protocol_supported(&self, _info: &Option<Vec<u8>>) -> bool { true }
+
+    fn on_disabled(&self) { unimplemented!() }
 }

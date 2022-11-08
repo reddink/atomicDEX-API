@@ -34,7 +34,7 @@ use bitcoin_hashes::sha256::Hash as Sha256;
 use bitcrypto::dhash256;
 use bitcrypto::ChecksumType;
 use chain::TransactionOutput;
-use common::executor::SpawnFuture;
+use common::executor::{AbortableSystem, SpawnFuture};
 use common::log::{error, LogOnError, LogState};
 use common::{async_blocking, calc_total_pages, log, now_ms, ten, PagingOptionsEnum};
 use futures::{FutureExt, TryFutureExt};
@@ -555,7 +555,7 @@ impl MarketCoinOps for LightningCoin {
     // Todo: Implement this when implementing swaps for lightning as it's is used only for order matching/swaps
     fn min_trading_vol(&self) -> MmNumber { unimplemented!() }
 
-    fn on_token_deactivated(&self, _ticker: &str) {}
+    fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String> { Ok(()) }
 }
 
 #[async_trait]
@@ -645,6 +645,8 @@ impl MmCoin for LightningCoin {
 
     // Todo: Implement this when implementing order matching for lightning as it's is used only for order matching
     fn is_coin_protocol_supported(&self, _info: &Option<Vec<u8>>) -> bool { unimplemented!() }
+
+    fn on_disabled(&self) { AbortableSystem::abort_all(&self.platform.abortable_system.clone()); }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -14,6 +14,7 @@ use crate::{BlockHeightAndTime, CanRefundHtlc, CoinBalance, CoinProtocol, CoinWi
             SearchForSwapTxSpendInput, SignatureResult, SwapOps, TradePreimageValue, TransactionFut, TransactionType,
             TxFeeDetails, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateOtherPubKeyErr,
             ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherValidatePaymentInput, WithdrawFut};
+use common::executor::AbortableSystem;
 use common::log::warn;
 use derive_more::Display;
 use futures::{FutureExt, TryFutureExt};
@@ -1143,10 +1144,11 @@ impl MarketCoinOps for BchCoin {
 
     fn min_trading_vol(&self) -> MmNumber { utxo_common::min_trading_vol(self.as_ref()) }
 
-    fn on_token_deactivated(&self, ticker: &str) {
+    fn on_token_deactivated(&self, ticker: &str) -> Result<(), String> {
         if let Ok(tokens) = self.slp_tokens_infos.try_lock().as_deref_mut() {
             tokens.remove(ticker);
         };
+        Ok(())
     }
 }
 
@@ -1224,6 +1226,8 @@ impl MmCoin for BchCoin {
     fn is_coin_protocol_supported(&self, info: &Option<Vec<u8>>) -> bool {
         utxo_common::is_coin_protocol_supported(self, info)
     }
+
+    fn on_disabled(&self) { AbortableSystem::abort_all(&self.as_ref().abortable_system); }
 }
 
 impl CoinWithDerivationMethod for BchCoin {

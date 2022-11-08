@@ -51,9 +51,7 @@ pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, St
     let coins_ctx = CoinsContext::from_ctx(&ctx).map_err(|err| ERRL!("{}", err))?;
 
     // Get all enabled tokens with platform coin including the coin.
-    let coins_to_disable = coins_ctx
-        .get_coin_or_platform_coin_tokens(platform_ticker, &ticker)
-        .await;
+    let coins_to_disable = coins_ctx.get_coins_to_disable(platform_ticker, &ticker).await;
 
     let mut disabled_tokens_tickers = vec![];
     let mut cancelled_orders = vec![];
@@ -97,12 +95,15 @@ pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, St
         ctx.background_processors.lock().unwrap().remove(ticker);
 
         try_s!(disable_coin_impl(&ctx, ticker, platform_ticker).await);
+
+        // Abort all coin related futures on coin deactivation
+        coin.on_disabled();
+
         // Combine all orders to a single vector
         cancelled_orders.extend(cancelled);
         disabled_tokens_tickers.push(ticker);
     }
 
-    coin.abort_system();
     let res = json!({
         "result": {
             "coins": disabled_tokens_tickers,

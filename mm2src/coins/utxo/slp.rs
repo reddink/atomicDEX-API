@@ -1169,7 +1169,7 @@ impl MarketCoinOps for SlpToken {
 
     fn min_trading_vol(&self) -> MmNumber { big_decimal_from_sat_unsigned(1, self.decimals()).into() }
 
-    fn on_token_deactivated(&self, _ticker: &str) {}
+    fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String> { Ok(()) }
 }
 
 #[async_trait]
@@ -1774,6 +1774,8 @@ impl MmCoin for SlpToken {
     fn coin_protocol_info(&self) -> Vec<u8> { Vec::new() }
 
     fn is_coin_protocol_supported(&self, _info: &Option<Vec<u8>>) -> bool { true }
+
+    fn on_disabled(&self) { AbortableSystem::abort_all(&self.as_ref().abortable_system); }
 }
 
 #[async_trait]

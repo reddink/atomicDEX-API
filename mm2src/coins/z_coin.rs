@@ -24,6 +24,7 @@ use async_trait::async_trait;
 use bitcrypto::{dhash160, dhash256};
 use chain::constants::SEQUENCE_FINAL;
 use chain::{Transaction as UtxoTx, TransactionOutput};
+use common::executor::AbortableSystem;
 use common::{async_blocking, calc_total_pages, log, PagingOptionsEnum};
 use crypto::privkey::{key_pair_from_secret, secp_privkey_from_hash};
 use db_common::sqlite::offset_by_id;
@@ -1016,7 +1017,7 @@ impl MarketCoinOps for ZCoin {
 
     fn is_privacy(&self) -> bool { true }
 
-    fn on_token_deactivated(&self, _ticker: &str) { todo!() }
+    fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String> { Ok(()) }
 }
 
 #[async_trait]
@@ -1501,6 +1502,8 @@ impl MmCoin for ZCoin {
     fn is_coin_protocol_supported(&self, info: &Option<Vec<u8>>) -> bool {
         utxo_common::is_coin_protocol_supported(self, info)
     }
+
+    fn on_disabled(&self) { AbortableSystem::abort_all(&self.as_ref().abortable_system); }
 }
 
 #[async_trait]

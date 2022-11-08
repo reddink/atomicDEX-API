@@ -696,7 +696,7 @@ pub trait MarketCoinOps {
 
     fn is_privacy(&self) -> bool { false }
 
-    fn on_token_deactivated(&self, ticker: &str);
+    fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String>;
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -1829,6 +1829,9 @@ pub trait MmCoin: SwapOps + MarketCoinOps + Send + Sync + 'static {
 
     /// Check if serialized coin protocol info is supported by current version.
     fn is_coin_protocol_supported(&self, info: &Option<Vec<u8>>) -> bool;
+
+    /// Abort all coin related futures on coin deactivation
+    fn on_disabled(&self);
 }
 
 /// The coin futures spawner. It's used to spawn futures that can be aborted immediately or after a timeout
@@ -1979,28 +1982,6 @@ impl MmCoinEnum {
             _ => false,
         }
     }
-
-    /// Abort all spawned futures related to a coin
-    pub fn abort_system(self) {
-        match self {
-            MmCoinEnum::UtxoCoin(utxo) => drop(utxo.as_ref().abortable_system.clone()),
-            MmCoinEnum::QtumCoin(qtum) => drop(qtum.as_ref().abortable_system.clone()),
-            MmCoinEnum::Qrc20Coin(qrc) => drop(qrc.as_ref().abortable_system.clone()),
-            MmCoinEnum::EthCoin(eth) => drop(eth.abortable_system.clone()),
-            #[cfg(not(target_arch = "wasm32"))]
-            MmCoinEnum::ZCoin(zcoin) => drop(zcoin.as_ref().abortable_system.clone()),
-            MmCoinEnum::Bch(bch) => drop(bch.as_ref().abortable_system.clone()),
-            MmCoinEnum::SlpToken(slp) => drop(slp.as_ref().abortable_system.clone()),
-            MmCoinEnum::Tendermint(tender) => drop(tender.abortable_system.clone()),
-            #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
-            MmCoinEnum::SolanaCoin(sol) => drop(sol.abortable_system.clone()),
-            #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
-            MmCoinEnum::SplToken(spl) => drop(spl.platform_coin.abortable_system.clone()),
-            #[cfg(not(target_arch = "wasm32"))]
-            MmCoinEnum::LightningCoin(light) => drop(light.platform.abortable_system.clone()),
-            MmCoinEnum::Test(_) => (),
-        };
-    }
 }
 
 #[async_trait]
@@ -2078,7 +2059,6 @@ impl CoinsContext {
     ) -> Result<(), MmError<PlatformIsAlreadyActivatedErr>> {
         let mut coins = self.coins.lock().await;
         let mut platform_coin_tokens = self.platform_coin_tokens.lock();
-        let mut platform_token_for_insertion = vec![];
 
         if coins.contains_key(platform.ticker()) {
             return MmError::err(PlatformIsAlreadyActivatedErr {
@@ -2092,17 +2072,17 @@ impl CoinsContext {
         // Tokens can't be activated without platform coin so we can safely insert them without checking prior existence
         for token in tokens {
             coins.insert(token.ticker().into(), token.clone());
-            platform_token_for_insertion.push(token.ticker().to_owned())
+            platform_coin_tokens
+                .entry(platform_ticker.clone())
+                .or_default()
+                .insert(0, token.ticker().to_string());
         }
-
-        platform_token_for_insertion.push(platform_ticker.clone());
-        platform_coin_tokens.insert(platform_ticker, platform_token_for_insertion);
 
         Ok(())
     }
 
-    /// Get enabled `platform coin` tokens.
-    pub async fn get_coin_or_platform_coin_tokens(&self, platform_ticker: &str, ticker: &str) -> Vec<String> {
+    /// Get enabled coins to disable.
+    pub async fn get_coins_to_disable(&self, platform_ticker: &str, ticker: &str) -> Vec<String> {
         let coins = self.platform_coin_tokens.lock();
         let mut coins_storage = vec![];
 
@@ -2906,7 +2886,7 @@ pub async fn disable_coin(ctx: &MmArc, ticker: &str, platform: &str) -> Result<(
     //  Finally, remove coin from coin list
     match coins.remove(ticker) {
         Some(_) => {
-            coin.on_token_deactivated(ticker);
+            coin.on_token_deactivated(ticker)?;
             Ok(())
         },
         None => ERR!("{} is disabled already", ticker),
