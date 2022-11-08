@@ -1015,6 +1015,8 @@ impl MarketCoinOps for ZCoin {
     fn min_trading_vol(&self) -> MmNumber { utxo_common::min_trading_vol(self.as_ref()) }
 
     fn is_privacy(&self) -> bool { true }
+
+    fn on_token_deactivated(&self, _ticker: &str) { todo!() }
 }
 
 #[async_trait]

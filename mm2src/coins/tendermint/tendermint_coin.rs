@@ -629,6 +629,8 @@ impl MarketCoinOps for TendermintCoin {
     fn min_tx_amount(&self) -> BigDecimal { todo!() }
 
     fn min_trading_vol(&self) -> MmNumber { todo!() }
+
+    fn on_token_deactivated(&self, ticker: &str) {}
 }
 
 #[async_trait]

@@ -7,15 +7,11 @@ use std::time::Duration;
 
 #[inline]
 #[test]
-fn trade_test_with_maker_slp() {
-    trade_base_rel(("ADEXSLP", "FORSLP"));
-}
+fn trade_test_with_maker_slp() { trade_base_rel(("ADEXSLP", "FORSLP")); }
 
 #[inline]
 #[test]
-fn trade_test_with_taker_slp() {
-    trade_base_rel(("FORSLP", "ADEXSLP"));
-}
+fn trade_test_with_taker_slp() { trade_base_rel(("FORSLP", "ADEXSLP")); }
 
 #[test]
 fn test_bch_and_slp_balance() {
@@ -170,7 +166,7 @@ fn test_disable_platform_coin_with_tokens() {
     assert_ok_200(&mm, "FORSLP", "my_balance");
     // Check if platform_coin token ADEXSLP still enabled.
     assert_error_500(&mm, "ADEXSLP", "my_balance");
-    // Try to disable patform_coin.
+    // // Try to disable patform_coin.
     assert_ok_200(&mm, "FORSLP", "disable_coin");
 
     // Enable enable_bch_with_tokens again to restart the process

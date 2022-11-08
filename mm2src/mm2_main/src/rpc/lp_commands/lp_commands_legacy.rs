@@ -39,12 +39,6 @@ use crate::mm2::MmVersionResult;
 
 const INTERNAL_SERVER_ERROR_CODE: u16 = 500;
 
-/// Get enabled `platform coin` tokens if `mm2` receives a request to disable a `platform token`.
-async fn get_enabled_platform_coin_tokens(ctx: &MmArc, platform_ticker: &str) -> Result<Vec<String>, String> {
-    let coins_ctx = CoinsContext::from_ctx(ctx).map_err(|err| ERRL!("{}", err))?;
-    Ok(coins_ctx.get_platform_coin_tokens(platform_ticker).await)
-}
-
 /// Attempts to disable the coin
 pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
     let ticker = try_s!(req["coin"].as_str().ok_or("No 'coin' field")).to_owned();
@@ -53,13 +47,13 @@ pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, St
         Ok(None) => return ERR!("No such coin: {}", ticker),
         Err(err) => return ERR!("!lp_coinfind({}): ", err),
     };
+    let platform_ticker = coin.platform_ticker();
+    let coins_ctx = CoinsContext::from_ctx(&ctx).map_err(|err| ERRL!("{}", err))?;
 
-    // Get all enabled tokens with platform coin.
-    let coins_to_disable = if ticker == coin.platform_ticker() {
-        get_enabled_platform_coin_tokens(&ctx, coin.platform_ticker()).await?
-    } else {
-        vec![ticker]
-    };
+    // Get all enabled tokens with platform coin including the coin.
+    let coins_to_disable = coins_ctx
+        .get_coin_or_platform_coin_tokens(platform_ticker, &ticker)
+        .await;
 
     let mut disabled_tokens_tickers = vec![];
     let mut cancelled_orders = vec![];
@@ -102,7 +96,7 @@ pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, St
         #[cfg(not(target_arch = "wasm32"))]
         ctx.background_processors.lock().unwrap().remove(ticker);
 
-        try_s!(disable_coin_impl(&ctx, ticker).await);
+        try_s!(disable_coin_impl(&ctx, ticker, platform_ticker).await);
         // Combine all orders to a single vector
         cancelled_orders.extend(cancelled);
         disabled_tokens_tickers.push(ticker);

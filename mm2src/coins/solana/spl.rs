@@ -289,6 +289,8 @@ impl MarketCoinOps for SplToken {
     fn min_tx_amount(&self) -> BigDecimal { BigDecimal::from(0) }
 
     fn min_trading_vol(&self) -> MmNumber { MmNumber::from("0.00777") }
+
+    fn on_token_deactivated(&self, ticker: &str) {}
 }
 
 #[allow(clippy::forget_ref, clippy::forget_copy, clippy::cast_ref_to_mut)]

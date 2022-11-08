@@ -554,6 +554,8 @@ impl MarketCoinOps for LightningCoin {
 
     // Todo: Implement this when implementing swaps for lightning as it's is used only for order matching/swaps
     fn min_trading_vol(&self) -> MmNumber { unimplemented!() }
+
+    fn on_token_deactivated(&self, _ticker: &str) {}
 }
 
 #[async_trait]

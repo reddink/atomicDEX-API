@@ -93,6 +93,8 @@ impl MarketCoinOps for TestCoin {
     fn min_tx_amount(&self) -> BigDecimal { unimplemented!() }
 
     fn min_trading_vol(&self) -> MmNumber { MmNumber::from("0.00777") }
+
+    fn on_token_deactivated(&self, ticker: &str) {}
 }
 
 #[async_trait]

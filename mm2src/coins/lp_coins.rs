@@ -52,6 +52,7 @@ use mm2_err_handle::prelude::*;
 use mm2_metrics::MetricsWeak;
 use mm2_number::{bigdecimal::{BigDecimal, ParseBigDecimalError, Zero},
                  MmNumber};
+use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{self as json, Value as Json};
@@ -694,6 +695,8 @@ pub trait MarketCoinOps {
     fn min_trading_vol(&self) -> MmNumber;
 
     fn is_privacy(&self) -> bool { false }
+
+    fn on_token_deactivated(&self, ticker: &str);
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -2008,6 +2011,7 @@ pub trait BalanceTradeFeeUpdatedHandler {
 pub struct CoinsContext {
     /// A map from a currency ticker symbol to the corresponding coin.
     /// Similar to `LP_coins`.
+    platform_coin_tokens: PaMutex<HashMap<String, Vec<String>>>,
     coins: AsyncMutex<HashMap<String, MmCoinEnum>>,
     balance_update_handlers: AsyncMutex<Vec<Box<dyn BalanceTradeFeeUpdatedHandler + Send + Sync>>>,
     account_balance_task_manager: AccountBalanceTaskManagerShared,
@@ -2040,6 +2044,7 @@ impl CoinsContext {
     pub fn from_ctx(ctx: &MmArc) -> Result<Arc<CoinsContext>, String> {
         Ok(try_s!(from_ctx(&ctx.coins_ctx, move || {
             Ok(CoinsContext {
+                platform_coin_tokens: PaMutex::new(HashMap::new()),
                 coins: AsyncMutex::new(HashMap::new()),
                 balance_update_handlers: AsyncMutex::new(vec![]),
                 account_balance_task_manager: AccountBalanceTaskManager::new_shared(),
@@ -2072,31 +2077,43 @@ impl CoinsContext {
         tokens: Vec<MmCoinEnum>,
     ) -> Result<(), MmError<PlatformIsAlreadyActivatedErr>> {
         let mut coins = self.coins.lock().await;
+        let mut platform_coin_tokens = self.platform_coin_tokens.lock();
+        let mut platform_token_for_insertion = vec![];
+
         if coins.contains_key(platform.ticker()) {
             return MmError::err(PlatformIsAlreadyActivatedErr {
                 ticker: platform.ticker().into(),
             });
         }
 
+        let platform_ticker = platform.ticker().to_string();
         coins.insert(platform.ticker().into(), platform);
 
         // Tokens can't be activated without platform coin so we can safely insert them without checking prior existence
         for token in tokens {
-            coins.insert(token.ticker().into(), token);
+            coins.insert(token.ticker().into(), token.clone());
+            platform_token_for_insertion.push(token.ticker().to_owned())
         }
+
+        platform_token_for_insertion.push(platform_ticker.clone());
+        platform_coin_tokens.insert(platform_ticker, platform_token_for_insertion);
+
         Ok(())
     }
 
     /// Get enabled `platform coin` tokens.
-    pub async fn get_platform_coin_tokens(&self, platform_ticker: &str) -> Vec<String> {
-        let coins = self.coins.lock().await;
+    pub async fn get_coin_or_platform_coin_tokens(&self, platform_ticker: &str, ticker: &str) -> Vec<String> {
+        let coins = self.platform_coin_tokens.lock();
+        let mut coins_storage = vec![];
 
-        coins
-            .clone()
-            .iter()
-            .filter(|(_, coin)| coin.platform_ticker() == platform_ticker)
-            .map(|(_, coin)| coin.ticker().to_owned())
-            .collect()
+        if ticker == platform_ticker {
+            coins_storage.extend(coins.get(platform_ticker).unwrap_or(&vec![]).clone());
+        };
+
+        if !coins_storage.contains(&ticker.to_owned()) {
+            coins_storage.push(ticker.to_string());
+        }
+        coins_storage
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -2866,11 +2883,32 @@ pub async fn get_enabled_coins(ctx: MmArc) -> Result<Response<Vec<u8>>, String> 
     Ok(try_s!(Response::builder().body(res)))
 }
 
-pub async fn disable_coin(ctx: &MmArc, ticker: &str) -> Result<(), String> {
+pub async fn disable_coin(ctx: &MmArc, ticker: &str, platform: &str) -> Result<(), String> {
+    let coin = match lp_coinfind(ctx, ticker).await {
+        Ok(Some(t)) => t,
+        Ok(None) => return ERR!("No such coin: {}", ticker),
+        Err(err) => return ERR!("!lp_coinfind({}): ", err),
+    };
     let coins_ctx = try_s!(CoinsContext::from_ctx(ctx));
-    let mut coins = coins_ctx.coins.lock().await;
+    let mut coins = try_s!(coins_ctx.coins.try_lock().ok_or("coins mutex lock err"));
+    let mut platform_tokens = try_s!(coins_ctx.platform_coin_tokens.try_lock().ok_or("coins mutex lock err"));
+
+    // Check if ticker is a platform coin and remove from it platform_tokens
+    if ticker == platform && platform_tokens.get_mut(ticker).is_some() {
+        platform_tokens.remove(ticker);
+    };
+
+    // Check if coin platform_ticker is in platform_tokens and remove it from token list
+    if let Some(tokens) = platform_tokens.get_mut(coin.platform_ticker()) {
+        tokens.retain(|t| t.as_str() != ticker);
+    };
+
+    //  Finally, remove coin from coin list
     match coins.remove(ticker) {
-        Some(_) => Ok(()),
+        Some(_) => {
+            coin.on_token_deactivated(ticker);
+            Ok(())
+        },
         None => ERR!("{} is disabled already", ticker),
     }
 }

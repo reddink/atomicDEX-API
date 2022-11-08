@@ -1442,6 +1442,12 @@ impl MarketCoinOps for EthCoin {
         let pow = self.decimals / 3;
         MmNumber::from(1) / MmNumber::from(10u64.pow(pow as u32))
     }
+
+    fn on_token_deactivated(&self, ticker: &str) {
+        if let Ok(tokens) = self.erc20_tokens_infos.try_lock().as_deref_mut() {
+            tokens.remove(ticker);
+        };
+    }
 }
 
 pub fn signed_eth_tx_from_bytes(bytes: &[u8]) -> Result<SignedEthTx, String> {

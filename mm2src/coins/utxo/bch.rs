@@ -1142,6 +1142,12 @@ impl MarketCoinOps for BchCoin {
     fn min_tx_amount(&self) -> BigDecimal { utxo_common::min_tx_amount(self.as_ref()) }
 
     fn min_trading_vol(&self) -> MmNumber { utxo_common::min_trading_vol(self.as_ref()) }
+
+    fn on_token_deactivated(&self, ticker: &str) {
+        if let Ok(tokens) = self.slp_tokens_infos.try_lock().as_deref_mut() {
+            tokens.remove(ticker);
+        };
+    }
 }
 
 #[async_trait]
