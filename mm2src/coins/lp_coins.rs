@@ -2042,7 +2042,15 @@ impl CoinsContext {
                 ticker: coin.ticker().into(),
             });
         }
-        coins.insert(coin.ticker().into(), coin);
+        let ticker = coin.ticker();
+
+        let mut platform_coin_tokens = self.platform_coin_tokens.lock();
+        // Here, we tried to add to a token to platform_coin_tokens if the token belongs to a platform coin.
+        if let Some(platform) = platform_coin_tokens.get_mut(coin.platform_ticker()) {
+            platform.push(ticker.to_owned());
+        }
+
+        coins.insert(ticker.into(), coin);
         Ok(())
     }
 
