@@ -562,7 +562,7 @@ impl EthCoinImpl {
         self.erc20_tokens_infos.lock().unwrap().insert(ticker, info);
     }
 
-    /// WARNING
+    /// ### WARNING
     /// Be very careful using this function since it returns dereferenced clone
     /// of value behind the MutexGuard and makes it non-thread-safe.
     pub fn get_erc_tokens_infos(&self) -> HashMap<String, Erc20TokenInfo> {
