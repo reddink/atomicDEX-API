@@ -112,8 +112,9 @@ pub struct TendermintCoinImpl {
     /// Test Vec<String(rpc_urls)> instead of HttpClient and pick
     /// better one in terms of performance & resource consumption on runtime.
     rpc_clients: Vec<HttpClient>,
+    /// As seconds
+    avg_blocktime: u8,
     /// My address
-    avg_block_time: u8,
     pub account_id: AccountId,
     pub(super) account_prefix: String,
     priv_key: Vec<u8>,
@@ -152,7 +153,9 @@ pub enum TendermintInitErrorKind {
     InvalidChainId(String),
     InvalidDenom(String),
     RpcError(String),
-    #[display(fmt = "avg_block_time missing or invalid. Please provide it with min 1 or max 255 value.")]
+    #[display(
+        fmt = "avg_blocktime missing or invalid. Value must be greater than '0' and less than less than '4.25'."
+    )]
     AvgBlockTimeMissingOrInvalid,
 }
 
@@ -281,7 +284,7 @@ impl TendermintCoin {
     pub async fn init(
         ctx: &MmArc,
         ticker: String,
-        avg_block_time: u8,
+        avg_blocktime: u8,
         protocol_info: TendermintProtocolInfo,
         rpc_urls: Vec<String>,
         priv_key: &[u8],
@@ -335,7 +338,7 @@ impl TendermintCoin {
             denom,
             chain_id,
             gas_price: protocol_info.gas_price,
-            avg_block_time,
+            avg_blocktime,
             sequence_lock: AsyncMutex::new(()),
             tokens_info: PaMutex::new(HashMap::new()),
             abortable_system,
@@ -642,7 +645,7 @@ impl TendermintCoin {
     }
 
     fn estimate_blocks_from_duration(&self, duration: u64) -> i64 {
-        let estimated_time_lock = (duration / self.avg_block_time as u64) as i64;
+        let estimated_time_lock = (duration / self.avg_blocktime as u64) as i64;
 
         if estimated_time_lock > MAX_TIME_LOCK {
             MAX_TIME_LOCK

@@ -17,6 +17,7 @@ use mm2_number::BigDecimal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 
 impl TokenOf for TendermintToken {
     type PlatformCoin = TendermintCoin;
@@ -156,20 +157,18 @@ impl PlatformWithTokensActivationOps for TendermintCoin {
         protocol_conf: Self::PlatformProtocolInfo,
         priv_key: &[u8],
     ) -> Result<Self, MmError<Self::ActivationError>> {
-        let avg_block_time = coin_conf["avg_block_time"].as_i64().unwrap_or(0);
+        let avg_blocktime = coin_conf["avg_blocktime"].as_f64().unwrap_or_default();
+        let avg_blocktime = (avg_blocktime * 60.0).round() as i64;
 
-        // `avg_block_time` can not be less than 1 OR bigger than 255(u8::MAX)
-        if avg_block_time < 1 || avg_block_time > std::u8::MAX as i64 {
-            return MmError::err(TendermintInitError {
-                ticker,
-                kind: TendermintInitErrorKind::AvgBlockTimeMissingOrInvalid,
-            });
-        }
+        let avg_blocktime = u8::try_from(avg_blocktime).map_err(|_| TendermintInitError {
+            ticker: ticker.clone(),
+            kind: TendermintInitErrorKind::AvgBlockTimeMissingOrInvalid,
+        })?;
 
         TendermintCoin::init(
             &ctx,
             ticker,
-            avg_block_time as u8,
+            avg_blocktime,
             protocol_conf,
             activation_request.rpc_urls,
             priv_key,
