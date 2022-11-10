@@ -15,7 +15,7 @@ use crate::utxo::{qtum, ActualTxFee, AdditionalTxData, AddrFromStrError, Broadca
                   UtxoActivationParams, UtxoAddressFormat, UtxoCoinFields, UtxoCommonOps, UtxoFromLegacyReqErr,
                   UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps, VerboseTransactionFrom, UTXO_LOCK};
 use crate::{BalanceError, BalanceFut, CoinBalance, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, HistorySyncState,
-            MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, PrivKeyNotAllowed, RawTransactionFut,
+            MarketCoinOps, MmCoin, MmPlatformCoin, NegotiateSwapContractAddrErr, PrivKeyNotAllowed, RawTransactionFut,
             RawTransactionRequest, SearchForSwapTxSpendInput, SignatureResult, SwapOps, TradeFee, TradePreimageError,
             TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum,
             TransactionErr, TransactionFut, TransactionType, TxMarshalingErr, UnexpectedDerivationMethod,
@@ -1169,7 +1169,9 @@ impl MarketCoinOps for Qrc20Coin {
         let pow = self.utxo.decimals / 3;
         MmNumber::from(1) / MmNumber::from(10u64.pow(pow as u32))
     }
+}
 
+impl MmPlatformCoin for Qrc20Coin {
     fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String> { Ok(()) }
 }
 

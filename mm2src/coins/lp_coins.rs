@@ -695,8 +695,6 @@ pub trait MarketCoinOps {
     fn min_trading_vol(&self) -> MmNumber;
 
     fn is_privacy(&self) -> bool { false }
-
-    fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String>;
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -1984,6 +1982,29 @@ impl MmCoinEnum {
     }
 }
 
+impl MmPlatformCoin for MmCoinEnum {
+    fn on_token_deactivated(&self, ticker: &str) -> Result<(), String> {
+        match self {
+            MmCoinEnum::UtxoCoin(ref c) => c.on_token_deactivated(ticker),
+            MmCoinEnum::QtumCoin(ref c) => c.on_token_deactivated(ticker),
+            MmCoinEnum::Qrc20Coin(ref c) => c.on_token_deactivated(ticker),
+            MmCoinEnum::EthCoin(ref c) => c.on_token_deactivated(ticker),
+            MmCoinEnum::Bch(ref c) => c.on_token_deactivated(ticker),
+            MmCoinEnum::SlpToken(ref c) => c.on_token_deactivated(ticker),
+            MmCoinEnum::Tendermint(ref c) => c.on_token_deactivated(ticker),
+            #[cfg(not(target_arch = "wasm32"))]
+            MmCoinEnum::LightningCoin(ref c) => c.on_token_deactivated(ticker),
+            #[cfg(not(target_arch = "wasm32"))]
+            MmCoinEnum::ZCoin(ref c) => c.on_token_deactivated(ticker),
+            MmCoinEnum::Test(_) => Ok(()),
+            #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+            MmCoinEnum::SolanaCoin(ref c) => c.on_token_deactivated(ticker),
+            #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+            MmCoinEnum::SplToken(ref c) => c.on_token_deactivated(ticker),
+        }
+    }
+}
+
 #[async_trait]
 pub trait BalanceTradeFeeUpdatedHandler {
     async fn balance_updated(&self, coin: &MmCoinEnum, new_balance: &BigDecimal);
@@ -2877,6 +2898,7 @@ pub async fn disable_coin(ctx: &MmArc, ticker: &str, platform: &str) -> Result<(
 
     // Check if ticker is a platform coin and remove from it platform_tokens
     if ticker == platform && platform_tokens.get_mut(ticker).is_some() {
+        let _ = coin.on_token_deactivated(ticker);
         platform_tokens.remove(ticker);
     };
 
@@ -3282,4 +3304,8 @@ where
     } else {
         b.block_height.cmp(&a.block_height)
     }
+}
+
+pub trait MmPlatformCoin {
+    fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String>;
 }

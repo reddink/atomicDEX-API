@@ -23,10 +23,11 @@ use crate::utxo::utxo_builder::{BlockHeaderUtxoArcOps, MergeUtxoArcOps, UtxoCoin
 use crate::utxo::utxo_tx_history_v2::{UtxoMyAddressesHistoryError, UtxoTxDetailsError, UtxoTxDetailsParams,
                                       UtxoTxHistoryOps};
 use crate::{eth, CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, DelegationError, DelegationFut,
-            GetWithdrawSenderAddress, NegotiateSwapContractAddrErr, PrivKeyBuildPolicy, SearchForSwapTxSpendInput,
-            SignatureResult, StakingInfosFut, SwapOps, TradePreimageValue, TransactionFut, TxMarshalingErr,
-            UnexpectedDerivationMethod, ValidateAddressResult, ValidateOtherPubKeyErr, ValidatePaymentFut,
-            ValidatePaymentInput, VerificationResult, WatcherValidatePaymentInput, WithdrawFut, WithdrawSenderAddress};
+            GetWithdrawSenderAddress, MmPlatformCoin, NegotiateSwapContractAddrErr, PrivKeyBuildPolicy,
+            SearchForSwapTxSpendInput, SignatureResult, StakingInfosFut, SwapOps, TradePreimageValue, TransactionFut,
+            TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateOtherPubKeyErr,
+            ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherValidatePaymentInput, WithdrawFut,
+            WithdrawSenderAddress};
 use common::executor::AbortableSystem;
 use crypto::Bip44Chain;
 use ethereum_types::H160;
@@ -824,7 +825,9 @@ impl MarketCoinOps for QtumCoin {
     fn min_tx_amount(&self) -> BigDecimal { utxo_common::min_tx_amount(self.as_ref()) }
 
     fn min_trading_vol(&self) -> MmNumber { utxo_common::min_trading_vol(self.as_ref()) }
+}
 
+impl MmPlatformCoin for QtumCoin {
     fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String> { Ok(()) }
 }
 

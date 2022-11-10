@@ -2,12 +2,13 @@ use super::{CoinBalance, HistorySyncState, MarketCoinOps, MmCoin, SwapOps, Trade
 use crate::coin_errors::{MyAddressError, ValidatePaymentError};
 use crate::solana::solana_common::{ui_amount_to_amount, PrepareTransferData, SufficientBalanceError};
 use crate::solana::{solana_common, AccountError, SolanaCommonOps, SolanaFeeDetails};
-use crate::{BalanceFut, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, NegotiateSwapContractAddrErr,
-            RawTransactionFut, RawTransactionRequest, SearchForSwapTxSpendInput, SignatureResult, SolanaCoin,
-            TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionFut,
-            TransactionType, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult,
-            ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput, VerificationResult,
-            WatcherValidatePaymentInput, WithdrawError, WithdrawFut, WithdrawRequest, WithdrawResult};
+use crate::{BalanceFut, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, MmPlatformCoin,
+            NegotiateSwapContractAddrErr, RawTransactionFut, RawTransactionRequest, SearchForSwapTxSpendInput,
+            SignatureResult, SolanaCoin, TradePreimageFut, TradePreimageResult, TradePreimageValue,
+            TransactionDetails, TransactionFut, TransactionType, TxMarshalingErr, UnexpectedDerivationMethod,
+            ValidateAddressResult, ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput,
+            VerificationResult, WatcherValidatePaymentInput, WithdrawError, WithdrawFut, WithdrawRequest,
+            WithdrawResult};
 use async_trait::async_trait;
 use bincode::serialize;
 use common::executor::{abortable_queue::AbortableQueue, AbortableSystem};
@@ -289,8 +290,10 @@ impl MarketCoinOps for SplToken {
     fn min_tx_amount(&self) -> BigDecimal { BigDecimal::from(0) }
 
     fn min_trading_vol(&self) -> MmNumber { MmNumber::from("0.00777") }
+}
 
-    fn on_token_deactivated(&self, ticker: &str) -> Result<(), String> { Ok(()) }
+impl MmPlatformCoin for SplToken {
+    fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String> { Ok(()) }
 }
 
 #[allow(clippy::forget_ref, clippy::forget_copy, clippy::cast_ref_to_mut)]

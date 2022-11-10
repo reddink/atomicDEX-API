@@ -1,11 +1,11 @@
 use super::{CoinBalance, HistorySyncState, MarketCoinOps, MmCoin, RawTransactionFut, RawTransactionRequest, SwapOps,
             TradeFee, TransactionEnum, TransactionFut};
 use crate::{coin_errors::{MyAddressError, ValidatePaymentError},
-            BalanceFut, CanRefundHtlc, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, NegotiateSwapContractAddrErr,
-            SearchForSwapTxSpendInput, SignatureResult, TradePreimageFut, TradePreimageResult, TradePreimageValue,
-            TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateOtherPubKeyErr,
-            ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherValidatePaymentInput, WithdrawFut,
-            WithdrawRequest};
+            BalanceFut, CanRefundHtlc, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, MmPlatformCoin,
+            NegotiateSwapContractAddrErr, SearchForSwapTxSpendInput, SignatureResult, TradePreimageFut,
+            TradePreimageResult, TradePreimageValue, TxMarshalingErr, UnexpectedDerivationMethod,
+            ValidateAddressResult, ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput,
+            VerificationResult, WatcherValidatePaymentInput, WithdrawFut, WithdrawRequest};
 use async_trait::async_trait;
 use futures01::Future;
 use keys::KeyPair;
@@ -93,8 +93,10 @@ impl MarketCoinOps for TestCoin {
     fn min_tx_amount(&self) -> BigDecimal { unimplemented!() }
 
     fn min_trading_vol(&self) -> MmNumber { MmNumber::from("0.00777") }
+}
 
-    fn on_token_deactivated(&self, ticker: &str) -> Result<(), String> { Ok(()) }
+impl MmPlatformCoin for TestCoin {
+    fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String> { Ok(()) }
 }
 
 #[async_trait]

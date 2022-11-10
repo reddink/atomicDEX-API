@@ -6,12 +6,13 @@ use crate::coin_errors::{MyAddressError, ValidatePaymentError};
 use crate::tendermint::htlc::MsgClaimHtlc;
 use crate::utxo::sat_from_big_decimal;
 use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal, CoinBalance, CoinFutSpawner,
-            FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr,
-            RawTransactionFut, RawTransactionRequest, SearchForSwapTxSpendInput, SignatureResult, SwapOps, TradeFee,
-            TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum,
-            TransactionFut, TransactionType, TxFeeDetails, TxMarshalingErr, UnexpectedDerivationMethod,
-            ValidateAddressResult, ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput,
-            VerificationResult, WatcherValidatePaymentInput, WithdrawError, WithdrawFut, WithdrawRequest};
+            FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin, MmPlatformCoin,
+            NegotiateSwapContractAddrErr, RawTransactionFut, RawTransactionRequest, SearchForSwapTxSpendInput,
+            SignatureResult, SwapOps, TradeFee, TradePreimageFut, TradePreimageResult, TradePreimageValue,
+            TransactionDetails, TransactionEnum, TransactionFut, TransactionType, TxFeeDetails, TxMarshalingErr,
+            UnexpectedDerivationMethod, ValidateAddressResult, ValidateOtherPubKeyErr, ValidatePaymentFut,
+            ValidatePaymentInput, VerificationResult, WatcherValidatePaymentInput, WithdrawError, WithdrawFut,
+            WithdrawRequest};
 use async_trait::async_trait;
 use bitcrypto::sha256;
 use common::executor::{abortable_queue::AbortableQueue, AbortableSystem};
@@ -631,8 +632,10 @@ impl MarketCoinOps for TendermintCoin {
     fn min_tx_amount(&self) -> BigDecimal { todo!() }
 
     fn min_trading_vol(&self) -> MmNumber { todo!() }
+}
 
-    fn on_token_deactivated(&self, ticker: &str) -> Result<(), String> { Ok(()) }
+impl MmPlatformCoin for TendermintCoin {
+    fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String> { Ok(()) }
 }
 
 #[async_trait]

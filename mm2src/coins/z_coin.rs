@@ -13,12 +13,13 @@ use crate::utxo::{sat_from_big_decimal, utxo_common, ActualTxFee, AdditionalTxDa
                   UtxoCommonOps, UtxoFeeDetails, UtxoRpcMode, UtxoTxBroadcastOps, UtxoTxGenerationOps,
                   VerboseTransactionFrom};
 use crate::{BalanceError, BalanceFut, CoinBalance, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, HistorySyncState,
-            MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, NumConversError, PrivKeyActivationPolicy,
-            RawTransactionFut, RawTransactionRequest, SearchForSwapTxSpendInput, SignatureError, SignatureResult,
-            SwapOps, TradeFee, TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails,
-            TransactionEnum, TransactionFut, TxFeeDetails, TxMarshalingErr, UnexpectedDerivationMethod,
-            ValidateAddressResult, ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput,
-            VerificationError, VerificationResult, WatcherValidatePaymentInput, WithdrawFut, WithdrawRequest};
+            MarketCoinOps, MmCoin, MmPlatformCoin, NegotiateSwapContractAddrErr, NumConversError,
+            PrivKeyActivationPolicy, RawTransactionFut, RawTransactionRequest, SearchForSwapTxSpendInput,
+            SignatureError, SignatureResult, SwapOps, TradeFee, TradePreimageFut, TradePreimageResult,
+            TradePreimageValue, TransactionDetails, TransactionEnum, TransactionFut, TxFeeDetails, TxMarshalingErr,
+            UnexpectedDerivationMethod, ValidateAddressResult, ValidateOtherPubKeyErr, ValidatePaymentFut,
+            ValidatePaymentInput, VerificationError, VerificationResult, WatcherValidatePaymentInput, WithdrawFut,
+            WithdrawRequest};
 use crate::{Transaction, WithdrawError};
 use async_trait::async_trait;
 use bitcrypto::{dhash160, dhash256};
@@ -1016,7 +1017,9 @@ impl MarketCoinOps for ZCoin {
     fn min_trading_vol(&self) -> MmNumber { utxo_common::min_trading_vol(self.as_ref()) }
 
     fn is_privacy(&self) -> bool { true }
+}
 
+impl MmPlatformCoin for ZCoin {
     fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String> { Ok(()) }
 }
 

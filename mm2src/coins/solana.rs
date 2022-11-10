@@ -2,12 +2,12 @@ use super::{CoinBalance, HistorySyncState, MarketCoinOps, MmCoin, SwapOps, Trade
 use crate::coin_errors::{MyAddressError, ValidatePaymentError};
 use crate::solana::solana_common::{lamports_to_sol, PrepareTransferData, SufficientBalanceError};
 use crate::solana::spl::SplTokenInfo;
-use crate::{BalanceError, BalanceFut, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, NegotiateSwapContractAddrErr,
-            RawTransactionFut, RawTransactionRequest, SearchForSwapTxSpendInput, SignatureResult, TradePreimageFut,
-            TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionFut, TransactionType,
-            TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateOtherPubKeyErr,
-            ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherValidatePaymentInput, WithdrawError,
-            WithdrawFut, WithdrawRequest, WithdrawResult};
+use crate::{BalanceError, BalanceFut, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, MmPlatformCoin,
+            NegotiateSwapContractAddrErr, RawTransactionFut, RawTransactionRequest, SearchForSwapTxSpendInput,
+            SignatureResult, TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails,
+            TransactionFut, TransactionType, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult,
+            ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput, VerificationResult,
+            WatcherValidatePaymentInput, WithdrawError, WithdrawFut, WithdrawRequest, WithdrawResult};
 use async_trait::async_trait;
 use base58::ToBase58;
 use bincode::{deserialize, serialize};
@@ -459,8 +459,10 @@ impl MarketCoinOps for SolanaCoin {
     fn min_tx_amount(&self) -> BigDecimal { BigDecimal::from(0) }
 
     fn min_trading_vol(&self) -> MmNumber { MmNumber::from("0.00777") }
+}
 
-    fn on_token_deactivated(&self, ticker: &str) -> Result<(), String> { Ok(()) }
+impl MmPlatformCoin for SolanaCoin {
+    fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String> { Ok(()) }
 }
 
 #[allow(clippy::forget_ref, clippy::forget_copy, clippy::cast_ref_to_mut)]

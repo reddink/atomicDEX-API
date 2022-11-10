@@ -20,7 +20,7 @@ use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_builder::{UtxoArcBuilder, UtxoCoinBuilder};
 use crate::utxo::utxo_tx_history_v2::{UtxoMyAddressesHistoryError, UtxoTxDetailsError, UtxoTxDetailsParams,
                                       UtxoTxHistoryOps};
-use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, GetWithdrawSenderAddress,
+use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, GetWithdrawSenderAddress, MmPlatformCoin,
             NegotiateSwapContractAddrErr, PrivKeyBuildPolicy, SearchForSwapTxSpendInput, SignatureResult, SwapOps,
             TradePreimageValue, TransactionFut, TxMarshalingErr, ValidateAddressResult, ValidateOtherPubKeyErr,
             ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherValidatePaymentInput, WithdrawFut,
@@ -591,7 +591,9 @@ impl MarketCoinOps for UtxoStandardCoin {
     fn min_tx_amount(&self) -> BigDecimal { utxo_common::min_tx_amount(self.as_ref()) }
 
     fn min_trading_vol(&self) -> MmNumber { utxo_common::min_trading_vol(self.as_ref()) }
+}
 
+impl MmPlatformCoin for UtxoStandardCoin {
     fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String> { Ok(()) }
 }
 

@@ -22,11 +22,11 @@ use crate::utxo::rpc_clients::UtxoRpcClientEnum;
 use crate::utxo::utxo_common::{big_decimal_from_sat_unsigned, UtxoTxBuilder};
 use crate::utxo::{sat_from_big_decimal, BlockchainNetwork, FeePolicy, GetUtxoListOps, UtxoTxGenerationOps};
 use crate::{BalanceFut, CoinBalance, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, HistorySyncState,
-            MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, RawTransactionFut, RawTransactionRequest,
-            SearchForSwapTxSpendInput, SignatureError, SignatureResult, SwapOps, TradeFee, TradePreimageFut,
-            TradePreimageResult, TradePreimageValue, TransactionEnum, TransactionFut, TxMarshalingErr,
-            UnexpectedDerivationMethod, UtxoStandardCoin, ValidateAddressResult, ValidateOtherPubKeyErr,
-            ValidatePaymentFut, ValidatePaymentInput, VerificationError, VerificationResult,
+            MarketCoinOps, MmCoin, MmPlatformCoin, NegotiateSwapContractAddrErr, RawTransactionFut,
+            RawTransactionRequest, SearchForSwapTxSpendInput, SignatureError, SignatureResult, SwapOps, TradeFee,
+            TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionEnum, TransactionFut,
+            TxMarshalingErr, UnexpectedDerivationMethod, UtxoStandardCoin, ValidateAddressResult,
+            ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput, VerificationError, VerificationResult,
             WatcherValidatePaymentInput, WithdrawError, WithdrawFut, WithdrawRequest};
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
@@ -554,8 +554,6 @@ impl MarketCoinOps for LightningCoin {
 
     // Todo: Implement this when implementing swaps for lightning as it's is used only for order matching/swaps
     fn min_trading_vol(&self) -> MmNumber { unimplemented!() }
-
-    fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String> { Ok(()) }
 }
 
 #[async_trait]
@@ -647,6 +645,10 @@ impl MmCoin for LightningCoin {
     fn is_coin_protocol_supported(&self, _info: &Option<Vec<u8>>) -> bool { unimplemented!() }
 
     fn on_disabled(&self) { AbortableSystem::abort_all(&self.platform.abortable_system.clone()); }
+}
+
+impl MmPlatformCoin for LightningCoin {
+    fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String> { Ok(()) }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

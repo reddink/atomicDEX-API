@@ -9,7 +9,7 @@ use crate::utxo::utxo_builder::{UtxoArcBuilder, UtxoCoinBuilder};
 use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
 use crate::utxo::utxo_tx_history_v2::{UtxoMyAddressesHistoryError, UtxoTxDetailsError, UtxoTxDetailsParams,
                                       UtxoTxHistoryOps};
-use crate::{BlockHeightAndTime, CanRefundHtlc, CoinBalance, CoinProtocol, CoinWithDerivationMethod,
+use crate::{BlockHeightAndTime, CanRefundHtlc, CoinBalance, CoinProtocol, CoinWithDerivationMethod, MmPlatformCoin,
             NegotiateSwapContractAddrErr, PrivKeyBuildPolicy, RawTransactionFut, RawTransactionRequest,
             SearchForSwapTxSpendInput, SignatureResult, SwapOps, TradePreimageValue, TransactionFut, TransactionType,
             TxFeeDetails, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateOtherPubKeyErr,
@@ -1143,7 +1143,9 @@ impl MarketCoinOps for BchCoin {
     fn min_tx_amount(&self) -> BigDecimal { utxo_common::min_tx_amount(self.as_ref()) }
 
     fn min_trading_vol(&self) -> MmNumber { utxo_common::min_trading_vol(self.as_ref()) }
+}
 
+impl MmPlatformCoin for BchCoin {
     fn on_token_deactivated(&self, ticker: &str) -> Result<(), String> {
         if let Ok(tokens) = self.slp_tokens_infos.try_lock().as_deref_mut() {
             tokens.remove(ticker);

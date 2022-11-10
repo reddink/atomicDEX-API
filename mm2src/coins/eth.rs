@@ -61,7 +61,7 @@ use web3_transport::{EthFeeHistoryNamespace, Web3Transport, Web3TransportNode};
 
 use super::{coin_conf, AsyncMutex, BalanceError, BalanceFut, CoinBalance, CoinFutSpawner, CoinProtocol,
             CoinTransportMetrics, CoinsContext, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps,
-            MmCoin, MyAddressError, NegotiateSwapContractAddrErr, NumConversError, NumConversResult,
+            MmCoin, MmPlatformCoin, MyAddressError, NegotiateSwapContractAddrErr, NumConversError, NumConversResult,
             RawTransactionError, RawTransactionFut, RawTransactionRequest, RawTransactionRes, RawTransactionResult,
             RpcClientType, RpcTransportEventHandler, RpcTransportEventHandlerShared, SearchForSwapTxSpendInput,
             SignatureError, SignatureResult, SwapOps, TradeFee, TradePreimageError, TradePreimageFut,
@@ -1441,13 +1441,6 @@ impl MarketCoinOps for EthCoin {
     fn min_trading_vol(&self) -> MmNumber {
         let pow = self.decimals / 3;
         MmNumber::from(1) / MmNumber::from(10u64.pow(pow as u32))
-    }
-
-    fn on_token_deactivated(&self, ticker: &str) -> Result<(), String> {
-        if let Ok(tokens) = self.erc20_tokens_infos.try_lock().as_deref_mut() {
-            tokens.remove(ticker);
-        };
-        Ok(())
     }
 }
 
@@ -3794,5 +3787,14 @@ fn increase_gas_price_by_stage(gas_price: U256, level: &FeeApproxStage) -> U256 
         FeeApproxStage::TradePreimage => {
             increase_by_percent_one_gwei(gas_price, GAS_PRICE_APPROXIMATION_PERCENT_ON_TRADE_PREIMAGE)
         },
+    }
+}
+
+impl MmPlatformCoin for EthCoin {
+    fn on_token_deactivated(&self, ticker: &str) -> Result<(), String> {
+        if let Ok(tokens) = self.erc20_tokens_infos.try_lock().as_deref_mut() {
+            tokens.remove(ticker);
+        };
+        Ok(())
     }
 }

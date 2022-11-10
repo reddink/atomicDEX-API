@@ -14,7 +14,7 @@ use crate::utxo::{generate_and_send_tx, sat_from_big_decimal, ActualTxFee, Addit
                   FeePolicy, GenerateTxError, RecentlySpentOutPointsGuard, UtxoCoinConf, UtxoCoinFields,
                   UtxoCommonOps, UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps};
 use crate::{BalanceFut, CoinBalance, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, HistorySyncState,
-            MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, NumConversError, PrivKeyNotAllowed,
+            MarketCoinOps, MmCoin, MmPlatformCoin, NegotiateSwapContractAddrErr, NumConversError, PrivKeyNotAllowed,
             RawTransactionFut, RawTransactionRequest, SearchForSwapTxSpendInput, SignatureResult, SwapOps, TradeFee,
             TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails,
             TransactionEnum, TransactionErr, TransactionFut, TxFeeDetails, TxMarshalingErr,
@@ -1168,7 +1168,9 @@ impl MarketCoinOps for SlpToken {
     fn min_tx_amount(&self) -> BigDecimal { big_decimal_from_sat_unsigned(1, self.decimals()) }
 
     fn min_trading_vol(&self) -> MmNumber { big_decimal_from_sat_unsigned(1, self.decimals()).into() }
+}
 
+impl MmPlatformCoin for SlpToken {
     fn on_token_deactivated(&self, _ticker: &str) -> Result<(), String> { Ok(()) }
 }
 
