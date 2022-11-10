@@ -33,6 +33,8 @@ impl RegisterTokenInfo<TendermintToken> for TendermintCoin {
 pub struct TendermintActivationParams {
     rpc_urls: Vec<String>,
     pub tokens_params: Vec<TokenActivationRequest<TendermintTokenActivationParams>>,
+    #[serde(default)]
+    tx_history: bool,
 }
 
 impl TxHistory for TendermintActivationParams {
@@ -171,6 +173,7 @@ impl PlatformWithTokensActivationOps for TendermintCoin {
             avg_blocktime,
             protocol_conf,
             activation_request.rpc_urls,
+            activation_request.tx_history,
             priv_key,
         )
         .await

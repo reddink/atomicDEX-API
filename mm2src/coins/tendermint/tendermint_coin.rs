@@ -1,8 +1,10 @@
 use super::htlc::{IrisHtlc, MsgCreateHtlc, HTLC_STATE_COMPLETED, HTLC_STATE_OPEN, HTLC_STATE_REFUNDED};
 use super::rpc::*;
 use crate::coin_errors::{MyAddressError, ValidatePaymentError};
+use crate::my_tx_history_v2::{CoinWithTxHistoryV2, MyTxHistoryErrorV2, MyTxHistoryTarget};
 use crate::tendermint::htlc::MsgClaimHtlc;
 use crate::tendermint::htlc_proto::{CreateHtlcProtoRep, QueryHtlcRequestProto, QueryHtlcResponseProto};
+use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::sat_from_big_decimal;
 use crate::utxo::utxo_common::big_decimal_from_sat;
 use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal, CoinBalance, CoinFutSpawner,
@@ -54,7 +56,7 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -127,6 +129,7 @@ pub struct TendermintCoinImpl {
     /// This spawner is used to spawn coin's related futures that should be aborted on coin deactivation
     /// or on [`MmArc::stop`].
     pub(super) abortable_system: AbortableQueue,
+    history_sync_state: Mutex<HistorySyncState>,
 }
 
 #[derive(Clone)]
@@ -287,6 +290,7 @@ impl TendermintCoin {
         avg_blocktime: u8,
         protocol_info: TendermintProtocolInfo,
         rpc_urls: Vec<String>,
+        tx_history: bool,
         priv_key: &[u8],
     ) -> MmResult<Self, TendermintInitError> {
         if rpc_urls.is_empty() {
@@ -324,6 +328,12 @@ impl TendermintCoin {
             kind: TendermintInitErrorKind::InvalidDenom(e.to_string()),
         })?;
 
+        let history_sync_state = if tx_history {
+            HistorySyncState::NotStarted
+        } else {
+            HistorySyncState::NotEnabled
+        };
+
         // Create an abortable system linked to the `MmCtx` so if the context is stopped via `MmArc::stop`,
         // all spawned futures related to `TendermintCoin` will be aborted as well.
         let abortable_system = ctx.abortable_system.create_subsystem();
@@ -342,6 +352,7 @@ impl TendermintCoin {
             sequence_lock: AsyncMutex::new(()),
             tokens_info: PaMutex::new(HashMap::new()),
             abortable_system,
+            history_sync_state: Mutex::new(history_sync_state),
         })))
     }
 
@@ -1491,7 +1502,7 @@ impl MmCoin for TendermintCoin {
         Box::new(futures01::future::err(()))
     }
 
-    fn history_sync_status(&self) -> HistorySyncState { HistorySyncState::NotEnabled }
+    fn history_sync_status(&self) -> HistorySyncState { self.history_sync_state.lock().unwrap().clone() }
 
     fn get_trade_fee(&self) -> Box<dyn Future<Item = TradeFee, Error = String> + Send> {
         // TODO
@@ -2098,6 +2109,18 @@ impl WatcherOps for TendermintCoin {
     }
 }
 
+#[async_trait]
+impl CoinWithTxHistoryV2 for TendermintCoin {
+    fn history_wallet_id(&self) -> WalletId { WalletId::new(self.ticker().to_owned()) }
+
+    async fn get_tx_history_filters(
+        &self,
+        _target: MyTxHistoryTarget,
+    ) -> MmResult<GetTxHistoryFilters, MyTxHistoryErrorV2> {
+        Ok(GetTxHistoryFilters::for_address(self.account_id.to_string()))
+    }
+}
+
 #[cfg(test)]
 pub mod tendermint_coin_tests {
     use super::*;
@@ -2171,6 +2194,7 @@ pub mod tendermint_coin_tests {
             5,
             protocol_conf,
             rpc_urls,
+            false,
             priv_key,
         ))
         .unwrap();
@@ -2297,6 +2321,7 @@ pub mod tendermint_coin_tests {
             5,
             protocol_conf,
             rpc_urls,
+            false,
             priv_key,
         ))
         .unwrap();
@@ -2349,6 +2374,7 @@ pub mod tendermint_coin_tests {
             5,
             protocol_conf,
             rpc_urls,
+            false,
             priv_key,
         ))
         .unwrap();
@@ -2408,6 +2434,7 @@ pub mod tendermint_coin_tests {
             5,
             protocol_conf,
             rpc_urls,
+            false,
             priv_key,
         ))
         .unwrap();
@@ -2565,6 +2592,7 @@ pub mod tendermint_coin_tests {
             5,
             protocol_conf,
             rpc_urls,
+            false,
             priv_key,
         ))
         .unwrap();
@@ -2642,6 +2670,7 @@ pub mod tendermint_coin_tests {
             5,
             protocol_conf,
             rpc_urls,
+            false,
             priv_key,
         ))
         .unwrap();
@@ -2710,6 +2739,7 @@ pub mod tendermint_coin_tests {
             5,
             protocol_conf,
             rpc_urls,
+            false,
             priv_key,
         ))
         .unwrap();
@@ -2772,6 +2802,7 @@ pub mod tendermint_coin_tests {
             5,
             protocol_conf,
             rpc_urls,
+            false,
             priv_key,
         ))
         .unwrap();
