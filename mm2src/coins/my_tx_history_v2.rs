@@ -375,6 +375,8 @@ pub async fn my_tx_history_v2_rpc(
         MmCoinEnum::SlpToken(slp_token) => my_tx_history_v2_impl(ctx, &slp_token, request).await,
         MmCoinEnum::UtxoCoin(utxo) => my_tx_history_v2_impl(ctx, &utxo, request).await,
         MmCoinEnum::QtumCoin(qtum) => my_tx_history_v2_impl(ctx, &qtum, request).await,
+        MmCoinEnum::Tendermint(tendermint) => my_tx_history_v2_impl(ctx, &tendermint, request).await,
+        MmCoinEnum::TendermintToken(tendermint_token) => my_tx_history_v2_impl(ctx, &tendermint_token, request).await,
         other => MmError::err(MyTxHistoryErrorV2::NotSupportedFor(other.ticker().to_owned())),
     }
 }

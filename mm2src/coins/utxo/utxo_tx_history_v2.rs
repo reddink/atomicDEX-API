@@ -605,7 +605,7 @@ where
 }
 
 #[derive(Debug)]
-enum StopReason {
+pub(crate) enum StopReason {
     HistoryTooLarge,
     StorageError(String),
     UnknownError(String),

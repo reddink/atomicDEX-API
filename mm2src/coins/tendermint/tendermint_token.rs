@@ -1,8 +1,6 @@
 /// Module containing implementation for Tendermint Tokens. They include native assets + IBC
 use super::{TendermintCoin, TendermintFeeDetails, GAS_LIMIT_DEFAULT, MIN_TX_SATOSHIS, TIMEOUT_HEIGHT_DELTA,
             TX_DEFAULT_MEMO};
-use crate::my_tx_history_v2::{CoinWithTxHistoryV2, MyTxHistoryErrorV2, MyTxHistoryTarget};
-use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_common::big_decimal_from_sat;
 use crate::{big_decimal_from_sat_unsigned, utxo::sat_from_big_decimal, BalanceFut, BigDecimal, CoinBalance,
             CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin, MyAddressError,
@@ -36,7 +34,7 @@ use std::sync::Arc;
 
 pub struct TendermintTokenImpl {
     pub ticker: String,
-    platform_coin: TendermintCoin,
+    pub(crate) platform_coin: TendermintCoin,
     pub decimals: u8,
     pub denom: Denom,
     /// This spawner is used to spawn coin's related futures that should be aborted on coin deactivation
@@ -668,19 +666,5 @@ impl MmCoin for TendermintToken {
 
     fn is_coin_protocol_supported(&self, info: &Option<Vec<u8>>) -> bool {
         self.platform_coin.is_coin_protocol_supported(info)
-    }
-}
-
-#[async_trait]
-impl CoinWithTxHistoryV2 for TendermintToken {
-    fn history_wallet_id(&self) -> WalletId { WalletId::new(self.ticker().to_owned()) }
-
-    async fn get_tx_history_filters(
-        &self,
-        _target: MyTxHistoryTarget,
-    ) -> MmResult<GetTxHistoryFilters, MyTxHistoryErrorV2> {
-        Ok(GetTxHistoryFilters::for_address(
-            self.platform_coin.account_id.to_string(),
-        ))
     }
 }

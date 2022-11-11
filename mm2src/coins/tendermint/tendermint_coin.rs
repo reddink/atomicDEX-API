@@ -1,10 +1,8 @@
 use super::htlc::{IrisHtlc, MsgCreateHtlc, HTLC_STATE_COMPLETED, HTLC_STATE_OPEN, HTLC_STATE_REFUNDED};
 use super::rpc::*;
 use crate::coin_errors::{MyAddressError, ValidatePaymentError};
-use crate::my_tx_history_v2::{CoinWithTxHistoryV2, MyTxHistoryErrorV2, MyTxHistoryTarget};
 use crate::tendermint::htlc::MsgClaimHtlc;
 use crate::tendermint::htlc_proto::{CreateHtlcProtoRep, QueryHtlcRequestProto, QueryHtlcResponseProto};
-use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::sat_from_big_decimal;
 use crate::utxo::utxo_common::big_decimal_from_sat;
 use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal, CoinBalance, CoinFutSpawner,
@@ -2106,18 +2104,6 @@ impl WatcherOps for TendermintCoin {
 
     fn watcher_validate_taker_payment(&self, _input: WatcherValidatePaymentInput) -> ValidatePaymentFut<()> {
         unimplemented!();
-    }
-}
-
-#[async_trait]
-impl CoinWithTxHistoryV2 for TendermintCoin {
-    fn history_wallet_id(&self) -> WalletId { WalletId::new(self.ticker().to_owned()) }
-
-    async fn get_tx_history_filters(
-        &self,
-        _target: MyTxHistoryTarget,
-    ) -> MmResult<GetTxHistoryFilters, MyTxHistoryErrorV2> {
-        Ok(GetTxHistoryFilters::for_address(self.account_id.to_string()))
     }
 }
 
