@@ -1,20 +1,25 @@
 use crate::docker_tests::docker_tests_common::*;
-use crate::mm2::lp_swap::{dex_fee_amount, max_taker_vol_from_available};
+use crate::integration_tests_common::enable_native;
 use bitcrypto::dhash160;
 use coins::qrc20::rpc_clients::for_tests::Qrc20NativeWalletOps;
 use coins::utxo::qtum::{qtum_coin_with_priv_key, QtumCoin};
 use coins::utxo::rpc_clients::UtxoRpcClientEnum;
 use coins::utxo::utxo_common::big_decimal_from_sat;
 use coins::utxo::{UtxoActivationParams, UtxoCommonOps};
-use coins::{FeeApproxStage, FoundSwapTxSpend, MarketCoinOps, MmCoin, SearchForSwapTxSpendInput, SwapOps,
-            TradePreimageValue, TransactionEnum, ValidatePaymentInput};
+use coins::{CheckIfMyPaymentSentArgs, FeeApproxStage, FoundSwapTxSpend, MarketCoinOps, MmCoin,
+            SearchForSwapTxSpendInput, SendMakerPaymentArgs, SendMakerRefundsPaymentArgs,
+            SendMakerSpendsTakerPaymentArgs, SendTakerPaymentArgs, SendTakerRefundsPaymentArgs,
+            SendTakerSpendsMakerPaymentArgs, SwapOps, TradePreimageValue, TransactionEnum, ValidatePaymentInput};
 use common::log::debug;
-use common::{temp_dir, DEX_FEE_ADDR_RAW_PUBKEY};
+use common::{log, temp_dir, DEX_FEE_ADDR_RAW_PUBKEY};
 use ethereum_types::H160;
 use futures01::Future;
 use http::StatusCode;
+use mm2::mm2::lp_swap::{dex_fee_amount, max_taker_vol_from_available};
 use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
 use mm2_number::BigDecimal;
+use mm2_test_helpers::structs::{trade_preimage_error, EnableElectrumResponse, OrderbookResponse, RpcErrorResponse,
+                                RpcSuccessResponse, TransactionDetails};
 use rand6::Rng;
 use serde_json::{self as json, Value as Json};
 use std::convert::TryFrom;
@@ -175,20 +180,17 @@ fn test_taker_spends_maker_payment() {
     let secret = &[1; 32];
     let secret_hash = dhash160(secret).to_vec();
     let amount = BigDecimal::try_from(0.2).unwrap();
-
-    let payment = maker_coin
-        .send_maker_payment(
-            0,
-            timelock,
-            &taker_pub,
-            &secret_hash,
-            amount.clone(),
-            &maker_coin.swap_contract_address(),
-            &[],
-            &None,
-        )
-        .wait()
-        .unwrap();
+    let maker_payment_args = SendMakerPaymentArgs {
+        time_lock_duration: 0,
+        time_lock: timelock,
+        other_pubkey: &taker_pub,
+        secret_hash: &secret_hash,
+        amount: amount.clone(),
+        swap_contract_address: &maker_coin.swap_contract_address(),
+        swap_unique_data: &[],
+        payment_instructions: &None,
+    };
+    let payment = maker_coin.send_maker_payment(maker_payment_args).wait().unwrap();
     let payment_tx_hash = payment.tx_hash();
     let payment_tx_hex = payment.tx_hex();
     log!("Maker payment: {:?}", payment_tx_hash);
@@ -215,17 +217,17 @@ fn test_taker_spends_maker_payment() {
         unique_swap_data: Vec::new(),
     };
     taker_coin.validate_maker_payment(input).wait().unwrap();
-
+    let taker_spends_payment_args = SendTakerSpendsMakerPaymentArgs {
+        other_payment_tx: &payment_tx_hex,
+        time_lock: timelock,
+        other_pubkey: &maker_pub,
+        secret,
+        secret_hash: &secret_hash,
+        swap_contract_address: &taker_coin.swap_contract_address(),
+        swap_unique_data: &[],
+    };
     let spend = taker_coin
-        .send_taker_spends_maker_payment(
-            &payment_tx_hex,
-            timelock,
-            &maker_pub,
-            secret,
-            &secret_hash,
-            &taker_coin.swap_contract_address(),
-            &[],
-        )
+        .send_taker_spends_maker_payment(taker_spends_payment_args)
         .wait()
         .unwrap();
     let spend_tx_hash = spend.tx_hash();
@@ -271,20 +273,17 @@ fn test_maker_spends_taker_payment() {
     let secret = &[1; 32];
     let secret_hash = dhash160(secret).to_vec();
     let amount = BigDecimal::try_from(0.2).unwrap();
-
-    let payment = taker_coin
-        .send_taker_payment(
-            0,
-            timelock,
-            &maker_pub,
-            &secret_hash,
-            amount.clone(),
-            &taker_coin.swap_contract_address(),
-            &[],
-            &None,
-        )
-        .wait()
-        .unwrap();
+    let taker_payment_args = SendTakerPaymentArgs {
+        time_lock_duration: 0,
+        time_lock: timelock,
+        other_pubkey: &maker_pub,
+        secret_hash: &secret_hash,
+        amount: amount.clone(),
+        swap_contract_address: &taker_coin.swap_contract_address(),
+        swap_unique_data: &[],
+        payment_instructions: &None,
+    };
+    let payment = taker_coin.send_taker_payment(taker_payment_args).wait().unwrap();
     let payment_tx_hash = payment.tx_hash();
     let payment_tx_hex = payment.tx_hex();
     log!("Taker payment: {:?}", payment_tx_hash);
@@ -311,17 +310,17 @@ fn test_maker_spends_taker_payment() {
         unique_swap_data: Vec::new(),
     };
     maker_coin.validate_taker_payment(input).wait().unwrap();
-
+    let maker_spends_payment_args = SendMakerSpendsTakerPaymentArgs {
+        other_payment_tx: &payment_tx_hex,
+        time_lock: timelock,
+        other_pubkey: &taker_pub,
+        secret,
+        secret_hash: &secret_hash,
+        swap_contract_address: &maker_coin.swap_contract_address(),
+        swap_unique_data: &[],
+    };
     let spend = maker_coin
-        .send_maker_spends_taker_payment(
-            &payment_tx_hex,
-            timelock,
-            &taker_pub,
-            secret,
-            &secret_hash,
-            &maker_coin.swap_contract_address(),
-            &[],
-        )
+        .send_maker_spends_taker_payment(maker_spends_payment_args)
         .wait()
         .unwrap();
     let spend_tx_hash = spend.tx_hash();
@@ -356,20 +355,17 @@ fn test_maker_refunds_payment() {
     let taker_pub = hex::decode("022b00078841f37b5d30a6a1defb82b3af4d4e2d24dd4204d41f0c9ce1e875de1a").unwrap();
     let secret_hash = &[1; 20];
     let amount = BigDecimal::from_str("0.2").unwrap();
-
-    let payment = coin
-        .send_maker_payment(
-            0,
-            timelock,
-            &taker_pub,
-            secret_hash,
-            amount.clone(),
-            &coin.swap_contract_address(),
-            &[],
-            &None,
-        )
-        .wait()
-        .unwrap();
+    let maker_payment = SendMakerPaymentArgs {
+        time_lock_duration: 0,
+        time_lock: timelock,
+        other_pubkey: &taker_pub,
+        secret_hash,
+        amount: amount.clone(),
+        swap_contract_address: &coin.swap_contract_address(),
+        swap_unique_data: &[],
+        payment_instructions: &None,
+    };
+    let payment = coin.send_maker_payment(maker_payment).wait().unwrap();
     let payment_tx_hash = payment.tx_hash();
     let payment_tx_hex = payment.tx_hex();
     log!("Maker payment: {:?}", payment_tx_hash);
@@ -384,16 +380,16 @@ fn test_maker_refunds_payment() {
 
     let balance_after_payment = coin.my_spendable_balance().wait().unwrap();
     assert_eq!(expected_balance.clone() - amount, balance_after_payment);
-
+    let maker_refunds_payment_args = SendMakerRefundsPaymentArgs {
+        payment_tx: &payment_tx_hex,
+        time_lock: timelock,
+        other_pubkey: &taker_pub,
+        secret_hash,
+        swap_contract_address: &coin.swap_contract_address(),
+        swap_unique_data: &[],
+    };
     let refund = coin
-        .send_maker_refunds_payment(
-            &payment_tx_hex,
-            timelock,
-            &taker_pub,
-            secret_hash,
-            &coin.swap_contract_address(),
-            &[],
-        )
+        .send_maker_refunds_payment(maker_refunds_payment_args)
         .wait()
         .unwrap();
     let refund_tx_hash = refund.tx_hash();
@@ -419,20 +415,17 @@ fn test_taker_refunds_payment() {
     let maker_pub = hex::decode("022b00078841f37b5d30a6a1defb82b3af4d4e2d24dd4204d41f0c9ce1e875de1a").unwrap();
     let secret_hash = &[1; 20];
     let amount = BigDecimal::from_str("0.2").unwrap();
-
-    let payment = coin
-        .send_taker_payment(
-            0,
-            timelock,
-            &maker_pub,
-            secret_hash,
-            amount.clone(),
-            &coin.swap_contract_address(),
-            &[],
-            &None,
-        )
-        .wait()
-        .unwrap();
+    let taker_payment_args = SendTakerPaymentArgs {
+        time_lock_duration: 0,
+        time_lock: timelock,
+        other_pubkey: &maker_pub,
+        secret_hash,
+        amount: amount.clone(),
+        swap_contract_address: &coin.swap_contract_address(),
+        swap_unique_data: &[],
+        payment_instructions: &None,
+    };
+    let payment = coin.send_taker_payment(taker_payment_args).wait().unwrap();
     let payment_tx_hash = payment.tx_hash();
     let payment_tx_hex = payment.tx_hex();
     log!("Taker payment: {:?}", payment_tx_hash);
@@ -447,16 +440,16 @@ fn test_taker_refunds_payment() {
 
     let balance_after_payment = coin.my_spendable_balance().wait().unwrap();
     assert_eq!(expected_balance.clone() - amount, balance_after_payment);
-
+    let taker_refunds_payment_args = SendTakerRefundsPaymentArgs {
+        payment_tx: &payment_tx_hex,
+        time_lock: timelock,
+        other_pubkey: &maker_pub,
+        secret_hash,
+        swap_contract_address: &coin.swap_contract_address(),
+        swap_unique_data: &[],
+    };
     let refund = coin
-        .send_taker_refunds_payment(
-            &payment_tx_hex,
-            timelock,
-            &maker_pub,
-            secret_hash,
-            &coin.swap_contract_address(),
-            &[],
-        )
+        .send_taker_refunds_payment(taker_refunds_payment_args)
         .wait()
         .unwrap();
     let refund_tx_hash = refund.tx_hash();
@@ -479,20 +472,17 @@ fn test_check_if_my_payment_sent() {
     let taker_pub = hex::decode("022b00078841f37b5d30a6a1defb82b3af4d4e2d24dd4204d41f0c9ce1e875de1a").unwrap();
     let secret_hash = &[1; 20];
     let amount = BigDecimal::from_str("0.2").unwrap();
-
-    let payment = coin
-        .send_maker_payment(
-            0,
-            timelock,
-            &taker_pub,
-            secret_hash,
-            amount.clone(),
-            &coin.swap_contract_address(),
-            &[],
-            &None,
-        )
-        .wait()
-        .unwrap();
+    let maker_payment_args = SendMakerPaymentArgs {
+        time_lock_duration: 0,
+        time_lock: timelock,
+        other_pubkey: &taker_pub,
+        secret_hash,
+        amount: amount.clone(),
+        swap_contract_address: &coin.swap_contract_address(),
+        swap_unique_data: &[],
+        payment_instructions: &None,
+    };
+    let payment = coin.send_maker_payment(maker_payment_args).wait().unwrap();
     let payment_tx_hash = payment.tx_hash();
     let payment_tx_hex = payment.tx_hex();
     log!("Maker payment: {:?}", payment_tx_hash);
@@ -506,18 +496,16 @@ fn test_check_if_my_payment_sent() {
         .unwrap();
 
     let search_from_block = coin.current_block().wait().expect("!current_block") - 10;
-    let found = coin
-        .check_if_my_payment_sent(
-            timelock,
-            &taker_pub,
-            secret_hash,
-            search_from_block,
-            &coin.swap_contract_address(),
-            &[],
-            &amount,
-        )
-        .wait()
-        .unwrap();
+    let if_my_payment_sent_args = CheckIfMyPaymentSentArgs {
+        time_lock: timelock,
+        other_pub: &taker_pub,
+        secret_hash,
+        search_from_block,
+        swap_contract_address: &coin.swap_contract_address(),
+        swap_unique_data: &[],
+        amount: &amount,
+    };
+    let found = coin.check_if_my_payment_sent(if_my_payment_sent_args).wait().unwrap();
     assert_eq!(found, Some(payment));
 }
 
@@ -533,20 +521,17 @@ fn test_search_for_swap_tx_spend_taker_spent() {
     let secret = &[1; 32];
     let secret_hash = dhash160(secret);
     let amount = BigDecimal::try_from(0.2).unwrap();
-
-    let payment = maker_coin
-        .send_maker_payment(
-            0,
-            timelock,
-            taker_pub,
-            secret_hash.as_slice(),
-            amount,
-            &maker_coin.swap_contract_address(),
-            &[],
-            &None,
-        )
-        .wait()
-        .unwrap();
+    let maker_payment_args = SendMakerPaymentArgs {
+        time_lock_duration: 0,
+        time_lock: timelock,
+        other_pubkey: taker_pub,
+        secret_hash: secret_hash.as_slice(),
+        amount,
+        swap_contract_address: &maker_coin.swap_contract_address(),
+        swap_unique_data: &[],
+        payment_instructions: &None,
+    };
+    let payment = maker_coin.send_maker_payment(maker_payment_args).wait().unwrap();
     let payment_tx_hash = payment.tx_hash();
     let payment_tx_hex = payment.tx_hex();
     log!("Maker payment: {:?}", payment_tx_hash);
@@ -559,17 +544,17 @@ fn test_search_for_swap_tx_spend_taker_spent() {
         .wait_for_confirmations(&payment_tx_hex, confirmations, requires_nota, wait_until, check_every)
         .wait()
         .unwrap();
-
+    let taker_spends_payment_args = SendTakerSpendsMakerPaymentArgs {
+        other_payment_tx: &payment_tx_hex,
+        time_lock: timelock,
+        other_pubkey: maker_pub,
+        secret,
+        secret_hash: secret_hash.as_slice(),
+        swap_contract_address: &taker_coin.swap_contract_address(),
+        swap_unique_data: &[],
+    };
     let spend = taker_coin
-        .send_taker_spends_maker_payment(
-            &payment_tx_hex,
-            timelock,
-            maker_pub,
-            secret,
-            secret_hash.as_slice(),
-            &taker_coin.swap_contract_address(),
-            &[],
-        )
+        .send_taker_spends_maker_payment(taker_spends_payment_args)
         .wait()
         .unwrap();
     let spend_tx_hash = spend.tx_hash();
@@ -606,20 +591,17 @@ fn test_search_for_swap_tx_spend_maker_refunded() {
     let secret = &[1; 32];
     let secret_hash = &*dhash160(secret);
     let amount = BigDecimal::try_from(0.2).unwrap();
-
-    let payment = maker_coin
-        .send_maker_payment(
-            0,
-            timelock,
-            &taker_pub,
-            secret_hash,
-            amount,
-            &maker_coin.swap_contract_address(),
-            &[],
-            &None,
-        )
-        .wait()
-        .unwrap();
+    let maker_payment_args = SendMakerPaymentArgs {
+        time_lock_duration: 0,
+        time_lock: timelock,
+        other_pubkey: &taker_pub,
+        secret_hash,
+        amount,
+        swap_contract_address: &maker_coin.swap_contract_address(),
+        swap_unique_data: &[],
+        payment_instructions: &None,
+    };
+    let payment = maker_coin.send_maker_payment(maker_payment_args).wait().unwrap();
     let payment_tx_hash = payment.tx_hash();
     let payment_tx_hex = payment.tx_hex();
     log!("Maker payment: {:?}", payment_tx_hash);
@@ -632,16 +614,16 @@ fn test_search_for_swap_tx_spend_maker_refunded() {
         .wait_for_confirmations(&payment_tx_hex, confirmations, requires_nota, wait_until, check_every)
         .wait()
         .unwrap();
-
+    let maker_refunds_payment_args = SendMakerRefundsPaymentArgs {
+        payment_tx: &payment_tx_hex,
+        time_lock: timelock,
+        other_pubkey: &taker_pub,
+        secret_hash,
+        swap_contract_address: &maker_coin.swap_contract_address(),
+        swap_unique_data: &[],
+    };
     let refund = maker_coin
-        .send_maker_refunds_payment(
-            &payment_tx_hex,
-            timelock,
-            &taker_pub,
-            secret_hash,
-            &maker_coin.swap_contract_address(),
-            &[],
-        )
+        .send_maker_refunds_payment(maker_refunds_payment_args)
         .wait()
         .unwrap();
     let refund_tx_hash = refund.tx_hash();
@@ -678,20 +660,17 @@ fn test_search_for_swap_tx_spend_not_spent() {
     let secret = &[1; 32];
     let secret_hash = &*dhash160(secret);
     let amount = BigDecimal::try_from(0.2).unwrap();
-
-    let payment = maker_coin
-        .send_maker_payment(
-            0,
-            timelock,
-            &taker_pub,
-            secret_hash,
-            amount,
-            &maker_coin.swap_contract_address(),
-            &[],
-            &None,
-        )
-        .wait()
-        .unwrap();
+    let maker_payment_args = SendMakerPaymentArgs {
+        time_lock_duration: 0,
+        time_lock: timelock,
+        other_pubkey: &taker_pub,
+        secret_hash,
+        amount,
+        swap_contract_address: &maker_coin.swap_contract_address(),
+        swap_unique_data: &[],
+        payment_instructions: &None,
+    };
+    let payment = maker_coin.send_maker_payment(maker_payment_args).wait().unwrap();
     let payment_tx_hash = payment.tx_hash();
     let payment_tx_hex = payment.tx_hex();
     log!("Maker payment: {:?}", payment_tx_hash);
@@ -731,20 +710,17 @@ fn test_wait_for_tx_spend() {
     let secret = &[1; 32];
     let secret_hash = dhash160(secret);
     let amount = BigDecimal::try_from(0.2).unwrap();
-
-    let payment = maker_coin
-        .send_maker_payment(
-            0,
-            timelock,
-            taker_pub,
-            secret_hash.as_slice(),
-            amount,
-            &maker_coin.swap_contract_address(),
-            &[],
-            &None,
-        )
-        .wait()
-        .unwrap();
+    let maker_payment_args = SendMakerPaymentArgs {
+        time_lock_duration: 0,
+        time_lock: timelock,
+        other_pubkey: taker_pub,
+        secret_hash: secret_hash.as_slice(),
+        amount,
+        swap_contract_address: &maker_coin.swap_contract_address(),
+        swap_unique_data: &[],
+        payment_instructions: &None,
+    };
+    let payment = maker_coin.send_maker_payment(maker_payment_args).wait().unwrap();
     let payment_tx_hash = payment.tx_hash();
     let payment_tx_hex = payment.tx_hex();
     log!("Maker payment: {:?}", payment_tx_hash);
@@ -782,17 +758,17 @@ fn test_wait_for_tx_spend() {
     let payment_hex = payment_tx_hex.clone();
     thread::spawn(move || {
         thread::sleep(Duration::from_secs(5));
-
+        let taker_spends_payment_args = SendTakerSpendsMakerPaymentArgs {
+            other_payment_tx: &payment_hex,
+            time_lock: timelock,
+            other_pubkey: &maker_pub_c,
+            secret,
+            secret_hash: secret_hash.as_slice(),
+            swap_contract_address: &taker_coin.swap_contract_address(),
+            swap_unique_data: &[],
+        };
         let spend = taker_coin
-            .send_taker_spends_maker_payment(
-                &payment_hex,
-                timelock,
-                &maker_pub_c,
-                secret,
-                secret_hash.as_slice(),
-                &taker_coin.swap_contract_address(),
-                &[],
-            )
+            .send_taker_spends_maker_payment(taker_spends_payment_args)
             .wait()
             .unwrap();
         unsafe { SPEND_TX = Some(spend) }
@@ -1047,18 +1023,19 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
         .send_taker_fee(&DEX_FEE_ADDR_RAW_PUBKEY, dex_fee_amount.to_decimal(), &[])
         .wait()
         .expect("!send_taker_fee");
+    let taker_payment_args = SendTakerPaymentArgs {
+        time_lock_duration: 0,
+        time_lock: timelock,
+        other_pubkey: &DEX_FEE_ADDR_RAW_PUBKEY,
+        secret_hash,
+        amount: expected_max_taker_vol.to_decimal(),
+        swap_contract_address: &None,
+        swap_unique_data: &[],
+        payment_instructions: &None,
+    };
 
     let _taker_payment_tx = coin
-        .send_taker_payment(
-            0,
-            timelock,
-            &DEX_FEE_ADDR_RAW_PUBKEY,
-            secret_hash,
-            expected_max_taker_vol.to_decimal(),
-            &None,
-            &[],
-            &None,
-        )
+        .send_taker_payment(taker_payment_args)
         .wait()
         .expect("!send_taker_payment");
 
@@ -1327,8 +1304,8 @@ fn test_segwit_native_balance() {
     block_on(mm.wait_for_log(22., |log| log.contains(">>>>>>>>> DEX stats "))).unwrap();
 
     let enable_res = block_on(enable_native(&mm, "QTUM", &[]));
-    let balance = enable_res["balance"].as_str().unwrap();
-    assert_eq!(balance, "0.5");
+    let expected_balance: BigDecimal = "0.5".parse().unwrap();
+    assert_eq!(enable_res.balance, expected_balance);
 
     let my_balance = block_on(mm.rpc(&json!({
         "userpass": mm.userpass,
@@ -1444,17 +1421,31 @@ fn test_search_for_segwit_swap_tx_spend_native_was_refunded_maker() {
     let my_public_key = coin.my_public_key().unwrap();
 
     let time_lock = (now_ms() / 1000) as u32 - 3600;
-    let tx = coin
-        .send_maker_payment(0, time_lock, my_public_key, &[0; 20], 1u64.into(), &None, &[], &None)
-        .wait()
-        .unwrap();
+    let maker_payment = SendMakerPaymentArgs {
+        time_lock_duration: 0,
+        time_lock,
+        other_pubkey: my_public_key,
+        secret_hash: &[0; 20],
+        amount: 1u64.into(),
+        swap_contract_address: &None,
+        swap_unique_data: &[],
+        payment_instructions: &None,
+    };
+    let tx = coin.send_maker_payment(maker_payment).wait().unwrap();
 
     coin.wait_for_confirmations(&tx.tx_hex(), 1, false, timeout, 1)
         .wait()
         .unwrap();
-
+    let maker_refunds_payment_args = SendMakerRefundsPaymentArgs {
+        payment_tx: &tx.tx_hex(),
+        time_lock,
+        other_pubkey: my_public_key,
+        secret_hash: &[0; 20],
+        swap_contract_address: &None,
+        swap_unique_data: &[],
+    };
     let refund_tx = coin
-        .send_maker_refunds_payment(&tx.tx_hex(), time_lock, my_public_key, &[0; 20], &None, &[])
+        .send_maker_refunds_payment(maker_refunds_payment_args)
         .wait()
         .unwrap();
 
@@ -1485,17 +1476,31 @@ fn test_search_for_segwit_swap_tx_spend_native_was_refunded_taker() {
     let my_public_key = coin.my_public_key().unwrap();
 
     let time_lock = (now_ms() / 1000) as u32 - 3600;
-    let tx = coin
-        .send_taker_payment(0, time_lock, my_public_key, &[0; 20], 1u64.into(), &None, &[], &None)
-        .wait()
-        .unwrap();
+    let taker_payment = SendTakerPaymentArgs {
+        time_lock_duration: 0,
+        time_lock,
+        other_pubkey: my_public_key,
+        secret_hash: &[0; 20],
+        amount: 1u64.into(),
+        swap_contract_address: &None,
+        swap_unique_data: &[],
+        payment_instructions: &None,
+    };
+    let tx = coin.send_taker_payment(taker_payment).wait().unwrap();
 
     coin.wait_for_confirmations(&tx.tx_hex(), 1, false, timeout, 1)
         .wait()
         .unwrap();
-
+    let maker_refunds_payment_args = SendMakerRefundsPaymentArgs {
+        payment_tx: &tx.tx_hex(),
+        time_lock,
+        other_pubkey: my_public_key,
+        secret_hash: &[0; 20],
+        swap_contract_address: &None,
+        swap_unique_data: &[],
+    };
     let refund_tx = coin
-        .send_maker_refunds_payment(&tx.tx_hex(), time_lock, my_public_key, &[0; 20], &None, &[])
+        .send_maker_refunds_payment(maker_refunds_payment_args)
         .wait()
         .unwrap();
 

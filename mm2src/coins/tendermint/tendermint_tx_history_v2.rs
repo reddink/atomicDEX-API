@@ -232,6 +232,8 @@ where
                     "MSG_TYPE: {} TX_HEIGHT: {} TX_HASH: {}",
                     msg.type_url, tx.height, tx.hash
                 );
+
+                // decode tx depend on type_url
             }
         }
 
