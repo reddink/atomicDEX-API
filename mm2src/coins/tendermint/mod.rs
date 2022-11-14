@@ -2,8 +2,7 @@
 // Useful resources
 // https://docs.cosmos.network/
 
-#[path = "iris/htlc.rs"] mod htlc;
-#[path = "iris/htlc_proto.rs"] mod htlc_proto;
+mod iris;
 mod rpc;
 mod tendermint_coin;
 mod tendermint_token;

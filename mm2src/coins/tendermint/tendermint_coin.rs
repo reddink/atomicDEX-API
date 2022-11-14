@@ -1,8 +1,8 @@
-use super::htlc::{IrisHtlc, MsgCreateHtlc, HTLC_STATE_COMPLETED, HTLC_STATE_OPEN, HTLC_STATE_REFUNDED};
+use super::iris::htlc::{IrisHtlc, MsgClaimHtlc, MsgCreateHtlc, HTLC_STATE_COMPLETED, HTLC_STATE_OPEN,
+                        HTLC_STATE_REFUNDED};
+use super::iris::htlc_proto::{CreateHtlcProtoRep, QueryHtlcRequestProto, QueryHtlcResponseProto};
 use super::rpc::*;
 use crate::coin_errors::{MyAddressError, ValidatePaymentError};
-use crate::tendermint::htlc::MsgClaimHtlc;
-use crate::tendermint::htlc_proto::{CreateHtlcProtoRep, QueryHtlcRequestProto, QueryHtlcResponseProto};
 use crate::utxo::sat_from_big_decimal;
 use crate::utxo::utxo_common::big_decimal_from_sat;
 use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal, CheckIfMyPaymentSentArgs,
@@ -1792,8 +1792,7 @@ impl SwapOps for TendermintCoin {
     ) -> TransactionFut {
         let tx = try_tx_fus!(cosmrs::Tx::from_bytes(maker_spends_payment_args.other_payment_tx));
         let msg = try_tx_fus!(tx.body.messages.first().ok_or("Tx body couldn't be read."));
-        let htlc_proto: crate::tendermint::htlc_proto::CreateHtlcProtoRep =
-            try_tx_fus!(prost::Message::decode(msg.value.as_slice()));
+        let htlc_proto: CreateHtlcProtoRep = try_tx_fus!(prost::Message::decode(msg.value.as_slice()));
         let htlc = try_tx_fus!(MsgCreateHtlc::try_from(htlc_proto));
 
         let mut amount = htlc.amount.clone();
@@ -1851,8 +1850,7 @@ impl SwapOps for TendermintCoin {
     ) -> TransactionFut {
         let tx = try_tx_fus!(cosmrs::Tx::from_bytes(taker_spends_payment_args.other_payment_tx));
         let msg = try_tx_fus!(tx.body.messages.first().ok_or("Tx body couldn't be read."));
-        let htlc_proto: crate::tendermint::htlc_proto::CreateHtlcProtoRep =
-            try_tx_fus!(prost::Message::decode(msg.value.as_slice()));
+        let htlc_proto: CreateHtlcProtoRep = try_tx_fus!(prost::Message::decode(msg.value.as_slice()));
         let htlc = try_tx_fus!(MsgCreateHtlc::try_from(htlc_proto));
 
         let mut amount = htlc.amount.clone();
@@ -1966,7 +1964,7 @@ impl SwapOps for TendermintCoin {
     async fn extract_secret(&self, secret_hash: &[u8], spend_tx: &[u8]) -> Result<Vec<u8>, String> {
         let tx = try_s!(cosmrs::Tx::from_bytes(spend_tx));
         let msg = try_s!(tx.body.messages.first().ok_or("Tx body couldn't be read."));
-        let htlc_proto: crate::tendermint::htlc_proto::ClaimHtlcProtoRep =
+        let htlc_proto: super::iris::htlc_proto::ClaimHtlcProtoRep =
             try_s!(prost::Message::decode(msg.value.as_slice()));
         let htlc = try_s!(MsgClaimHtlc::try_from(htlc_proto));
 
@@ -2061,7 +2059,6 @@ impl WatcherOps for TendermintCoin {
 pub mod tendermint_coin_tests {
     use super::*;
 
-    use crate::tendermint::htlc_proto::ClaimHtlcProtoRep;
     use common::{block_on, DEX_FEE_ADDR_RAW_PUBKEY};
     use cosmrs::proto::cosmos::tx::v1beta1::{GetTxRequest, GetTxResponse, GetTxsEventResponse};
     use std::mem::discriminant;
@@ -2285,7 +2282,8 @@ pub mod tendermint_coin_tests {
         let first_msg = tx.body.as_ref().unwrap().messages.first().unwrap();
         println!("{:?}", first_msg);
 
-        let claim_htlc = ClaimHtlcProtoRep::decode(first_msg.value.as_slice()).unwrap();
+        let claim_htlc =
+            crate::tendermint::iris::htlc_proto::ClaimHtlcProtoRep::decode(first_msg.value.as_slice()).unwrap();
         let expected_secret = [1; 32];
         let actual_secret = hex::decode(claim_htlc.secret).unwrap();
 
