@@ -5,10 +5,12 @@ use crate::platform_coin_with_tokens::{EnablePlatformCoinWithTokensError, GetPla
 use crate::prelude::*;
 use async_trait::async_trait;
 use coins::my_tx_history_v2::TxHistoryStorage;
+use coins::tendermint::tendermint_tx_history_v2::tendermint_history_loop;
 use coins::tendermint::{TendermintCoin, TendermintInitError, TendermintInitErrorKind, TendermintProtocolInfo,
                         TendermintToken, TendermintTokenActivationParams, TendermintTokenInitError,
                         TendermintTokenProtocolInfo};
-use coins::{CoinBalance, CoinProtocol, MarketCoinOps};
+use coins::{CoinBalance, CoinProtocol, MarketCoinOps, MmCoin};
+use common::executor::{AbortSettings, SpawnAbortable};
 use common::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
@@ -38,7 +40,7 @@ pub struct TendermintActivationParams {
 }
 
 impl TxHistory for TendermintActivationParams {
-    fn tx_history(&self) -> bool { false }
+    fn tx_history(&self) -> bool { self.tx_history }
 }
 
 struct TendermintTokenInitializer {
@@ -221,9 +223,13 @@ impl PlatformWithTokensActivationOps for TendermintCoin {
 
     fn start_history_background_fetching(
         &self,
-        _metrics: MetricsArc,
-        _storage: impl TxHistoryStorage,
-        _initial_balance: BigDecimal,
+        metrics: MetricsArc,
+        storage: impl TxHistoryStorage,
+        initial_balance: BigDecimal,
     ) {
+        let fut = tendermint_history_loop(self.clone(), storage, metrics, initial_balance);
+
+        let settings = AbortSettings::info_on_abort(format!("tendermint_history_loop stopped for {}", self.ticker()));
+        self.spawner().spawn_with_settings(fut, settings);
     }
 }

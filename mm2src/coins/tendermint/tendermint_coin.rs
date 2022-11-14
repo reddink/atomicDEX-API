@@ -127,7 +127,7 @@ pub struct TendermintCoinImpl {
     /// This spawner is used to spawn coin's related futures that should be aborted on coin deactivation
     /// or on [`MmArc::stop`].
     pub(super) abortable_system: AbortableQueue,
-    history_sync_state: Mutex<HistorySyncState>,
+    pub(crate) history_sync_state: Mutex<HistorySyncState>,
 }
 
 #[derive(Clone)]
@@ -358,7 +358,7 @@ impl TendermintCoin {
     // Save one working client to the coin context, only try others once it doesn't
     // work anymore.
     // Also, try couple times more on health check errors.
-    async fn rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError> {
+    pub(crate) async fn rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError> {
         for rpc_client in self.rpc_clients.iter() {
             match rpc_client.perform(HealthRequest).timeout(Duration::from_secs(3)).await {
                 Ok(Ok(_)) => return Ok(rpc_client.clone()),

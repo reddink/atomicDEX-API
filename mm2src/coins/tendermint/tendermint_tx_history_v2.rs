@@ -1,4 +1,6 @@
-use super::{TendermintCoin, TendermintToken};
+#![allow(warnings)]
+
+use super::{rpc::*, TendermintCoin, TendermintCoinRpcError, TendermintToken};
 
 use crate::my_tx_history_v2::{CoinWithTxHistoryV2, MyTxHistoryErrorV2, MyTxHistoryTarget, TxHistoryStorage};
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
@@ -7,15 +9,19 @@ use crate::{HistorySyncState, MarketCoinOps};
 use async_trait::async_trait;
 use common::log;
 use common::state_machine::prelude::*;
+use cosmrs::rpc::{Client, HttpClient};
 use mm2_err_handle::prelude::MmResult;
 use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
+use prost::Message;
 use std::collections::HashMap;
 
 #[async_trait]
 pub trait TendermintTxHistoryOps: CoinWithTxHistoryV2 + MarketCoinOps + Send + Sync + 'static {
     // Returns addresses for those we need to request Transaction history.
     // fn my_address(&self) -> AccountId;
+
+    async fn get_rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError>;
 
     // Returns Transaction details by hash using the coin RPC if required.
     // async fn tx_details_by_hash<T>(
@@ -50,7 +56,7 @@ pub trait TendermintTxHistoryOps: CoinWithTxHistoryV2 + MarketCoinOps + Send + S
 
 #[async_trait]
 impl CoinWithTxHistoryV2 for TendermintCoin {
-    fn history_wallet_id(&self) -> WalletId { WalletId::new(self.ticker().to_owned()) }
+    fn history_wallet_id(&self) -> WalletId { WalletId::new(self.ticker().replace('-', "_")) }
 
     async fn get_tx_history_filters(
         &self,
@@ -195,13 +201,54 @@ where
     type Ctx = TendermintTxHistoryCtx<Coin, Storage>;
     type Result = ();
 
-    async fn on_changed(self: Box<Self>, _ctx: &mut Self::Ctx) -> StateResult<Self::Ctx, Self::Result> {
+    async fn on_changed(self: Box<Self>, ctx: &mut Self::Ctx) -> StateResult<Self::Ctx, Self::Result> {
+        const TX_PAGE_SIZE: u8 = 50;
+
+        async fn query_transactions(client: &HttpClient, query: String, page: u32) {
+            let response = client
+                .perform(TxSearchRequest::new(
+                    query,
+                    false,
+                    page,
+                    TX_PAGE_SIZE,
+                    TendermintResultOrder::Ascending.into(),
+                ))
+                .await
+                .unwrap();
+
+            for tx in response.txs {
+                let _height = tx.height;
+                let _hash = tx.hash;
+
+                let deserialized_tx = cosmrs::Tx::from_bytes(tx.tx.as_bytes()).unwrap();
+                let msg = deserialized_tx
+                    .body
+                    .messages
+                    .first()
+                    .ok_or("Tx body couldn't be read.")
+                    .unwrap();
+
+                println!(
+                    "MSG_TYPE: {} TX_HEIGHT: {} TX_HASH: {}",
+                    msg.type_url, tx.height, tx.hash
+                );
+            }
+        }
+
+        let rpc_client = ctx.coin.get_rpc_client().await.unwrap();
+
+        let address = "iaa1e0rx87mdj79zejewuc4jg7ql9ud2286g2us8f2".to_string();
+        let q = format!("transfer.sender = '{}'", address);
+        query_transactions(&rpc_client, q, 1).await;
+        todo!()
+        // let q = format!("transfer.recipient = '{}'", self.address.clone());
+        // query_transactions(&rpc_client, q, 1);
+
         // Get tx as sender and receiver
         // Order By Asc
         // Iterate via pagination values
         // Insert if not exists in storage
         // If all complete, wait for trigger
-        todo!()
     }
 }
 
@@ -218,10 +265,7 @@ where
         ctx.coin.set_history_sync_state(HistorySyncState::NotStarted);
 
         if let Err(e) = ctx.storage.init(&ctx.coin.history_wallet_id()).await {
-            return Self::change_state(Stopped {
-                phantom: Default::default(),
-                stop_reason: StopReason::StorageError(format!("{:?}", e)),
-            });
+            return Self::change_state(Stopped::storage_error(e));
         }
 
         Self::change_state(FetchingTransactionsData::new(
@@ -240,6 +284,7 @@ where
     type Result = ();
 
     async fn on_changed(self: Box<Self>, ctx: &mut Self::Ctx) -> Self::Result {
+        println!("MUST BE EXECUTED AFTER");
         log::info!(
             "Stopping tx history fetching for {}. Reason: {:?}",
             ctx.coin.ticker(),
@@ -259,31 +304,39 @@ where
     }
 }
 
-// pub async fn tendermint_history_loop(
-//     coin: TendermintCoin,
-//     storage: impl TxHistoryStorage,
-//     metrics: MetricsArc,
-//     current_balance: BigDecimal,
-// ) {
-//     let my_address = match coin.my_address() {
-//         Ok(my_address) => my_address,
-//         Err(e) => {
-//             log::error!("{}", e);
-//             return;
-//         },
-//     };
-//     let mut balances = HashMap::new();
-//     balances.insert(my_address, current_balance);
-//     drop_mutability!(balances);
-//
-//     // let ctx = TendermintTxHistoryCtx {
-//     //     coin,
-//     //     storage,
-//     //     metrics,
-//     //     balances,
-//     // };
-//     // let state_machine: StateMachine<_, ()> = StateMachine::from_ctx(ctx);
-//     // state_machine.run(TendermintInit::new()).await;
-//
-//     todo!()
-// }
+#[async_trait]
+impl TendermintTxHistoryOps for TendermintCoin {
+    async fn get_rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError> { self.rpc_client().await }
+
+    fn set_history_sync_state(&self, new_state: HistorySyncState) {
+        *self.history_sync_state.lock().unwrap() = new_state;
+    }
+}
+
+pub async fn tendermint_history_loop(
+    coin: TendermintCoin,
+    storage: impl TxHistoryStorage,
+    metrics: MetricsArc,
+    current_balance: BigDecimal,
+) {
+    let my_address = match coin.my_address() {
+        Ok(my_address) => my_address,
+        Err(e) => {
+            log::error!("{}", e);
+            return;
+        },
+    };
+    let mut balances = HashMap::new();
+    balances.insert(my_address, current_balance);
+    drop_mutability!(balances);
+
+    let ctx = TendermintTxHistoryCtx {
+        coin,
+        storage,
+        metrics,
+        balances,
+    };
+
+    let state_machine: StateMachine<_, ()> = StateMachine::from_ctx(ctx);
+    state_machine.run(TendermintInit::new()).await;
+}
