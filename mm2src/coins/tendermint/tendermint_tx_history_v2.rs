@@ -67,8 +67,6 @@ struct TendermintTxHistoryCtx<Coin: TendermintTxHistoryOps, Storage: TxHistorySt
     coin: Coin,
     storage: Storage,
     metrics: MetricsArc,
-    /// Last requested balances of the activated coin's addresses.
-    /// TODO add a `CoinBalanceState` structure and replace [`HashMap<String, BigDecimal>`] everywhere.
     balances: HashMap<String, BigDecimal>,
 }
 

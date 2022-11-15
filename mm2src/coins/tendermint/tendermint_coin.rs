@@ -111,9 +111,6 @@ pub struct ActivatedTokenInfo {
 
 pub struct TendermintCoinImpl {
     ticker: String,
-    /// TODO
-    /// Test Vec<String(rpc_urls)> instead of HttpClient and pick
-    /// better one in terms of performance & resource consumption on runtime.
     rpc_clients: Vec<HttpClient>,
     /// As seconds
     avg_blocktime: u8,
