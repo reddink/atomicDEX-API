@@ -179,6 +179,8 @@ where
         where
             Coin: TendermintTxHistoryOps,
         {
+            // TODO
+            // check if coin matches in the transactions before inserting them
             let mut page = 1;
             let mut iterate_more = true;
 
@@ -228,6 +230,7 @@ where
                                 my_balance_change: received_by_me - spent_by_me,
                                 tx_hash: tx.hash.to_string(),
                                 tx_hex: msg.value.as_slice().into(),
+                                // TODO
                                 fee_details: None, // Some(fee_details.into()),
                                 block_height: tx.height.into(),
                                 coin: coin.ticker().to_string(),
@@ -271,6 +274,7 @@ where
                                 my_balance_change: received_by_me - spent_by_me,
                                 tx_hash: tx.hash.to_string(),
                                 tx_hex: msg.value.as_slice().into(),
+                                // TODO
                                 fee_details: None, // Some(fee_details.into()),
                                 block_height: tx.height.into(),
                                 coin: coin.ticker().to_string(),
@@ -304,6 +308,7 @@ where
                                 my_balance_change: received_by_me - spent_by_me,
                                 tx_hash: tx.hash.to_string(),
                                 tx_hex: msg.value.as_slice().into(),
+                                // TODO
                                 fee_details: None, // Some(fee_details.into()),
                                 block_height: tx.height.into(),
                                 coin: coin.ticker().to_string(),
