@@ -20,7 +20,7 @@ pub use tendermint_rpc::Order;
 use tendermint_rpc::Response;
 
 #[derive(Debug, Clone)]
-pub(crate) struct HttpClient {
+pub struct HttpClient {
     uri: String,
 }
 
@@ -34,7 +34,7 @@ impl From<InvalidUri> for HttpClientInitError {
 }
 
 #[derive(Debug, Display)]
-pub(crate) enum PerformError {
+pub enum PerformError {
     TendermintRpc(TendermintRpcError),
     Slurp(SlurpError),
     #[display(fmt = "Request failed with status code {}, response {}", status_code, response)]

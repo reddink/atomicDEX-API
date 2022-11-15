@@ -9,7 +9,6 @@ use crate::{HistorySyncState, MarketCoinOps};
 use async_trait::async_trait;
 use common::log;
 use common::state_machine::prelude::*;
-use cosmrs::rpc::{Client, HttpClient};
 use mm2_err_handle::prelude::MmResult;
 use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
