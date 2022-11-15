@@ -1,8 +1,10 @@
 #![allow(warnings)]
 
+use super::iris::htlc_proto::QueryHtlcResponseProto;
 use super::{rpc::*, type_urls::*, TendermintCoin, TendermintCoinRpcError, TendermintToken};
 
 use crate::my_tx_history_v2::{CoinWithTxHistoryV2, MyTxHistoryErrorV2, MyTxHistoryTarget, TxHistoryStorage};
+use crate::tendermint::iris::htlc::{HTLC_STATE_COMPLETED, HTLC_STATE_OPEN, HTLC_STATE_REFUNDED};
 use crate::tendermint::iris::htlc_proto::{ClaimHtlcProtoRep, CreateHtlcProtoRep};
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
@@ -16,47 +18,19 @@ use itertools::Itertools;
 use mm2_err_handle::prelude::MmResult;
 use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
+use primitives::hash::H256;
 use prost::Message;
 use std::collections::HashMap;
 use std::str::FromStr;
 
 #[async_trait]
 pub trait TendermintTxHistoryOps: CoinWithTxHistoryV2 + MarketCoinOps + Send + Sync + 'static {
-    // Returns addresses for those we need to request Transaction history.
-    // fn my_address(&self) -> AccountId;
+    async fn get_rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError>;
+
+    async fn query_htlc(&self, id: String) -> MmResult<QueryHtlcResponseProto, TendermintCoinRpcError>;
 
     fn decimals(&self) -> u8;
 
-    async fn get_rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError>;
-
-    // Returns Transaction details by hash using the coin RPC if required.
-    // async fn tx_details_by_hash<T>(
-    //     &self,
-    //     params: UtxoTxDetailsParams<'_, T>,
-    // ) -> MmResult<Vec<TransactionDetails>, UtxoTxDetailsError>
-    // where
-    //     T: TxHistoryStorage;
-
-    // Loads transaction from `storage` or requests it using coin RPC.
-    // async fn tx_from_storage_or_rpc<Storage: TxHistoryStorage>(
-    //     &self,
-    //     tx_hash: &H256Json,
-    //     storage: &Storage,
-    // ) -> MmResult<UtxoTx, UtxoTxDetailsError>;
-
-    // Requests transaction history.
-    // async fn request_tx_history(&self, metrics: MetricsArc, for_addresses: &HashSet<Address>)
-    //     -> RequestTxHistoryResult;
-
-    // Requests timestamp of the given block.
-    // async fn get_block_timestamp(&self, height: u64) -> MmResult<u64, GetBlockHeaderError>;
-
-    // Requests balances of all activated coin's addresses.
-    // async fn my_addresses_balances(&self) -> BalanceResult<HashMap<String, BigDecimal>>;
-
-    // fn address_from_str(&self, address: &str) -> MmResult<Address, AddrFromStrError>;
-
-    /// Sets the history sync state.
     fn set_history_sync_state(&self, new_state: HistorySyncState);
 }
 
@@ -85,15 +59,6 @@ impl CoinWithTxHistoryV2 for TendermintToken {
         ))
     }
 }
-
-////////////////////////////////
-////////////////////////////////
-////////////////////////////////
-////////////////////////////////
-////////////////////////////////
-////////////////////////////////
-////////////////////////////////
-////////////////////////////////
 
 struct TendermintTxHistoryCtx<Coin: TendermintTxHistoryOps, Storage: TxHistoryStorage> {
     coin: Coin,
@@ -191,12 +156,12 @@ impl<Coin, Storage> FetchingTransactionsData<Coin, Storage> {
 
 impl<Coin, Storage> TransitionFrom<TendermintInit<Coin, Storage>> for Stopped<Coin, Storage> {}
 impl<Coin, Storage> TransitionFrom<TendermintInit<Coin, Storage>> for FetchingTransactionsData<Coin, Storage> {}
-// impl<Coin, Storage> TransitionFrom<WaitForHistoryUpdateTrigger<Coin, Storage>> for Stopped<Coin, Storage> {}
-// impl<Coin, Storage> TransitionFrom<FetchingTransactionsData<Coin, Storage>> for Stopped<Coin, Storage> {}
-// impl<Coin, Storage> TransitionFrom<FetchingTransactionsData<Coin, Storage>>
-//     for WaitForHistoryUpdateTrigger<Coin, Storage>
-// {
-// }
+impl<Coin, Storage> TransitionFrom<WaitForHistoryUpdateTrigger<Coin, Storage>> for Stopped<Coin, Storage> {}
+impl<Coin, Storage> TransitionFrom<FetchingTransactionsData<Coin, Storage>> for Stopped<Coin, Storage> {}
+impl<Coin, Storage> TransitionFrom<FetchingTransactionsData<Coin, Storage>>
+    for WaitForHistoryUpdateTrigger<Coin, Storage>
+{
+}
 
 #[async_trait]
 impl<Coin, Storage> State for FetchingTransactionsData<Coin, Storage>
@@ -210,106 +175,151 @@ where
     async fn on_changed(self: Box<Self>, ctx: &mut Self::Ctx) -> StateResult<Self::Ctx, Self::Result> {
         const TX_PAGE_SIZE: u8 = 50;
 
-        async fn query_transactions<Coin>(coin: &Coin, query: String, page: u32) -> Vec<crate::TransactionDetails>
+        async fn query_transactions<Coin>(coin: &Coin, query: String) -> Vec<crate::TransactionDetails>
         where
             Coin: TendermintTxHistoryOps,
         {
-            let client = coin.get_rpc_client().await.unwrap();
-            let response = client
-                .perform(TxSearchRequest::new(
-                    query,
-                    false,
-                    page,
-                    TX_PAGE_SIZE,
-                    TendermintResultOrder::Ascending.into(),
-                ))
-                .await
-                .unwrap();
+            let mut page = 1;
+            let mut iterate_more = true;
 
             let mut tx_details = vec![];
-            for tx in response.txs {
-                let deserialized_tx = cosmrs::Tx::from_bytes(tx.tx.as_bytes()).unwrap();
-                let msg = deserialized_tx
-                    .body
-                    .messages
-                    .first()
-                    .ok_or("Tx body couldn't be read.")
+
+            let client = coin.get_rpc_client().await.unwrap();
+            while iterate_more {
+                let response = client
+                    .perform(TxSearchRequest::new(
+                        query.clone(),
+                        false,
+                        page,
+                        TX_PAGE_SIZE,
+                        TendermintResultOrder::Ascending.into(),
+                    ))
+                    .await
                     .unwrap();
 
-                println!(
-                    "MSG_TYPE: {} TX_HEIGHT: {} TX_HASH: {}",
-                    msg.type_url, tx.height, tx.hash
-                );
+                for tx in response.txs {
+                    let deserialized_tx = cosmrs::Tx::from_bytes(tx.tx.as_bytes()).unwrap();
+                    let msg = deserialized_tx
+                        .body
+                        .messages
+                        .first()
+                        .ok_or("Tx body couldn't be read.")
+                        .unwrap();
 
-                match msg.type_url.as_str() {
-                    SEND_TYPE_URL => {
-                        let send_tx = MsgSend::decode(msg.value.as_slice()).unwrap();
-                        let amount: u64 = send_tx.amount.first().unwrap().amount.parse().unwrap();
-                        let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
+                    match msg.type_url.as_str() {
+                        SEND_TYPE_URL => {
+                            let send_tx = MsgSend::decode(msg.value.as_slice()).unwrap();
+                            let amount: u64 = send_tx.amount.first().unwrap().amount.parse().unwrap();
+                            let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
 
-                        let (spent_by_me, received_by_me) =
-                            if send_tx.from_address == coin.my_address().expect("my_address should never fail") {
-                                (amount.clone(), BigDecimal::default())
-                            } else {
-                                (BigDecimal::default(), amount.clone())
+                            let (spent_by_me, received_by_me) =
+                                if send_tx.from_address == coin.my_address().expect("my_address should never fail") {
+                                    (amount.clone(), BigDecimal::default())
+                                } else {
+                                    (BigDecimal::default(), amount.clone())
+                                };
+
+                            let details = crate::TransactionDetails {
+                                from: vec![send_tx.from_address],
+                                to: vec![send_tx.to_address.clone()],
+                                total_amount: amount,
+                                spent_by_me: spent_by_me.clone(),
+                                received_by_me: received_by_me.clone(),
+                                my_balance_change: received_by_me - spent_by_me,
+                                tx_hash: tx.hash.to_string(),
+                                tx_hex: msg.value.as_slice().into(),
+                                fee_details: None, // Some(fee_details.into()),
+                                block_height: tx.height.into(),
+                                coin: coin.ticker().to_string(),
+                                internal_id: H256::from(tx.hash.as_bytes()).reversed().to_vec().into(),
+                                timestamp: common::now_ms() / 1000,
+                                kmd_rewards: None,
+                                transaction_type: Default::default(),
+                            };
+                            tx_details.push(details);
+                        },
+                        CLAIM_HTLC_TYPE_URL => {
+                            let htlc_tx = ClaimHtlcProtoRep::decode(msg.value.as_slice()).unwrap();
+                            let htlc_response = coin.query_htlc(htlc_tx.id).await.unwrap();
+
+                            let htlc_data = match htlc_response.htlc {
+                                Some(htlc) => htlc,
+                                None => continue,
                             };
 
-                        let details = crate::TransactionDetails {
-                            from: vec![send_tx.from_address],
-                            to: vec![send_tx.to_address.clone()],
-                            total_amount: amount,
-                            spent_by_me: spent_by_me.clone(),
-                            received_by_me: received_by_me.clone(),
-                            my_balance_change: received_by_me - spent_by_me,
-                            tx_hash: tx.hash.to_string(),
-                            tx_hex: msg.value.as_slice().into(),
-                            fee_details: None, // Some(fee_details.into()),
-                            block_height: tx.height.into(),
-                            coin: coin.ticker().to_string(),
-                            internal_id: vec![].into(),
-                            timestamp: common::now_ms() / 1000,
-                            kmd_rewards: None,
-                            transaction_type: Default::default(),
-                        };
-                        tx_details.push(details);
-                    },
-                    // CLAIM_HTLC_TYPE_URL => {
-                    //     let htlc_tx = ClaimHtlcProtoRep::decode(msg.value.as_slice()).unwrap();
-                    // },
-                    CREATE_HTLC_TYPE_URL => {
-                        let htlc_tx = CreateHtlcProtoRep::decode(msg.value.as_slice()).unwrap();
-                        let amount: u64 = htlc_tx.amount.first().unwrap().amount.parse().unwrap();
-
-                        let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
-
-                        let (spent_by_me, received_by_me) =
-                            if htlc_tx.sender == coin.my_address().expect("my_address should never fail") {
-                                (amount.clone(), BigDecimal::default())
-                            } else {
-                                (BigDecimal::default(), amount.clone())
+                            match htlc_data.state {
+                                HTLC_STATE_OPEN | HTLC_STATE_COMPLETED | HTLC_STATE_REFUNDED => {},
+                                unexpected_state => continue,
                             };
 
-                        let details = crate::TransactionDetails {
-                            from: vec![htlc_tx.sender],
-                            to: vec![htlc_tx.to.clone()],
-                            total_amount: amount,
-                            spent_by_me: spent_by_me.clone(),
-                            received_by_me: received_by_me.clone(),
-                            my_balance_change: received_by_me - spent_by_me,
-                            tx_hash: tx.hash.to_string(),
-                            tx_hex: msg.value.as_slice().into(),
-                            fee_details: None, // Some(fee_details.into()),
-                            block_height: tx.height.into(),
-                            coin: coin.ticker().to_string(),
-                            internal_id: vec![].into(),
-                            timestamp: common::now_ms() / 1000,
-                            kmd_rewards: None,
-                            transaction_type: Default::default(),
-                        };
-                        tx_details.push(details);
-                    },
-                    _ => {},
+                            let amount: u64 = htlc_data.amount.first().unwrap().amount.parse().unwrap();
+                            let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
+
+                            let (spent_by_me, received_by_me) =
+                                if htlc_data.sender == coin.my_address().expect("my_address should never fail") {
+                                    (amount.clone(), BigDecimal::default())
+                                } else {
+                                    (BigDecimal::default(), amount.clone())
+                                };
+
+                            let details = crate::TransactionDetails {
+                                from: vec![htlc_data.sender],
+                                to: vec![htlc_data.to.clone()],
+                                total_amount: amount,
+                                spent_by_me: spent_by_me.clone(),
+                                received_by_me: received_by_me.clone(),
+                                my_balance_change: received_by_me - spent_by_me,
+                                tx_hash: tx.hash.to_string(),
+                                tx_hex: msg.value.as_slice().into(),
+                                fee_details: None, // Some(fee_details.into()),
+                                block_height: tx.height.into(),
+                                coin: coin.ticker().to_string(),
+                                internal_id: H256::from(tx.hash.as_bytes()).reversed().to_vec().into(),
+                                timestamp: common::now_ms() / 1000,
+                                kmd_rewards: None,
+                                transaction_type: Default::default(),
+                            };
+
+                            tx_details.push(details);
+                        },
+                        CREATE_HTLC_TYPE_URL => {
+                            let htlc_tx = CreateHtlcProtoRep::decode(msg.value.as_slice()).unwrap();
+                            let amount: u64 = htlc_tx.amount.first().unwrap().amount.parse().unwrap();
+
+                            let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
+
+                            let (spent_by_me, received_by_me) =
+                                if htlc_tx.sender == coin.my_address().expect("my_address should never fail") {
+                                    (amount.clone(), BigDecimal::default())
+                                } else {
+                                    (BigDecimal::default(), amount.clone())
+                                };
+
+                            let details = crate::TransactionDetails {
+                                from: vec![htlc_tx.sender],
+                                to: vec![htlc_tx.to.clone()],
+                                total_amount: amount,
+                                spent_by_me: spent_by_me.clone(),
+                                received_by_me: received_by_me.clone(),
+                                my_balance_change: received_by_me - spent_by_me,
+                                tx_hash: tx.hash.to_string(),
+                                tx_hex: msg.value.as_slice().into(),
+                                fee_details: None, // Some(fee_details.into()),
+                                block_height: tx.height.into(),
+                                coin: coin.ticker().to_string(),
+                                internal_id: H256::from(tx.hash.as_bytes()).reversed().to_vec().into(),
+                                timestamp: common::now_ms() / 1000,
+                                kmd_rewards: None,
+                                transaction_type: Default::default(),
+                            };
+                            tx_details.push(details);
+                        },
+                        _ => {},
+                    }
                 }
+
+                iterate_more = (TX_PAGE_SIZE as u32 * page) < response.total_count;
+                page += 1;
             }
 
             tx_details
@@ -317,25 +327,33 @@ where
 
         let rpc_client = ctx.coin.get_rpc_client().await.unwrap();
 
-        let address = "iaa1e0rx87mdj79zejewuc4jg7ql9ud2286g2us8f2".to_string();
+        let address = ctx.coin.my_address().expect("should not fail");
 
+        // TODO
+        // do the iteration here to avoid pressuring memory
         let q = format!("transfer.sender = '{}'", address.clone());
         let mut tx_details = vec![];
-        tx_details.extend_from_slice(&query_transactions(&ctx.coin, q, 1).await);
+        tx_details.extend_from_slice(&query_transactions(&ctx.coin, q).await);
 
         let q = format!("transfer.recipient = '{}'", self.address.clone());
-        tx_details.extend_from_slice(&query_transactions(&ctx.coin, q, 1).await);
+        tx_details.extend_from_slice(&query_transactions(&ctx.coin, q).await);
 
         let tx_details: Vec<crate::TransactionDetails> =
             tx_details.into_iter().unique_by(|t| t.tx_hash.clone()).collect();
 
-        todo!()
+        if let Err(e) = ctx
+            .storage
+            .add_transactions_to_history(&ctx.coin.history_wallet_id(), tx_details)
+            .await
+        {
+            return Self::change_state(Stopped::storage_error(e));
+        }
 
-        // Get tx as sender and receiver
-        // Order By Asc
-        // Iterate via pagination values
-        // Insert if not exists in storage
-        // If all complete, wait for trigger
+        log::info!("Tx history fetching finished for {}", ctx.coin.ticker());
+        ctx.coin.set_history_sync_state(HistorySyncState::Finished);
+        // Self::change_state(WaitForHistoryUpdateTrigger::new())
+
+        todo!()
     }
 }
 
@@ -371,7 +389,6 @@ where
     type Result = ();
 
     async fn on_changed(self: Box<Self>, ctx: &mut Self::Ctx) -> Self::Result {
-        println!("MUST BE EXECUTED AFTER");
         log::info!(
             "Stopping tx history fetching for {}. Reason: {:?}",
             ctx.coin.ticker(),
@@ -394,6 +411,10 @@ where
 #[async_trait]
 impl TendermintTxHistoryOps for TendermintCoin {
     async fn get_rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError> { self.rpc_client().await }
+
+    async fn query_htlc(&self, id: String) -> MmResult<QueryHtlcResponseProto, TendermintCoinRpcError> {
+        self.query_htlc(id).await
+    }
 
     fn decimals(&self) -> u8 { self.decimals }
 
