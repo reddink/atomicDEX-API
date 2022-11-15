@@ -6,10 +6,11 @@ use super::{rpc::*, type_urls::*, TendermintCoin, TendermintCoinRpcError, Tender
 use crate::my_tx_history_v2::{CoinWithTxHistoryV2, MyTxHistoryErrorV2, MyTxHistoryTarget, TxHistoryStorage};
 use crate::tendermint::iris::htlc::{HTLC_STATE_COMPLETED, HTLC_STATE_OPEN, HTLC_STATE_REFUNDED};
 use crate::tendermint::iris::htlc_proto::{ClaimHtlcProtoRep, CreateHtlcProtoRep};
+use crate::tendermint::TendermintFeeDetails;
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
 use crate::utxo::utxo_tx_history_v2::StopReason;
-use crate::{HistorySyncState, MarketCoinOps};
+use crate::{HistorySyncState, MarketCoinOps, TxFeeDetails};
 use async_trait::async_trait;
 use common::log;
 use common::state_machine::prelude::*;
@@ -32,6 +33,8 @@ pub trait TendermintTxHistoryOps: CoinWithTxHistoryV2 + MarketCoinOps + Send + S
     fn decimals(&self) -> u8;
 
     fn set_history_sync_state(&self, new_state: HistorySyncState);
+
+    fn my_denom(&self) -> cosmrs::Denom;
 }
 
 #[async_trait]
@@ -172,19 +175,19 @@ where
     type Ctx = TendermintTxHistoryCtx<Coin, Storage>;
     type Result = ();
 
+    // TODO
+    // - coin ticker confusion
+    // - claim/create htlcs will display twice
     async fn on_changed(self: Box<Self>, ctx: &mut Self::Ctx) -> StateResult<Self::Ctx, Self::Result> {
         const TX_PAGE_SIZE: u8 = 50;
 
-        async fn query_transactions<Coin>(coin: &Coin, query: String) -> Vec<crate::TransactionDetails>
+        async fn query_transactions<Coin, Storage>(coin: &Coin, storage: &Storage, query: String) -> Result<(), String>
         where
             Coin: TendermintTxHistoryOps,
+            Storage: TxHistoryStorage,
         {
-            // TODO
-            // check if coin matches in the transactions before inserting them
             let mut page = 1;
             let mut iterate_more = true;
-
-            let mut tx_details = vec![];
 
             let client = coin.get_rpc_client().await.unwrap();
             while iterate_more {
@@ -199,10 +202,43 @@ where
                     .await
                     .unwrap();
 
+                let mut tx_details = vec![];
                 for tx in response.txs {
-                    // TODO
-                    // Ignore inserted ones
+                    let internal_id = H256::from(tx.hash.as_bytes()).reversed().to_vec().into();
+                    match storage
+                        .get_tx_from_history(&coin.history_wallet_id(), &internal_id)
+                        .await
+                    {
+                        Ok(Some(_)) => {
+                            log::debug!(
+                                "Tx '{}' already exists in tx_history. Skipping it.",
+                                tx.hash.to_string()
+                            );
+                            continue;
+                        },
+                        _ => {
+                            log::debug!("Adding tx: '{}' to tx_history.", tx.hash.to_string());
+                        },
+                    }
+
                     let deserialized_tx = cosmrs::Tx::from_bytes(tx.tx.as_bytes()).unwrap();
+
+                    let fee = deserialized_tx.auth_info.fee;
+                    let fee_amount: u64 = fee
+                        .amount
+                        .first()
+                        .expect("Fee amount can't be empty")
+                        .amount
+                        .to_string()
+                        .parse()
+                        .expect("fee_amount parsing can't fail");
+
+                    let fee_details = TxFeeDetails::Tendermint(TendermintFeeDetails {
+                        coin: coin.platform_ticker().to_string(),
+                        amount: big_decimal_from_sat_unsigned(fee_amount, coin.decimals()),
+                        gas_limit: fee.gas_limit.value(),
+                    });
+
                     let msg = deserialized_tx
                         .body
                         .messages
@@ -212,31 +248,31 @@ where
 
                     match msg.type_url.as_str() {
                         SEND_TYPE_URL => {
-                            let send_tx = MsgSend::decode(msg.value.as_slice()).unwrap();
-                            let amount: u64 = send_tx.amount.first().unwrap().amount.parse().unwrap();
+                            let sent_tx = MsgSend::decode(msg.value.as_slice()).unwrap();
+                            let coin_amount = sent_tx.amount.first().unwrap();
+                            let amount: u64 = coin_amount.amount.parse().unwrap();
                             let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
 
                             let (spent_by_me, received_by_me) =
-                                if send_tx.from_address == coin.my_address().expect("my_address should never fail") {
+                                if sent_tx.from_address == coin.my_address().expect("my_address should never fail") {
                                     (amount.clone(), BigDecimal::default())
                                 } else {
                                     (BigDecimal::default(), amount.clone())
                                 };
 
                             let details = crate::TransactionDetails {
-                                from: vec![send_tx.from_address],
-                                to: vec![send_tx.to_address.clone()],
+                                from: vec![sent_tx.from_address],
+                                to: vec![sent_tx.to_address.clone()],
                                 total_amount: amount,
                                 spent_by_me: spent_by_me.clone(),
                                 received_by_me: received_by_me.clone(),
                                 my_balance_change: received_by_me - spent_by_me,
                                 tx_hash: tx.hash.to_string(),
                                 tx_hex: msg.value.as_slice().into(),
-                                // TODO
-                                fee_details: None, // Some(fee_details.into()),
+                                fee_details: Some(fee_details.into()),
                                 block_height: tx.height.into(),
                                 coin: coin.ticker().to_string(),
-                                internal_id: H256::from(tx.hash.as_bytes()).reversed().to_vec().into(),
+                                internal_id,
                                 timestamp: common::now_ms() / 1000,
                                 kmd_rewards: None,
                                 transaction_type: Default::default(),
@@ -257,7 +293,8 @@ where
                                 unexpected_state => continue,
                             };
 
-                            let amount: u64 = htlc_data.amount.first().unwrap().amount.parse().unwrap();
+                            let coin_amount = htlc_data.amount.first().unwrap();
+                            let amount: u64 = coin_amount.amount.parse().unwrap();
                             let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
 
                             let (spent_by_me, received_by_me) =
@@ -276,11 +313,10 @@ where
                                 my_balance_change: received_by_me - spent_by_me,
                                 tx_hash: tx.hash.to_string(),
                                 tx_hex: msg.value.as_slice().into(),
-                                // TODO
-                                fee_details: None, // Some(fee_details.into()),
+                                fee_details: Some(fee_details.into()),
                                 block_height: tx.height.into(),
                                 coin: coin.ticker().to_string(),
-                                internal_id: H256::from(tx.hash.as_bytes()).reversed().to_vec().into(),
+                                internal_id,
                                 timestamp: common::now_ms() / 1000,
                                 kmd_rewards: None,
                                 transaction_type: Default::default(),
@@ -290,8 +326,9 @@ where
                         },
                         CREATE_HTLC_TYPE_URL => {
                             let htlc_tx = CreateHtlcProtoRep::decode(msg.value.as_slice()).unwrap();
-                            let amount: u64 = htlc_tx.amount.first().unwrap().amount.parse().unwrap();
 
+                            let coin_amount = htlc_tx.amount.first().unwrap();
+                            let amount: u64 = coin_amount.amount.parse().unwrap();
                             let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
 
                             let (spent_by_me, received_by_me) =
@@ -310,11 +347,10 @@ where
                                 my_balance_change: received_by_me - spent_by_me,
                                 tx_hash: tx.hash.to_string(),
                                 tx_hex: msg.value.as_slice().into(),
-                                // TODO
-                                fee_details: None, // Some(fee_details.into()),
+                                fee_details: Some(fee_details.into()),
                                 block_height: tx.height.into(),
                                 coin: coin.ticker().to_string(),
-                                internal_id: H256::from(tx.hash.as_bytes()).reversed().to_vec().into(),
+                                internal_id,
                                 timestamp: common::now_ms() / 1000,
                                 kmd_rewards: None,
                                 transaction_type: Default::default(),
@@ -325,36 +361,33 @@ where
                     }
                 }
 
+                if let Err(e) = storage
+                    .add_transactions_to_history(&coin.history_wallet_id(), tx_details)
+                    .await
+                {
+                    return Err(format!("{:?}", e));
+                }
+
                 iterate_more = (TX_PAGE_SIZE as u32 * page) < response.total_count;
                 page += 1;
             }
 
-            tx_details
+            Ok(())
         }
 
         let rpc_client = ctx.coin.get_rpc_client().await.unwrap();
 
         let address = ctx.coin.my_address().expect("should not fail");
 
-        // TODO
-        // do the iteration here to avoid pressuring memory
         let q = format!("transfer.sender = '{}'", address.clone());
-        let mut tx_details = vec![];
-        tx_details.extend_from_slice(&query_transactions(&ctx.coin, q).await);
+        if let Err(e) = query_transactions(&ctx.coin, &ctx.storage, q).await {
+            return Self::change_state(Stopped::storage_error(e));
+        };
 
         let q = format!("transfer.recipient = '{}'", self.address.clone());
-        tx_details.extend_from_slice(&query_transactions(&ctx.coin, q).await);
-
-        let tx_details: Vec<crate::TransactionDetails> =
-            tx_details.into_iter().unique_by(|t| t.tx_hash.clone()).collect();
-
-        if let Err(e) = ctx
-            .storage
-            .add_transactions_to_history(&ctx.coin.history_wallet_id(), tx_details)
-            .await
-        {
+        if let Err(e) = query_transactions(&ctx.coin, &ctx.storage, q).await {
             return Self::change_state(Stopped::storage_error(e));
-        }
+        };
 
         log::info!("Tx history fetching finished for {}", ctx.coin.ticker());
         ctx.coin.set_history_sync_state(HistorySyncState::Finished);
@@ -424,6 +457,8 @@ impl TendermintTxHistoryOps for TendermintCoin {
     }
 
     fn decimals(&self) -> u8 { self.decimals }
+
+    fn my_denom(&self) -> cosmrs::Denom { self.denom.clone() }
 
     fn set_history_sync_state(&self, new_state: HistorySyncState) {
         *self.history_sync_state.lock().unwrap() = new_state;
