@@ -121,7 +121,7 @@ pub struct TendermintCoinImpl {
     pub account_id: AccountId,
     pub(super) account_prefix: String,
     priv_key: Vec<u8>,
-    decimals: u8,
+    pub(crate) decimals: u8,
     pub(super) denom: Denom,
     chain_id: ChainId,
     gas_price: Option<f64>,
