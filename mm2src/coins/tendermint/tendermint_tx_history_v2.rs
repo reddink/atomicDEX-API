@@ -200,6 +200,8 @@ where
                     .unwrap();
 
                 for tx in response.txs {
+                    // TODO
+                    // Ignore inserted ones
                     let deserialized_tx = cosmrs::Tx::from_bytes(tx.tx.as_bytes()).unwrap();
                     let msg = deserialized_tx
                         .body
