@@ -527,15 +527,13 @@ impl MmCoin for TendermintToken {
     fn validate_address(&self, address: &str) -> ValidateAddressResult { self.platform_coin.validate_address(address) }
 
     fn process_history_loop(&self, ctx: MmArc) -> Box<dyn Future<Item = (), Error = ()> + Send> {
-        // TODO
-        warn!("process_history_loop is not implemented");
+        warn!("process_history_loop is deprecated, tendermint uses tx_history_v2");
         Box::new(futures01::future::err(()))
     }
 
     fn history_sync_status(&self) -> HistorySyncState { HistorySyncState::NotEnabled }
 
     fn get_trade_fee(&self) -> Box<dyn Future<Item = TradeFee, Error = String> + Send> {
-        // TODO
         Box::new(futures01::future::err("Not implemented".into()))
     }
 
@@ -581,8 +579,7 @@ impl MmCoin for TendermintToken {
     fn requires_notarization(&self) -> bool { self.platform_coin.requires_notarization() }
 
     fn set_required_confirmations(&self, confirmations: u64) {
-        // TODO
-        warn!("set_required_confirmations has no effect for now")
+        warn!("set_required_confirmations is not supported for tendermint")
     }
 
     fn set_requires_notarization(&self, requires_nota: bool) {
