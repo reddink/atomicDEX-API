@@ -65,6 +65,10 @@ impl TokenActivationOps for TendermintToken {
             .await
             .mm_err(|e| TendermintTokenInitError::CouldNotFetchBalance(e.to_string()))?;
 
+        token
+            .platform_coin
+            .add_activated_token_info(token.ticker.clone(), token.decimals, token.denom.clone());
+
         let my_address = token.my_address()?;
         let mut balances = HashMap::new();
         balances.insert(my_address, balance);

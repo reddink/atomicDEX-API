@@ -36,7 +36,7 @@ use std::sync::Arc;
 
 pub struct TendermintTokenImpl {
     pub ticker: String,
-    pub(crate) platform_coin: TendermintCoin,
+    pub platform_coin: TendermintCoin,
     pub decimals: u8,
     pub denom: Denom,
     /// This spawner is used to spawn coin's related futures that should be aborted on coin deactivation

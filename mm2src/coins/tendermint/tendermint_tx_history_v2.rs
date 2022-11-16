@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
 use super::iris::htlc_proto::QueryHtlcResponseProto;
@@ -128,13 +129,16 @@ struct FetchingTransactionsData<Coin, Storage> {
     /// The list of addresses for those we have requested [`UpdatingUnconfirmedTxes::all_tx_ids_with_height`] TX hashses
     /// at the `FetchingTxHashes` state.
     address: String,
+    /// Denom - Ticker
+    active_assets: HashMap<String, String>,
     phantom: std::marker::PhantomData<(Coin, Storage)>,
 }
 
 impl<Coin, Storage> FetchingTransactionsData<Coin, Storage> {
-    fn new(address: String) -> Self {
+    fn new(address: String, active_assets: HashMap<String, String>) -> Self {
         FetchingTransactionsData {
             address,
+            active_assets,
             phantom: Default::default(),
         }
     }
@@ -165,7 +169,6 @@ where
     type Result = ();
 
     async fn on_changed(self: Box<Self>, ctx: &mut Self::Ctx) -> StateResult<Self::Ctx, Self::Result> {
-        let _wallet_id = ctx.coin.history_wallet_id();
         loop {
             Timer::sleep(30.).await;
 
@@ -177,8 +180,15 @@ where
             };
 
             if balances != ctx_balances {
+                if let Err(e) = ensure_storage_init(&ctx.coin.all_wallet_ids(), &ctx.storage).await {
+                    return Self::change_state(Stopped::storage_error(e));
+                }
+                // Update balances
+                ctx.balances = balances;
+
                 return Self::change_state(FetchingTransactionsData::new(
                     ctx.coin.my_address().expect("should not fail"),
+                    ctx.coin.get_denom_and_ticker_map(),
                 ));
             }
         }
@@ -195,12 +205,16 @@ where
     type Result = ();
 
     // TODO
-    // - storage should be coin specific
     // - claim/create htlcs will display twice
     async fn on_changed(self: Box<Self>, ctx: &mut Self::Ctx) -> StateResult<Self::Ctx, Self::Result> {
         const TX_PAGE_SIZE: u8 = 50;
 
-        async fn query_transactions<Coin, Storage>(coin: &Coin, storage: &Storage, query: String) -> Result<(), String>
+        async fn fetch_and_insert_txs<Coin, Storage>(
+            coin: &Coin,
+            storage: &Storage,
+            query: String,
+            active_assets: &HashMap<String, String>,
+        ) -> Result<(), String>
         where
             Coin: TendermintTxHistoryOps,
             Storage: TxHistoryStorage,
@@ -221,7 +235,7 @@ where
                     .await
                     .unwrap();
 
-                let mut tx_details = vec![];
+                let mut tx_details: HashMap<String, Vec<crate::TransactionDetails>> = HashMap::new();
                 for tx in response.txs {
                     let internal_id = H256::from(tx.hash.as_bytes()).reversed().to_vec().into();
                     match storage
@@ -270,6 +284,12 @@ where
                             let sent_tx = MsgSend::decode(msg.value.as_slice()).unwrap();
                             let coin_amount = sent_tx.amount.first().unwrap();
 
+                            let denom = coin_amount.denom.to_lowercase();
+                            let tx_coin_ticker = match active_assets.get(&denom) {
+                                Some(t) => t,
+                                None => continue,
+                            };
+
                             let amount: u64 = coin_amount.amount.parse().unwrap();
                             let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
 
@@ -291,13 +311,21 @@ where
                                 tx_hex: msg.value.as_slice().into(),
                                 fee_details: Some(fee_details),
                                 block_height: tx.height.into(),
-                                coin: coin.ticker().to_string(),
+                                coin: tx_coin_ticker.to_string(),
                                 internal_id,
                                 timestamp: common::now_ms() / 1000,
                                 kmd_rewards: None,
                                 transaction_type: Default::default(),
                             };
-                            tx_details.push(details);
+
+                            match tx_details.entry(tx_coin_ticker.to_string()) {
+                                Entry::Vacant(e) => {
+                                    e.insert(vec![details]);
+                                },
+                                Entry::Occupied(mut e) => {
+                                    e.get_mut().push(details);
+                                },
+                            };
                         },
                         CLAIM_HTLC_TYPE_URL => {
                             let htlc_tx = ClaimHtlcProtoRep::decode(msg.value.as_slice()).unwrap();
@@ -314,6 +342,12 @@ where
                             };
 
                             let coin_amount = htlc_data.amount.first().unwrap();
+
+                            let denom = coin_amount.denom.to_lowercase();
+                            let tx_coin_ticker = match active_assets.get(&denom) {
+                                Some(t) => t,
+                                None => continue,
+                            };
 
                             let amount: u64 = coin_amount.amount.parse().unwrap();
                             let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
@@ -336,19 +370,32 @@ where
                                 tx_hex: msg.value.as_slice().into(),
                                 fee_details: Some(fee_details),
                                 block_height: tx.height.into(),
-                                coin: coin.ticker().to_string(),
+                                coin: tx_coin_ticker.to_string(),
                                 internal_id,
                                 timestamp: common::now_ms() / 1000,
                                 kmd_rewards: None,
                                 transaction_type: Default::default(),
                             };
 
-                            tx_details.push(details);
+                            match tx_details.entry(tx_coin_ticker.to_string()) {
+                                Entry::Vacant(e) => {
+                                    e.insert(vec![details]);
+                                },
+                                Entry::Occupied(mut e) => {
+                                    e.get_mut().push(details);
+                                },
+                            };
                         },
                         CREATE_HTLC_TYPE_URL => {
                             let htlc_tx = CreateHtlcProtoRep::decode(msg.value.as_slice()).unwrap();
 
                             let coin_amount = htlc_tx.amount.first().unwrap();
+
+                            let denom = coin_amount.denom.to_lowercase();
+                            let tx_coin_ticker = match active_assets.get(&denom) {
+                                Some(t) => t,
+                                None => continue,
+                            };
 
                             let amount: u64 = coin_amount.amount.parse().unwrap();
                             let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
@@ -371,23 +418,32 @@ where
                                 tx_hex: msg.value.as_slice().into(),
                                 fee_details: Some(fee_details),
                                 block_height: tx.height.into(),
-                                coin: coin.ticker().to_string(),
+                                coin: tx_coin_ticker.to_string(),
                                 internal_id,
                                 timestamp: common::now_ms() / 1000,
                                 kmd_rewards: None,
                                 transaction_type: Default::default(),
                             };
-                            tx_details.push(details);
+
+                            match tx_details.entry(tx_coin_ticker.to_string()) {
+                                Entry::Vacant(e) => {
+                                    e.insert(vec![details]);
+                                },
+                                Entry::Occupied(mut e) => {
+                                    e.get_mut().push(details);
+                                },
+                            };
                         },
                         _ => {},
                     }
                 }
 
-                if let Err(e) = storage
-                    .add_transactions_to_history(&coin.history_wallet_id(), tx_details)
-                    .await
-                {
-                    return Err(format!("{:?}", e));
+                for (ticker, txs) in tx_details.into_iter() {
+                    let id = WalletId::new(ticker.replace('-', "_"));
+
+                    if let Err(e) = storage.add_transactions_to_history(&id, txs).await {
+                        return Err(format!("{:?}", e));
+                    }
                 }
 
                 iterate_more = (TX_PAGE_SIZE as u32 * page) < response.total_count;
@@ -400,12 +456,12 @@ where
         let address = ctx.coin.my_address().expect("should not fail");
 
         let q = format!("transfer.sender = '{}'", address.clone());
-        if let Err(e) = query_transactions(&ctx.coin, &ctx.storage, q).await {
+        if let Err(e) = fetch_and_insert_txs(&ctx.coin, &ctx.storage, q, &self.active_assets).await {
             return Self::change_state(Stopped::unknown(e));
         };
 
         let q = format!("transfer.recipient = '{}'", self.address.clone());
-        if let Err(e) = query_transactions(&ctx.coin, &ctx.storage, q).await {
+        if let Err(e) = fetch_and_insert_txs(&ctx.coin, &ctx.storage, q, &self.active_assets).await {
             return Self::change_state(Stopped::unknown(e));
         };
 
@@ -415,20 +471,17 @@ where
     }
 }
 
-impl<Coin, Storage> TendermintInit<Coin, Storage>
+async fn ensure_storage_init<Storage>(wallet_ids: &[WalletId], storage: &Storage) -> MmResult<(), String>
 where
-    Coin: TendermintTxHistoryOps,
     Storage: TxHistoryStorage,
 {
-    async fn ensure_storage_init(&self, wallet_ids: &[WalletId], storage: &Storage) -> MmResult<(), String> {
-        for wallet_id in wallet_ids.iter() {
-            if let Err(e) = storage.init(wallet_id).await {
-                return MmError::err(format!("{:?}", e));
-            }
+    for wallet_id in wallet_ids.iter() {
+        if let Err(e) = storage.init(wallet_id).await {
+            return MmError::err(format!("{:?}", e));
         }
-
-        Ok(())
     }
+
+    Ok(())
 }
 
 #[async_trait]
@@ -443,12 +496,13 @@ where
     async fn on_changed(self: Box<Self>, ctx: &mut Self::Ctx) -> StateResult<Self::Ctx, Self::Result> {
         ctx.coin.set_history_sync_state(HistorySyncState::NotStarted);
 
-        if let Err(e) = self.ensure_storage_init(&ctx.coin.all_wallet_ids(), &ctx.storage).await {
+        if let Err(e) = ensure_storage_init(&ctx.coin.all_wallet_ids(), &ctx.storage).await {
             return Self::change_state(Stopped::storage_error(e));
         }
 
         Self::change_state(FetchingTransactionsData::new(
             ctx.coin.my_address().expect("should not fail"),
+            ctx.coin.get_denom_and_ticker_map(),
         ))
     }
 }
@@ -513,7 +567,21 @@ impl TendermintTxHistoryOps for TendermintCoin {
         ids
     }
 
-    fn get_denom_and_ticker_map(&self) -> HashMap<String, String> { todo!() }
+    fn get_denom_and_ticker_map(&self) -> HashMap<String, String> {
+        let tokens = self.tokens_info.lock();
+
+        let mut map = HashMap::with_capacity(tokens.len() + 1);
+        map.insert(
+            self.denom.to_string().to_lowercase(),
+            self.ticker().to_string().to_uppercase(),
+        );
+
+        for (ticker, info) in tokens.iter() {
+            map.insert(info.denom.to_string().to_lowercase(), ticker.to_uppercase());
+        }
+
+        map
+    }
 }
 
 pub async fn tendermint_history_loop(
