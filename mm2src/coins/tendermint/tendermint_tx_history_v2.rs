@@ -16,11 +16,13 @@ use common::log;
 use common::state_machine::prelude::*;
 use cosmrs::proto::cosmos::bank::v1beta1::MsgSend;
 use itertools::Itertools;
+use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::MmResult;
 use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
 use primitives::hash::H256;
 use prost::Message;
+use serde_json::Value as Json;
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -35,6 +37,8 @@ pub trait TendermintTxHistoryOps: CoinWithTxHistoryV2 + MarketCoinOps + Send + S
     fn set_history_sync_state(&self, new_state: HistorySyncState);
 
     fn my_denom(&self) -> cosmrs::Denom;
+
+    fn get_coins_configs(&self) -> Vec<Json>;
 }
 
 #[async_trait]
@@ -179,7 +183,12 @@ where
     async fn on_changed(self: Box<Self>, ctx: &mut Self::Ctx) -> StateResult<Self::Ctx, Self::Result> {
         const TX_PAGE_SIZE: u8 = 50;
 
-        async fn query_transactions<Coin, Storage>(coin: &Coin, storage: &Storage, query: String) -> Result<(), String>
+        async fn query_transactions<Coin, Storage>(
+            coin: &Coin,
+            storage: &Storage,
+            query: String,
+            coins_conf: &Vec<Json>,
+        ) -> Result<(), String>
         where
             Coin: TendermintTxHistoryOps,
             Storage: TxHistoryStorage,
@@ -248,6 +257,22 @@ where
                         SEND_TYPE_URL => {
                             let sent_tx = MsgSend::decode(msg.value.as_slice()).unwrap();
                             let coin_amount = sent_tx.amount.first().unwrap();
+
+                            let tx_coin = coins_conf.iter().find(|coin| {
+                                coin["protocol"]["protocol_data"]["denom"].as_str() == Some(&coin_amount.denom)
+                            });
+
+                            let tx_coin_ticker = match tx_coin {
+                                Some(tx_coin) => {
+                                    if let Some(coin_ticker) = tx_coin["coin"].as_str() {
+                                        coin_ticker
+                                    } else {
+                                        continue;
+                                    }
+                                },
+                                None => continue,
+                            };
+
                             let amount: u64 = coin_amount.amount.parse().unwrap();
                             let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
 
@@ -269,7 +294,7 @@ where
                                 tx_hex: msg.value.as_slice().into(),
                                 fee_details: Some(fee_details.into()),
                                 block_height: tx.height.into(),
-                                coin: coin.ticker().to_string(),
+                                coin: tx_coin_ticker.to_string(),
                                 internal_id,
                                 timestamp: common::now_ms() / 1000,
                                 kmd_rewards: None,
@@ -292,6 +317,22 @@ where
                             };
 
                             let coin_amount = htlc_data.amount.first().unwrap();
+
+                            let tx_coin = coins_conf.iter().find(|coin| {
+                                coin["protocol"]["protocol_data"]["denom"].as_str() == Some(&coin_amount.denom)
+                            });
+
+                            let tx_coin_ticker = match tx_coin {
+                                Some(tx_coin) => {
+                                    if let Some(coin_ticker) = tx_coin["coin"].as_str() {
+                                        coin_ticker
+                                    } else {
+                                        continue;
+                                    }
+                                },
+                                None => continue,
+                            };
+
                             let amount: u64 = coin_amount.amount.parse().unwrap();
                             let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
 
@@ -313,7 +354,7 @@ where
                                 tx_hex: msg.value.as_slice().into(),
                                 fee_details: Some(fee_details.into()),
                                 block_height: tx.height.into(),
-                                coin: coin.ticker().to_string(),
+                                coin: tx_coin_ticker.to_string(),
                                 internal_id,
                                 timestamp: common::now_ms() / 1000,
                                 kmd_rewards: None,
@@ -326,6 +367,22 @@ where
                             let htlc_tx = CreateHtlcProtoRep::decode(msg.value.as_slice()).unwrap();
 
                             let coin_amount = htlc_tx.amount.first().unwrap();
+
+                            let tx_coin = coins_conf.iter().find(|coin| {
+                                coin["protocol"]["protocol_data"]["denom"].as_str() == Some(&coin_amount.denom)
+                            });
+
+                            let tx_coin_ticker = match tx_coin {
+                                Some(tx_coin) => {
+                                    if let Some(coin_ticker) = tx_coin["coin"].as_str() {
+                                        coin_ticker
+                                    } else {
+                                        continue;
+                                    }
+                                },
+                                None => continue,
+                            };
+
                             let amount: u64 = coin_amount.amount.parse().unwrap();
                             let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
 
@@ -347,7 +404,7 @@ where
                                 tx_hex: msg.value.as_slice().into(),
                                 fee_details: Some(fee_details.into()),
                                 block_height: tx.height.into(),
-                                coin: coin.ticker().to_string(),
+                                coin: tx_coin_ticker.to_string(),
                                 internal_id,
                                 timestamp: common::now_ms() / 1000,
                                 kmd_rewards: None,
@@ -378,12 +435,13 @@ where
         let address = ctx.coin.my_address().expect("should not fail");
 
         let q = format!("transfer.sender = '{}'", address.clone());
-        if let Err(e) = query_transactions(&ctx.coin, &ctx.storage, q).await {
+        let coins_conf = ctx.coin.get_coins_configs();
+        if let Err(e) = query_transactions(&ctx.coin, &ctx.storage, q, &coins_conf).await {
             return Self::change_state(Stopped::storage_error(e));
         };
 
         let q = format!("transfer.recipient = '{}'", self.address.clone());
-        if let Err(e) = query_transactions(&ctx.coin, &ctx.storage, q).await {
+        if let Err(e) = query_transactions(&ctx.coin, &ctx.storage, q, &coins_conf).await {
             return Self::change_state(Stopped::storage_error(e));
         };
 
@@ -460,6 +518,11 @@ impl TendermintTxHistoryOps for TendermintCoin {
 
     fn set_history_sync_state(&self, new_state: HistorySyncState) {
         *self.history_sync_state.lock().unwrap() = new_state;
+    }
+
+    fn get_coins_configs(&self) -> Vec<Json> {
+        let ctx = MmArc::from_weak(&self.ctx).expect("No context");
+        ctx.conf["coins"].as_array().expect("coins can't be empty").clone()
     }
 }
 
