@@ -256,6 +256,7 @@ pub fn account_id_from_pubkey_hex(prefix: &str, pubkey: &str) -> MmResult<Accoun
     Ok(AccountId::new(prefix, pubkey_hash.as_slice())?)
 }
 
+#[derive(Clone, PartialEq)]
 pub struct AllBalancesResult {
     pub platform_balance: BigDecimal,
     pub tokens_balances: HashMap<String, BigDecimal>,

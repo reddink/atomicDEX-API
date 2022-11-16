@@ -1,7 +1,5 @@
-#![allow(warnings)]
-
 use super::iris::htlc_proto::QueryHtlcResponseProto;
-use super::{rpc::*, type_urls::*, TendermintCoin, TendermintCoinRpcError, TendermintToken};
+use super::{rpc::*, type_urls::*, AllBalancesResult, TendermintCoin, TendermintCoinRpcError, TendermintToken};
 
 use crate::my_tx_history_v2::{CoinWithTxHistoryV2, MyTxHistoryErrorV2, MyTxHistoryTarget, TxHistoryStorage};
 use crate::tendermint::iris::htlc::{HTLC_STATE_COMPLETED, HTLC_STATE_OPEN, HTLC_STATE_REFUNDED};
@@ -12,19 +10,15 @@ use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
 use crate::utxo::utxo_tx_history_v2::StopReason;
 use crate::{HistorySyncState, MarketCoinOps, TxFeeDetails};
 use async_trait::async_trait;
+use common::executor::Timer;
 use common::log;
 use common::state_machine::prelude::*;
 use cosmrs::proto::cosmos::bank::v1beta1::MsgSend;
-use itertools::Itertools;
-use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::MmResult;
 use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
 use primitives::hash::H256;
 use prost::Message;
-use serde_json::Value as Json;
-use std::collections::HashMap;
-use std::str::FromStr;
 
 #[async_trait]
 pub trait TendermintTxHistoryOps: CoinWithTxHistoryV2 + MarketCoinOps + Send + Sync + 'static {
@@ -38,7 +32,7 @@ pub trait TendermintTxHistoryOps: CoinWithTxHistoryV2 + MarketCoinOps + Send + S
 
     fn my_denom(&self) -> cosmrs::Denom;
 
-    fn get_coins_configs(&self) -> Vec<Json>;
+    async fn all_balances(&self) -> MmResult<AllBalancesResult, TendermintCoinRpcError>;
 }
 
 #[async_trait]
@@ -55,7 +49,7 @@ impl CoinWithTxHistoryV2 for TendermintCoin {
 
 #[async_trait]
 impl CoinWithTxHistoryV2 for TendermintToken {
-    fn history_wallet_id(&self) -> WalletId { WalletId::new(self.ticker().to_owned()) }
+    fn history_wallet_id(&self) -> WalletId { WalletId::new(self.ticker().replace('-', "_")) }
 
     async fn get_tx_history_filters(
         &self,
@@ -70,8 +64,9 @@ impl CoinWithTxHistoryV2 for TendermintToken {
 struct TendermintTxHistoryCtx<Coin: TendermintTxHistoryOps, Storage: TxHistoryStorage> {
     coin: Coin,
     storage: Storage,
+    #[allow(dead_code)]
     metrics: MetricsArc,
-    balances: HashMap<String, BigDecimal>,
+    balances: AllBalancesResult,
 }
 
 struct TendermintInit<Coin, Storage> {
@@ -92,13 +87,6 @@ struct Stopped<Coin, Storage> {
 }
 
 impl<Coin, Storage> Stopped<Coin, Storage> {
-    fn history_too_large() -> Self {
-        Stopped {
-            phantom: Default::default(),
-            stop_reason: StopReason::HistoryTooLarge,
-        }
-    }
-
     fn storage_error<E>(e: E) -> Self
     where
         E: std::fmt::Debug,
@@ -113,20 +101,6 @@ impl<Coin, Storage> Stopped<Coin, Storage> {
         Stopped {
             phantom: Default::default(),
             stop_reason: StopReason::UnknownError(e),
-        }
-    }
-}
-
-struct OnIoErrorCooldown<Coin, Storage> {
-    address: String,
-    phantom: std::marker::PhantomData<(Coin, Storage)>,
-}
-
-impl<Coin, Storage> OnIoErrorCooldown<Coin, Storage> {
-    fn new(address: String) -> Self {
-        OnIoErrorCooldown {
-            address,
-            phantom: Default::default(),
         }
     }
 }
@@ -163,9 +137,45 @@ impl<Coin, Storage> TransitionFrom<TendermintInit<Coin, Storage>> for Stopped<Co
 impl<Coin, Storage> TransitionFrom<TendermintInit<Coin, Storage>> for FetchingTransactionsData<Coin, Storage> {}
 impl<Coin, Storage> TransitionFrom<WaitForHistoryUpdateTrigger<Coin, Storage>> for Stopped<Coin, Storage> {}
 impl<Coin, Storage> TransitionFrom<FetchingTransactionsData<Coin, Storage>> for Stopped<Coin, Storage> {}
+
+impl<Coin, Storage> TransitionFrom<WaitForHistoryUpdateTrigger<Coin, Storage>>
+    for FetchingTransactionsData<Coin, Storage>
+{
+}
+
 impl<Coin, Storage> TransitionFrom<FetchingTransactionsData<Coin, Storage>>
     for WaitForHistoryUpdateTrigger<Coin, Storage>
 {
+}
+
+#[async_trait]
+impl<Coin, Storage> State for WaitForHistoryUpdateTrigger<Coin, Storage>
+where
+    Coin: TendermintTxHistoryOps,
+    Storage: TxHistoryStorage,
+{
+    type Ctx = TendermintTxHistoryCtx<Coin, Storage>;
+    type Result = ();
+
+    async fn on_changed(self: Box<Self>, ctx: &mut Self::Ctx) -> StateResult<Self::Ctx, Self::Result> {
+        let _wallet_id = ctx.coin.history_wallet_id();
+        loop {
+            Timer::sleep(30.).await;
+
+            let ctx_balances = ctx.balances.clone();
+
+            let balances = match ctx.coin.all_balances().await {
+                Ok(balances) => balances,
+                Err(e) => return Self::change_state(Stopped::unknown(e.to_string())),
+            };
+
+            if balances != ctx_balances {
+                return Self::change_state(FetchingTransactionsData::new(
+                    ctx.coin.my_address().expect("should not fail"),
+                ));
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -178,17 +188,12 @@ where
     type Result = ();
 
     // TODO
-    // - coin ticker confusion
+    // - storage should be coin specific
     // - claim/create htlcs will display twice
     async fn on_changed(self: Box<Self>, ctx: &mut Self::Ctx) -> StateResult<Self::Ctx, Self::Result> {
         const TX_PAGE_SIZE: u8 = 50;
 
-        async fn query_transactions<Coin, Storage>(
-            coin: &Coin,
-            storage: &Storage,
-            query: String,
-            coins_conf: &Vec<Json>,
-        ) -> Result<(), String>
+        async fn query_transactions<Coin, Storage>(coin: &Coin, storage: &Storage, query: String) -> Result<(), String>
         where
             Coin: TendermintTxHistoryOps,
             Storage: TxHistoryStorage,
@@ -258,21 +263,6 @@ where
                             let sent_tx = MsgSend::decode(msg.value.as_slice()).unwrap();
                             let coin_amount = sent_tx.amount.first().unwrap();
 
-                            let tx_coin = coins_conf.iter().find(|coin| {
-                                coin["protocol"]["protocol_data"]["denom"].as_str() == Some(&coin_amount.denom)
-                            });
-
-                            let tx_coin_ticker = match tx_coin {
-                                Some(tx_coin) => {
-                                    if let Some(coin_ticker) = tx_coin["coin"].as_str() {
-                                        coin_ticker
-                                    } else {
-                                        continue;
-                                    }
-                                },
-                                None => continue,
-                            };
-
                             let amount: u64 = coin_amount.amount.parse().unwrap();
                             let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
 
@@ -292,9 +282,9 @@ where
                                 my_balance_change: received_by_me - spent_by_me,
                                 tx_hash: tx.hash.to_string(),
                                 tx_hex: msg.value.as_slice().into(),
-                                fee_details: Some(fee_details.into()),
+                                fee_details: Some(fee_details),
                                 block_height: tx.height.into(),
-                                coin: tx_coin_ticker.to_string(),
+                                coin: coin.ticker().to_string(),
                                 internal_id,
                                 timestamp: common::now_ms() / 1000,
                                 kmd_rewards: None,
@@ -313,25 +303,10 @@ where
 
                             match htlc_data.state {
                                 HTLC_STATE_OPEN | HTLC_STATE_COMPLETED | HTLC_STATE_REFUNDED => {},
-                                unexpected_state => continue,
+                                _unexpected_state => continue,
                             };
 
                             let coin_amount = htlc_data.amount.first().unwrap();
-
-                            let tx_coin = coins_conf.iter().find(|coin| {
-                                coin["protocol"]["protocol_data"]["denom"].as_str() == Some(&coin_amount.denom)
-                            });
-
-                            let tx_coin_ticker = match tx_coin {
-                                Some(tx_coin) => {
-                                    if let Some(coin_ticker) = tx_coin["coin"].as_str() {
-                                        coin_ticker
-                                    } else {
-                                        continue;
-                                    }
-                                },
-                                None => continue,
-                            };
 
                             let amount: u64 = coin_amount.amount.parse().unwrap();
                             let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
@@ -352,9 +327,9 @@ where
                                 my_balance_change: received_by_me - spent_by_me,
                                 tx_hash: tx.hash.to_string(),
                                 tx_hex: msg.value.as_slice().into(),
-                                fee_details: Some(fee_details.into()),
+                                fee_details: Some(fee_details),
                                 block_height: tx.height.into(),
-                                coin: tx_coin_ticker.to_string(),
+                                coin: coin.ticker().to_string(),
                                 internal_id,
                                 timestamp: common::now_ms() / 1000,
                                 kmd_rewards: None,
@@ -367,21 +342,6 @@ where
                             let htlc_tx = CreateHtlcProtoRep::decode(msg.value.as_slice()).unwrap();
 
                             let coin_amount = htlc_tx.amount.first().unwrap();
-
-                            let tx_coin = coins_conf.iter().find(|coin| {
-                                coin["protocol"]["protocol_data"]["denom"].as_str() == Some(&coin_amount.denom)
-                            });
-
-                            let tx_coin_ticker = match tx_coin {
-                                Some(tx_coin) => {
-                                    if let Some(coin_ticker) = tx_coin["coin"].as_str() {
-                                        coin_ticker
-                                    } else {
-                                        continue;
-                                    }
-                                },
-                                None => continue,
-                            };
 
                             let amount: u64 = coin_amount.amount.parse().unwrap();
                             let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
@@ -402,9 +362,9 @@ where
                                 my_balance_change: received_by_me - spent_by_me,
                                 tx_hash: tx.hash.to_string(),
                                 tx_hex: msg.value.as_slice().into(),
-                                fee_details: Some(fee_details.into()),
+                                fee_details: Some(fee_details),
                                 block_height: tx.height.into(),
-                                coin: tx_coin_ticker.to_string(),
+                                coin: coin.ticker().to_string(),
                                 internal_id,
                                 timestamp: common::now_ms() / 1000,
                                 kmd_rewards: None,
@@ -430,26 +390,21 @@ where
             Ok(())
         }
 
-        let rpc_client = ctx.coin.get_rpc_client().await.unwrap();
-
         let address = ctx.coin.my_address().expect("should not fail");
 
         let q = format!("transfer.sender = '{}'", address.clone());
-        let coins_conf = ctx.coin.get_coins_configs();
-        if let Err(e) = query_transactions(&ctx.coin, &ctx.storage, q, &coins_conf).await {
-            return Self::change_state(Stopped::storage_error(e));
+        if let Err(e) = query_transactions(&ctx.coin, &ctx.storage, q).await {
+            return Self::change_state(Stopped::unknown(e));
         };
 
         let q = format!("transfer.recipient = '{}'", self.address.clone());
-        if let Err(e) = query_transactions(&ctx.coin, &ctx.storage, q, &coins_conf).await {
-            return Self::change_state(Stopped::storage_error(e));
+        if let Err(e) = query_transactions(&ctx.coin, &ctx.storage, q).await {
+            return Self::change_state(Stopped::unknown(e));
         };
 
         log::info!("Tx history fetching finished for {}", ctx.coin.ticker());
         ctx.coin.set_history_sync_state(HistorySyncState::Finished);
-        // Self::change_state(WaitForHistoryUpdateTrigger::new())
-
-        todo!()
+        Self::change_state(WaitForHistoryUpdateTrigger::new())
     }
 }
 
@@ -520,28 +475,22 @@ impl TendermintTxHistoryOps for TendermintCoin {
         *self.history_sync_state.lock().unwrap() = new_state;
     }
 
-    fn get_coins_configs(&self) -> Vec<Json> {
-        let ctx = MmArc::from_weak(&self.ctx).expect("No context");
-        ctx.conf["coins"].as_array().expect("coins can't be empty").clone()
-    }
+    async fn all_balances(&self) -> MmResult<AllBalancesResult, TendermintCoinRpcError> { self.all_balances().await }
 }
 
 pub async fn tendermint_history_loop(
     coin: TendermintCoin,
     storage: impl TxHistoryStorage,
     metrics: MetricsArc,
-    current_balance: BigDecimal,
+    _current_balance: BigDecimal,
 ) {
-    let my_address = match coin.my_address() {
-        Ok(my_address) => my_address,
+    let balances = match coin.all_balances().await {
+        Ok(balances) => balances,
         Err(e) => {
             log::error!("{}", e);
             return;
         },
     };
-    let mut balances = HashMap::new();
-    balances.insert(my_address, current_balance);
-    drop_mutability!(balances);
 
     let ctx = TendermintTxHistoryCtx {
         coin,
