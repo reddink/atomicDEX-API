@@ -1507,7 +1507,6 @@ impl MmCoin for TendermintCoin {
     fn history_sync_status(&self) -> HistorySyncState { self.history_sync_state.lock().unwrap().clone() }
 
     fn get_trade_fee(&self) -> Box<dyn Future<Item = TradeFee, Error = String> + Send> {
-        // TODO
         Box::new(futures01::future::err("Not implemented".into()))
     }
 
@@ -1548,8 +1547,7 @@ impl MmCoin for TendermintCoin {
     fn requires_notarization(&self) -> bool { false }
 
     fn set_required_confirmations(&self, confirmations: u64) {
-        // TODO
-        warn!("set_required_confirmations has no effect for now")
+        warn!("set_required_confirmations is not supported for tendermint")
     }
 
     fn set_requires_notarization(&self, requires_nota: bool) { warn!("TendermintCoin doesn't support notarization") }
