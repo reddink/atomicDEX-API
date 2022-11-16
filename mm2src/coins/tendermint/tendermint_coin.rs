@@ -1499,8 +1499,7 @@ impl MmCoin for TendermintCoin {
     }
 
     fn process_history_loop(&self, ctx: MmArc) -> Box<dyn Future<Item = (), Error = ()> + Send> {
-        // TODO
-        warn!("process_history_loop is not implemented");
+        warn!("process_history_loop is deprecated, tendermint uses tx_history_v2");
         Box::new(futures01::future::err(()))
     }
 
