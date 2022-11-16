@@ -123,7 +123,7 @@ pub struct TendermintCoinImpl {
     chain_id: ChainId,
     gas_price: Option<f64>,
     pub(super) sequence_lock: AsyncMutex<()>,
-    tokens_info: PaMutex<HashMap<String, ActivatedTokenInfo>>,
+    pub(crate) tokens_info: PaMutex<HashMap<String, ActivatedTokenInfo>>,
     /// This spawner is used to spawn coin's related futures that should be aborted on coin deactivation
     /// or on [`MmArc::stop`].
     pub(super) abortable_system: AbortableQueue,

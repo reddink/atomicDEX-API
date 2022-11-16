@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::iris::htlc_proto::QueryHtlcResponseProto;
 use super::{rpc::*, type_urls::*, AllBalancesResult, TendermintCoin, TendermintCoinRpcError, TendermintToken};
 
@@ -14,7 +16,7 @@ use common::executor::Timer;
 use common::log;
 use common::state_machine::prelude::*;
 use cosmrs::proto::cosmos::bank::v1beta1::MsgSend;
-use mm2_err_handle::prelude::MmResult;
+use mm2_err_handle::prelude::{MmError, MmResult};
 use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
 use primitives::hash::H256;
@@ -33,6 +35,11 @@ pub trait TendermintTxHistoryOps: CoinWithTxHistoryV2 + MarketCoinOps + Send + S
     fn my_denom(&self) -> cosmrs::Denom;
 
     async fn all_balances(&self) -> MmResult<AllBalancesResult, TendermintCoinRpcError>;
+
+    fn all_wallet_ids(&self) -> Vec<WalletId>;
+
+    // Returns Hashmap where key is denom and value is ticker
+    fn get_denom_and_ticker_map(&self) -> HashMap<String, String>;
 }
 
 #[async_trait]
@@ -408,6 +415,22 @@ where
     }
 }
 
+impl<Coin, Storage> TendermintInit<Coin, Storage>
+where
+    Coin: TendermintTxHistoryOps,
+    Storage: TxHistoryStorage,
+{
+    async fn ensure_storage_init(&self, wallet_ids: &[WalletId], storage: &Storage) -> MmResult<(), String> {
+        for wallet_id in wallet_ids.iter() {
+            if let Err(e) = storage.init(wallet_id).await {
+                return MmError::err(format!("{:?}", e));
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl<Coin, Storage> State for TendermintInit<Coin, Storage>
 where
@@ -420,7 +443,7 @@ where
     async fn on_changed(self: Box<Self>, ctx: &mut Self::Ctx) -> StateResult<Self::Ctx, Self::Result> {
         ctx.coin.set_history_sync_state(HistorySyncState::NotStarted);
 
-        if let Err(e) = ctx.storage.init(&ctx.coin.history_wallet_id()).await {
+        if let Err(e) = self.ensure_storage_init(&ctx.coin.all_wallet_ids(), &ctx.storage).await {
             return Self::change_state(Stopped::storage_error(e));
         }
 
@@ -476,6 +499,21 @@ impl TendermintTxHistoryOps for TendermintCoin {
     }
 
     async fn all_balances(&self) -> MmResult<AllBalancesResult, TendermintCoinRpcError> { self.all_balances().await }
+
+    fn all_wallet_ids(&self) -> Vec<WalletId> {
+        let tokens = self.tokens_info.lock();
+        let mut ids = vec![];
+
+        ids.push(WalletId::new(self.ticker().replace('-', "_")));
+
+        for (ticker, _info) in tokens.iter() {
+            ids.push(WalletId::new(ticker.replace('-', "_")));
+        }
+
+        ids
+    }
+
+    fn get_denom_and_ticker_map(&self) -> HashMap<String, String> { todo!() }
 }
 
 pub async fn tendermint_history_loop(
