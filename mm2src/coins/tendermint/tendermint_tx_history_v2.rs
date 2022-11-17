@@ -10,7 +10,6 @@ use crate::tendermint::iris::htlc_proto::{ClaimHtlcProtoRep, CreateHtlcProtoRep}
 use crate::tendermint::TendermintFeeDetails;
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
-use crate::utxo::utxo_tx_history_v2::StopReason;
 use crate::{HistorySyncState, MarketCoinOps, TxFeeDetails};
 use async_trait::async_trait;
 use common::executor::Timer;
@@ -22,6 +21,21 @@ use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
 use primitives::hash::H256;
 use prost::Message;
+use rpc::v1::types::Bytes as BytesJson;
+
+macro_rules! try_or_return_stopped_as_err {
+    ($exp:expr, $reason: expr, $fmt:literal) => {
+        match $exp {
+            Ok(t) => t,
+            Err(e) => {
+                return Err(Stopped {
+                    phantom: Default::default(),
+                    stop_reason: $reason(format!("{}: {}", $fmt, e)),
+                })
+            },
+        }
+    };
+}
 
 #[async_trait]
 pub trait TendermintTxHistoryOps: CoinWithTxHistoryV2 + MarketCoinOps + Send + Sync + 'static {
@@ -32,8 +46,6 @@ pub trait TendermintTxHistoryOps: CoinWithTxHistoryV2 + MarketCoinOps + Send + S
     fn decimals(&self) -> u8;
 
     fn set_history_sync_state(&self, new_state: HistorySyncState);
-
-    fn my_denom(&self) -> cosmrs::Denom;
 
     async fn all_balances(&self) -> MmResult<AllBalancesResult, TendermintCoinRpcError>;
 
@@ -87,6 +99,16 @@ impl<Coin, Storage> TendermintInit<Coin, Storage> {
             phantom: Default::default(),
         }
     }
+}
+
+#[derive(Debug)]
+enum StopReason {
+    #[allow(dead_code)]
+    HistoryTooLarge,
+    StorageError(String),
+    UnknownError(String),
+    RpcClient(String),
+    Marshaling(String),
 }
 
 struct Stopped<Coin, Storage> {
@@ -187,7 +209,7 @@ where
                 ctx.balances = balances;
 
                 return Self::change_state(FetchingTransactionsData::new(
-                    ctx.coin.my_address().expect("should not fail"),
+                    ctx.coin.my_address().expect("my_address can't fail"),
                     ctx.coin.get_denom_and_ticker_map(),
                 ));
             }
@@ -209,12 +231,22 @@ where
     async fn on_changed(self: Box<Self>, ctx: &mut Self::Ctx) -> StateResult<Self::Ctx, Self::Result> {
         const TX_PAGE_SIZE: u8 = 50;
 
+        async fn is_tx_exists<Storage>(storage: &Storage, wallet_id: &WalletId, internal_id: &BytesJson) -> bool
+        where
+            Storage: TxHistoryStorage,
+        {
+            match storage.get_tx_from_history(wallet_id, internal_id).await {
+                Ok(Some(_)) => true,
+                _ => false,
+            }
+        }
+
         async fn fetch_and_insert_txs<Coin, Storage>(
             coin: &Coin,
             storage: &Storage,
             query: String,
             active_assets: &HashMap<String, String>,
-        ) -> Result<(), String>
+        ) -> Result<(), Stopped<Coin, Storage>>
         where
             Coin: TendermintTxHistoryOps,
             Storage: TxHistoryStorage,
@@ -222,49 +254,49 @@ where
             let mut page = 1;
             let mut iterate_more = true;
 
-            let client = coin.get_rpc_client().await.unwrap();
+            let client = try_or_return_stopped_as_err!(
+                coin.get_rpc_client().await,
+                StopReason::RpcClient,
+                "could not get rpc client"
+            );
             while iterate_more {
-                let response = client
-                    .perform(TxSearchRequest::new(
-                        query.clone(),
-                        false,
-                        page,
-                        TX_PAGE_SIZE,
-                        TendermintResultOrder::Ascending.into(),
-                    ))
-                    .await
-                    .unwrap();
+                let response = try_or_return_stopped_as_err!(
+                    client
+                        .perform(TxSearchRequest::new(
+                            query.clone(),
+                            false,
+                            page,
+                            TX_PAGE_SIZE,
+                            TendermintResultOrder::Ascending.into(),
+                        ))
+                        .await,
+                    StopReason::RpcClient,
+                    "tx search rpc call failed"
+                );
 
                 let mut tx_details: HashMap<String, Vec<crate::TransactionDetails>> = HashMap::new();
                 for tx in response.txs {
                     let internal_id = H256::from(tx.hash.as_bytes()).reversed().to_vec().into();
-                    match storage
-                        .get_tx_from_history(&coin.history_wallet_id(), &internal_id)
-                        .await
-                    {
-                        Ok(Some(_)) => {
-                            log::debug!(
-                                "Tx '{}' already exists in tx_history. Skipping it.",
-                                tx.hash.to_string()
-                            );
-                            continue;
-                        },
-                        _ => {
-                            log::debug!("Adding tx: '{}' to tx_history.", tx.hash.to_string());
-                        },
-                    }
 
-                    let deserialized_tx = cosmrs::Tx::from_bytes(tx.tx.as_bytes()).unwrap();
+                    let deserialized_tx = try_or_return_stopped_as_err!(
+                        cosmrs::Tx::from_bytes(tx.tx.as_bytes()),
+                        StopReason::Marshaling,
+                        "Could not deserialize transaction"
+                    );
 
                     let fee = deserialized_tx.auth_info.fee;
-                    let fee_amount: u64 = fee
-                        .amount
-                        .first()
-                        .expect("Fee amount can't be empty")
-                        .amount
-                        .to_string()
-                        .parse()
-                        .expect("fee_amount parsing can't fail");
+
+                    let fee_coin = try_or_return_stopped_as_err!(
+                        fee.amount.first().ok_or("fee coin can't be empty"),
+                        StopReason::Marshaling,
+                        "Fee coin is empty"
+                    );
+
+                    let fee_amount = try_or_return_stopped_as_err!(
+                        fee_coin.amount.to_string().parse(),
+                        StopReason::Marshaling,
+                        "Fee amount parsing into u64 failed"
+                    );
 
                     let fee_details = TxFeeDetails::Tendermint(TendermintFeeDetails {
                         coin: coin.platform_ticker().to_string(),
@@ -272,17 +304,24 @@ where
                         gas_limit: fee.gas_limit.value(),
                     });
 
-                    let msg = deserialized_tx
-                        .body
-                        .messages
-                        .first()
-                        .ok_or("Tx body couldn't be read.")
-                        .unwrap();
+                    let msg = try_or_return_stopped_as_err!(
+                        deserialized_tx.body.messages.first().ok_or("Tx body couldn't be read."),
+                        StopReason::Marshaling,
+                        "Tx body messages is empty"
+                    );
 
                     match msg.type_url.as_str() {
                         SEND_TYPE_URL => {
-                            let sent_tx = MsgSend::decode(msg.value.as_slice()).unwrap();
-                            let coin_amount = sent_tx.amount.first().unwrap();
+                            let sent_tx = try_or_return_stopped_as_err!(
+                                MsgSend::decode(msg.value.as_slice()),
+                                StopReason::Marshaling,
+                                "Decoding MsgSend failed"
+                            );
+                            let coin_amount = try_or_return_stopped_as_err!(
+                                sent_tx.amount.first().ok_or("amount can't be empty"),
+                                StopReason::Marshaling,
+                                "MsgSend amount is empty"
+                            );
 
                             let denom = coin_amount.denom.to_lowercase();
                             let tx_coin_ticker = match active_assets.get(&denom) {
@@ -290,11 +329,27 @@ where
                                 None => continue,
                             };
 
-                            let amount: u64 = coin_amount.amount.parse().unwrap();
+                            if is_tx_exists(storage, &WalletId::new(tx_coin_ticker.replace('-', "_")), &internal_id)
+                                .await
+                            {
+                                log::debug!(
+                                    "Tx '{}' already exists in tx_history. Skipping it.",
+                                    tx.hash.to_string()
+                                );
+                                continue;
+                            } else {
+                                log::debug!("Adding tx: '{}' to tx_history.", tx.hash.to_string());
+                            }
+
+                            let amount: u64 = try_or_return_stopped_as_err!(
+                                coin_amount.amount.parse(),
+                                StopReason::Marshaling,
+                                "Amount parsing into u64 failed"
+                            );
                             let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
 
                             let (spent_by_me, received_by_me) =
-                                if sent_tx.from_address == coin.my_address().expect("my_address should never fail") {
+                                if sent_tx.from_address == coin.my_address().expect("my_address can't fail") {
                                     (amount.clone(), BigDecimal::default())
                                 } else {
                                     (BigDecimal::default(), amount.clone())
@@ -328,8 +383,16 @@ where
                             };
                         },
                         CLAIM_HTLC_TYPE_URL => {
-                            let htlc_tx = ClaimHtlcProtoRep::decode(msg.value.as_slice()).unwrap();
-                            let htlc_response = coin.query_htlc(htlc_tx.id).await.unwrap();
+                            let htlc_tx = try_or_return_stopped_as_err!(
+                                ClaimHtlcProtoRep::decode(msg.value.as_slice()),
+                                StopReason::Marshaling,
+                                "Decoding ClaimHtlcProtoRep failed"
+                            );
+                            let htlc_response = try_or_return_stopped_as_err!(
+                                coin.query_htlc(htlc_tx.id).await,
+                                StopReason::RpcClient,
+                                "Htlc query rpc call failed"
+                            );
 
                             let htlc_data = match htlc_response.htlc {
                                 Some(htlc) => htlc,
@@ -341,7 +404,11 @@ where
                                 _unexpected_state => continue,
                             };
 
-                            let coin_amount = htlc_data.amount.first().unwrap();
+                            let coin_amount = try_or_return_stopped_as_err!(
+                                htlc_data.amount.first().ok_or("amount can't be empty"),
+                                StopReason::Marshaling,
+                                "Htlc amount is empty"
+                            );
 
                             let denom = coin_amount.denom.to_lowercase();
                             let tx_coin_ticker = match active_assets.get(&denom) {
@@ -349,11 +416,27 @@ where
                                 None => continue,
                             };
 
-                            let amount: u64 = coin_amount.amount.parse().unwrap();
+                            if is_tx_exists(storage, &WalletId::new(tx_coin_ticker.replace('-', "_")), &internal_id)
+                                .await
+                            {
+                                log::debug!(
+                                    "Tx '{}' already exists in tx_history. Skipping it.",
+                                    tx.hash.to_string()
+                                );
+                                continue;
+                            } else {
+                                log::debug!("Adding tx: '{}' to tx_history.", tx.hash.to_string());
+                            }
+
+                            let amount: u64 = try_or_return_stopped_as_err!(
+                                coin_amount.amount.parse(),
+                                StopReason::Marshaling,
+                                "Amount parsing into u64 failed"
+                            );
                             let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
 
                             let (spent_by_me, received_by_me) =
-                                if htlc_data.sender == coin.my_address().expect("my_address should never fail") {
+                                if htlc_data.sender == coin.my_address().expect("my_address can't fail") {
                                     (amount.clone(), BigDecimal::default())
                                 } else {
                                     (BigDecimal::default(), amount.clone())
@@ -387,9 +470,17 @@ where
                             };
                         },
                         CREATE_HTLC_TYPE_URL => {
-                            let htlc_tx = CreateHtlcProtoRep::decode(msg.value.as_slice()).unwrap();
+                            let htlc_tx = try_or_return_stopped_as_err!(
+                                CreateHtlcProtoRep::decode(msg.value.as_slice()),
+                                StopReason::Marshaling,
+                                "Decoding CreateHtlcProtoRep failed"
+                            );
 
-                            let coin_amount = htlc_tx.amount.first().unwrap();
+                            let coin_amount = try_or_return_stopped_as_err!(
+                                htlc_tx.amount.first().ok_or("amount can't be empty"),
+                                StopReason::Marshaling,
+                                "Htlc amount is empty"
+                            );
 
                             let denom = coin_amount.denom.to_lowercase();
                             let tx_coin_ticker = match active_assets.get(&denom) {
@@ -397,11 +488,27 @@ where
                                 None => continue,
                             };
 
-                            let amount: u64 = coin_amount.amount.parse().unwrap();
+                            if is_tx_exists(storage, &WalletId::new(tx_coin_ticker.replace('-', "_")), &internal_id)
+                                .await
+                            {
+                                log::debug!(
+                                    "Tx '{}' already exists in tx_history. Skipping it.",
+                                    tx.hash.to_string()
+                                );
+                                continue;
+                            } else {
+                                log::debug!("Adding tx: '{}' to tx_history.", tx.hash.to_string());
+                            }
+
+                            let amount: u64 = try_or_return_stopped_as_err!(
+                                coin_amount.amount.parse(),
+                                StopReason::Marshaling,
+                                "Amount parsing into u64 failed"
+                            );
                             let amount = big_decimal_from_sat_unsigned(amount, coin.decimals());
 
                             let (spent_by_me, received_by_me) =
-                                if htlc_tx.sender == coin.my_address().expect("my_address should never fail") {
+                                if htlc_tx.sender == coin.my_address().expect("my_address can't fail") {
                                     (amount.clone(), BigDecimal::default())
                                 } else {
                                     (BigDecimal::default(), amount.clone())
@@ -441,9 +548,14 @@ where
                 for (ticker, txs) in tx_details.into_iter() {
                     let id = WalletId::new(ticker.replace('-', "_"));
 
-                    if let Err(e) = storage.add_transactions_to_history(&id, txs).await {
-                        return Err(format!("{:?}", e));
-                    }
+                    try_or_return_stopped_as_err!(
+                        storage
+                            .add_transactions_to_history(&id, txs)
+                            .await
+                            .map_err(|e| format!("{:?}", e)),
+                        StopReason::StorageError,
+                        "add_transactions_to_history failed"
+                    );
                 }
 
                 iterate_more = (TX_PAGE_SIZE as u32 * page) < response.total_count;
@@ -453,19 +565,19 @@ where
             Ok(())
         }
 
-        let address = ctx.coin.my_address().expect("should not fail");
+        let address = ctx.coin.my_address().expect("my_address can't fail");
 
         let q = format!("transfer.sender = '{}'", address.clone());
-        if let Err(e) = fetch_and_insert_txs(&ctx.coin, &ctx.storage, q, &self.active_assets).await {
-            return Self::change_state(Stopped::unknown(e));
+        if let Err(stopped) = fetch_and_insert_txs(&ctx.coin, &ctx.storage, q, &self.active_assets).await {
+            return Self::change_state(stopped);
         };
 
         let q = format!("transfer.recipient = '{}'", self.address.clone());
-        if let Err(e) = fetch_and_insert_txs(&ctx.coin, &ctx.storage, q, &self.active_assets).await {
-            return Self::change_state(Stopped::unknown(e));
+        if let Err(stopped) = fetch_and_insert_txs(&ctx.coin, &ctx.storage, q, &self.active_assets).await {
+            return Self::change_state(stopped);
         };
 
-        log::info!("Tx history fetching finished for {}", ctx.coin.ticker());
+        log::info!("Tx history fetching finished for tendermint");
         ctx.coin.set_history_sync_state(HistorySyncState::Finished);
         Self::change_state(WaitForHistoryUpdateTrigger::new())
     }
@@ -501,7 +613,7 @@ where
         }
 
         Self::change_state(FetchingTransactionsData::new(
-            ctx.coin.my_address().expect("should not fail"),
+            ctx.coin.my_address().expect("my_address can't fail"),
             ctx.coin.get_denom_and_ticker_map(),
         ))
     }
@@ -524,8 +636,7 @@ where
         );
         let new_state_json = match self.stop_reason {
             StopReason::HistoryTooLarge => json!({
-                // "code": crate::utxo::utxo_common::HISTORY_TOO_LARGE_ERR_CODE,
-                "code": -1_i64,
+                "code": crate::utxo::utxo_common::HISTORY_TOO_LARGE_ERR_CODE,
                 "message": "Got `history too large` error from Electrum server. History is not available",
             }),
             reason => json!({
@@ -545,8 +656,6 @@ impl TendermintTxHistoryOps for TendermintCoin {
     }
 
     fn decimals(&self) -> u8 { self.decimals }
-
-    fn my_denom(&self) -> cosmrs::Denom { self.denom.clone() }
 
     fn set_history_sync_state(&self, new_state: HistorySyncState) {
         *self.history_sync_state.lock().unwrap() = new_state;
