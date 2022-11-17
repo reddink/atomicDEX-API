@@ -235,10 +235,7 @@ where
         where
             Storage: TxHistoryStorage,
         {
-            match storage.get_tx_from_history(wallet_id, internal_id).await {
-                Ok(Some(_)) => true,
-                _ => false,
-            }
+            matches!(storage.get_tx_from_history(wallet_id, internal_id).await, Ok(Some(_)))
         }
 
         async fn fetch_and_insert_txs<Coin, Storage>(
