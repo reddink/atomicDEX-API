@@ -17,8 +17,6 @@ const TBNB_URLS: &[&str] = &["https://data-seed-prebsc-1-s3.binance.org:8545/"];
 const TBNB_SWAP_CONTRACT: &str = "0xB1Ad803ea4F57401639c123000C75F5B66E4D123";
 
 #[test]
-#[ignore]
-// cargo test mm2::mm2_tests::iris_swap_poc::test -- --exact --ignored
 fn test() {
     let pairs = [
         ("USDC-IBC-IRIS", "IRIS-NIMDA"),
