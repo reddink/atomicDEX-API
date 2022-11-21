@@ -6,10 +6,10 @@ use crate::prelude::*;
 use async_trait::async_trait;
 use coins::my_tx_history_v2::TxHistoryStorage;
 use coins::tendermint::tendermint_tx_history_v2::tendermint_history_loop;
-use coins::tendermint::{TendermintCoin, TendermintInitError, TendermintInitErrorKind, TendermintProtocolInfo,
-                        TendermintToken, TendermintTokenActivationParams, TendermintTokenInitError,
-                        TendermintTokenProtocolInfo};
-use coins::{CoinBalance, CoinProtocol, MarketCoinOps, MmCoin};
+use coins::tendermint::{TendermintCoin, TendermintConf, TendermintInitError, TendermintInitErrorKind,
+                        TendermintProtocolInfo, TendermintToken, TendermintTokenActivationParams,
+                        TendermintTokenInitError, TendermintTokenProtocolInfo};
+use coins::{CoinBalance, CoinProtocol, MarketCoinOps, MmCoin, PrivKeyBuildPolicy};
 use common::executor::{AbortSettings, SpawnAbortable};
 use common::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
@@ -19,7 +19,6 @@ use mm2_number::BigDecimal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use std::collections::HashMap;
-use std::convert::TryFrom;
 
 impl TokenOf for TendermintToken {
     type PlatformCoin = TendermintCoin;
@@ -161,24 +160,17 @@ impl PlatformWithTokensActivationOps for TendermintCoin {
         coin_conf: Json,
         activation_request: Self::ActivationRequest,
         protocol_conf: Self::PlatformProtocolInfo,
-        priv_key: &[u8],
+        priv_key_policy: PrivKeyBuildPolicy,
     ) -> Result<Self, MmError<Self::ActivationError>> {
-        let avg_blocktime = coin_conf["avg_blocktime"].as_f64().unwrap_or_default();
-        let avg_blocktime = (avg_blocktime * 60.0).round() as i64;
-
-        let avg_blocktime = u8::try_from(avg_blocktime).map_err(|_| TendermintInitError {
-            ticker: ticker.clone(),
-            kind: TendermintInitErrorKind::AvgBlockTimeMissingOrInvalid,
-        })?;
-
+        let conf = TendermintConf::try_from_json(&ticker, &coin_conf)?;
         TendermintCoin::init(
             &ctx,
             ticker,
-            avg_blocktime,
+            conf,
             protocol_conf,
             activation_request.rpc_urls,
             activation_request.tx_history,
-            priv_key,
+            priv_key_policy,
         )
         .await
     }

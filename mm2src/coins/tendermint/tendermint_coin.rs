@@ -7,16 +7,16 @@ use crate::utxo::sat_from_big_decimal;
 use crate::utxo::utxo_common::big_decimal_from_sat;
 use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal, CheckIfMyPaymentSentArgs,
             CoinBalance, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin,
-            NegotiateSwapContractAddrErr, PaymentInstructions, PaymentInstructionsErr, RawTransactionError,
-            RawTransactionFut, RawTransactionRequest, RawTransactionRes, SearchForSwapTxSpendInput,
-            SendMakerPaymentArgs, SendMakerRefundsPaymentArgs, SendMakerSpendsTakerPaymentArgs, SendTakerPaymentArgs,
-            SendTakerRefundsPaymentArgs, SendTakerSpendsMakerPaymentArgs, SignatureError, SignatureResult, SwapOps,
-            TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue,
-            TransactionDetails, TransactionEnum, TransactionErr, TransactionFut, TransactionType, TxFeeDetails,
-            TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs,
-            ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput,
-            VerificationError, VerificationResult, WatcherOps, WatcherValidatePaymentInput, WithdrawError,
-            WithdrawFut, WithdrawRequest};
+            NegotiateSwapContractAddrErr, PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy,
+            PrivKeyPolicyNotAllowed, RawTransactionError, RawTransactionFut, RawTransactionRequest, RawTransactionRes,
+            SearchForSwapTxSpendInput, SendMakerPaymentArgs, SendMakerRefundsPaymentArgs,
+            SendMakerSpendsTakerPaymentArgs, SendTakerPaymentArgs, SendTakerRefundsPaymentArgs,
+            SendTakerSpendsMakerPaymentArgs, SignatureError, SignatureResult, SwapOps, TradeFee, TradePreimageError,
+            TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum,
+            TransactionErr, TransactionFut, TransactionType, TxFeeDetails, TxMarshalingErr,
+            UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr,
+            ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput, VerificationError, VerificationResult,
+            WatcherOps, WatcherValidatePaymentInput, WithdrawError, WithdrawFut, WithdrawRequest};
 use async_std::prelude::FutureExt as AsyncStdFutureExt;
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
@@ -38,7 +38,7 @@ use cosmrs::tendermint::chain::Id as ChainId;
 use cosmrs::tendermint::PublicKey;
 use cosmrs::tx::{self, Fee, Msg, Raw, SignDoc, SignerInfo};
 use cosmrs::{AccountId, Any, Coin, Denom, ErrorReport};
-use crypto::privkey::key_pair_from_secret;
+use crypto::{privkey::key_pair_from_secret, Secp256k1Secret, StandardHDPathToCoin};
 use derive_more::Display;
 use futures::lock::Mutex as AsyncMutex;
 use futures::{FutureExt, TryFutureExt};
@@ -52,7 +52,7 @@ use parking_lot::Mutex as PaMutex;
 use prost::{DecodeError, Message};
 use rand::{thread_rng, Rng};
 use rpc::v1::types::Bytes as BytesJson;
-use serde_json::Value as Json;
+use serde_json::{self as json, Value as Json};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::ops::Deref;
@@ -109,6 +109,37 @@ pub struct ActivatedTokenInfo {
     pub(crate) denom: Denom,
 }
 
+pub struct TendermintConf {
+    avg_blocktime: u8,
+    /// Derivation path of the coin.
+    /// This derivation path consists of `purpose` and `coin_type` only
+    /// where the full `BIP44` address has the following structure:
+    /// `m/purpose'/coin_type'/account'/change/address_index`.
+    derivation_path: Option<StandardHDPathToCoin>,
+}
+
+impl TendermintConf {
+    pub fn try_from_json(ticker: &str, conf: &Json) -> MmResult<Self, TendermintInitError> {
+        let avg_blocktime = conf["avg_blocktime"].as_f64().unwrap_or_default();
+        let avg_blocktime = (avg_blocktime * 60.0).round() as i64;
+
+        let avg_blocktime = u8::try_from(avg_blocktime).map_err(|_| TendermintInitError {
+            ticker: ticker.to_string(),
+            kind: TendermintInitErrorKind::AvgBlockTimeMissingOrInvalid,
+        })?;
+
+        let derivation_path = json::from_value(conf["derivation_path"].clone()).map_to_mm(|e| TendermintInitError {
+            ticker: ticker.to_string(),
+            kind: TendermintInitErrorKind::ErrorDeserializingDerivationPath(e.to_string()),
+        })?;
+
+        Ok(TendermintConf {
+            avg_blocktime,
+            derivation_path,
+        })
+    }
+}
+
 pub struct TendermintCoinImpl {
     ticker: String,
     rpc_clients: Vec<HttpClient>,
@@ -155,6 +186,11 @@ pub enum TendermintInitErrorKind {
     RpcClientInitError(String),
     InvalidChainId(String),
     InvalidDenom(String),
+    #[display(fmt = "'derivation_path' field is not found in config")]
+    DerivationPathIsNotSet,
+    #[display(fmt = "Error deserializing 'derivation_path': {}", _0)]
+    ErrorDeserializingDerivationPath(String),
+    PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed),
     RpcError(String),
     #[display(
         fmt = "avg_blocktime missing or invalid. Value must be greater than '0' and less than less than '4.25'."
@@ -198,8 +234,8 @@ impl From<TendermintCoinRpcError> for ValidatePaymentError {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl From<cosmrs::rpc::Error> for TendermintCoinRpcError {
-    fn from(err: cosmrs::rpc::Error) -> Self { TendermintCoinRpcError::PerformError(err.to_string()) }
+impl From<tendermint_rpc::Error> for TendermintCoinRpcError {
+    fn from(err: tendermint_rpc::Error) -> Self { TendermintCoinRpcError::PerformError(err.to_string()) }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -288,11 +324,11 @@ impl TendermintCoin {
     pub async fn init(
         ctx: &MmArc,
         ticker: String,
-        avg_blocktime: u8,
+        conf: TendermintConf,
         protocol_info: TendermintProtocolInfo,
         rpc_urls: Vec<String>,
         tx_history: bool,
-        priv_key: &[u8],
+        priv_key_policy: PrivKeyBuildPolicy,
     ) -> MmResult<Self, TendermintInitError> {
         if rpc_urls.is_empty() {
             return MmError::err(TendermintInitError {
@@ -301,10 +337,14 @@ impl TendermintCoin {
             });
         }
 
+        let priv_key = secret_from_priv_key_policy(&conf, &ticker, priv_key_policy)?;
+
         let account_id =
-            account_id_from_privkey(priv_key, &protocol_info.account_prefix).mm_err(|kind| TendermintInitError {
-                ticker: ticker.clone(),
-                kind,
+            account_id_from_privkey(priv_key.as_slice(), &protocol_info.account_prefix).mm_err(|kind| {
+                TendermintInitError {
+                    ticker: ticker.clone(),
+                    kind,
+                }
             })?;
 
         let rpc_clients: Result<Vec<HttpClient>, _> = rpc_urls
@@ -355,7 +395,7 @@ impl TendermintCoin {
             denom,
             chain_id,
             gas_price: protocol_info.gas_price,
-            avg_blocktime,
+            avg_blocktime: conf.avg_blocktime,
             sequence_lock: AsyncMutex::new(()),
             tokens_info: PaMutex::new(HashMap::new()),
             abortable_system,
@@ -2052,12 +2092,47 @@ impl WatcherOps for TendermintCoin {
     }
 }
 
+/// Processes the given `priv_key_policy` and returns corresponding `Secp256k1Secret`.
+/// This function expects either [`PrivKeyBuildPolicy::IguanaPrivKey`]
+/// or [`PrivKeyBuildPolicy::GlobalHDAccount`], otherwise returns `PrivKeyPolicyNotAllowed` error.
+pub(crate) fn secret_from_priv_key_policy(
+    conf: &TendermintConf,
+    ticker: &str,
+    priv_key_policy: PrivKeyBuildPolicy,
+) -> MmResult<Secp256k1Secret, TendermintInitError> {
+    match priv_key_policy {
+        PrivKeyBuildPolicy::IguanaPrivKey(iguana) => Ok(iguana),
+        PrivKeyBuildPolicy::GlobalHDAccount(global_hd) => {
+            let derivation_path = conf.derivation_path.as_ref().or_mm_err(|| TendermintInitError {
+                ticker: ticker.to_string(),
+                kind: TendermintInitErrorKind::DerivationPathIsNotSet,
+            })?;
+            global_hd
+                .derive_secp256k1_secret(derivation_path)
+                .mm_err(|e| TendermintInitError {
+                    ticker: ticker.to_string(),
+                    kind: TendermintInitErrorKind::InvalidPrivKey(e.to_string()),
+                })
+        },
+        PrivKeyBuildPolicy::Trezor => {
+            let kind =
+                TendermintInitErrorKind::PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed::HardwareWalletNotSupported);
+            MmError::err(TendermintInitError {
+                ticker: ticker.to_string(),
+                kind,
+            })
+        },
+    }
+}
+
 #[cfg(test)]
 pub mod tendermint_coin_tests {
     use super::*;
 
     use common::{block_on, DEX_FEE_ADDR_RAW_PUBKEY};
     use cosmrs::proto::cosmos::tx::v1beta1::{GetTxRequest, GetTxResponse, GetTxsEventResponse};
+    use crypto::privkey::key_pair_from_seed;
+    use rand::{thread_rng, Rng};
     use std::mem::discriminant;
 
     pub const IRIS_TESTNET_HTLC_PAIR1_SEED: &str = "iris test seed";
@@ -2112,20 +2187,24 @@ pub mod tendermint_coin_tests {
 
         let protocol_conf = get_iris_usdc_ibc_protocol();
 
-        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default()
-            .with_secp256k1_key_pair(crypto::privkey::key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap())
-            .into_mm_arc();
+        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
-        let priv_key = &*ctx.secp256k1_key_pair().private().secret;
+        let conf = TendermintConf {
+            avg_blocktime: 5,
+            derivation_path: None,
+        };
 
-        let coin = common::block_on(TendermintCoin::init(
+        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
+
+        let coin = block_on(TendermintCoin::init(
             &ctx,
             "USDC-IBC".to_string(),
-            5,
+            conf,
             protocol_conf,
             rpc_urls,
             false,
-            priv_key,
+            priv_key_policy,
         ))
         .unwrap();
 
@@ -2233,26 +2312,32 @@ pub mod tendermint_coin_tests {
         // >> END HTLC CLAIMING
     }
 
+    /// TODO ignore it for a while.
     #[test]
+    #[ignore]
     fn try_query_claim_htlc_txs_and_get_secret() {
         let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
 
         let protocol_conf = get_iris_usdc_ibc_protocol();
 
-        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default()
-            .with_secp256k1_key_pair(crypto::privkey::key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap())
-            .into_mm_arc();
+        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
-        let priv_key = &*ctx.secp256k1_key_pair().private().secret;
+        let conf = TendermintConf {
+            avg_blocktime: 5,
+            derivation_path: None,
+        };
+
+        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
 
         let coin = block_on(TendermintCoin::init(
             &ctx,
             "USDC-IBC".to_string(),
-            5,
+            conf,
             protocol_conf,
             rpc_urls,
             false,
-            priv_key,
+            priv_key_policy,
         ))
         .unwrap();
 
@@ -2287,26 +2372,32 @@ pub mod tendermint_coin_tests {
         assert_eq!(actual_secret, expected_secret);
     }
 
+    /// TODO ignore it for a while.
     #[test]
+    #[ignore]
     fn wait_for_tx_spend_test() {
         let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
 
         let protocol_conf = get_iris_usdc_ibc_protocol();
 
-        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default()
-            .with_secp256k1_key_pair(crypto::privkey::key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap())
-            .into_mm_arc();
+        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
-        let priv_key = &*ctx.secp256k1_key_pair().private().secret;
+        let conf = TendermintConf {
+            avg_blocktime: 5,
+            derivation_path: None,
+        };
+
+        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
 
         let coin = block_on(TendermintCoin::init(
             &ctx,
             "USDC-IBC".to_string(),
-            5,
+            conf,
             protocol_conf,
             rpc_urls,
             false,
-            priv_key,
+            priv_key_policy,
         ))
         .unwrap();
 
@@ -2353,20 +2444,24 @@ pub mod tendermint_coin_tests {
 
         let protocol_conf = get_iris_protocol();
 
-        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default()
-            .with_secp256k1_key_pair(crypto::privkey::key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap())
-            .into_mm_arc();
+        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
-        let priv_key = &*ctx.secp256k1_key_pair().private().secret;
+        let conf = TendermintConf {
+            avg_blocktime: 5,
+            derivation_path: None,
+        };
+
+        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
 
         let coin = block_on(TendermintCoin::init(
             &ctx,
             "IRIS-TEST".to_string(),
-            5,
+            conf,
             protocol_conf,
             rpc_urls,
             false,
-            priv_key,
+            priv_key_policy,
         ))
         .unwrap();
 
@@ -2518,20 +2613,24 @@ pub mod tendermint_coin_tests {
 
         let protocol_conf = get_iris_protocol();
 
-        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default()
-            .with_secp256k1_key_pair(crypto::privkey::key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap())
-            .into_mm_arc();
+        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
-        let priv_key = &*ctx.secp256k1_key_pair().private().secret;
+        let conf = TendermintConf {
+            avg_blocktime: 5,
+            derivation_path: None,
+        };
+
+        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
 
         let coin = block_on(TendermintCoin::init(
             &ctx,
             "IRIS-TEST".to_string(),
-            5,
+            conf,
             protocol_conf,
             rpc_urls,
             false,
-            priv_key,
+            priv_key_policy,
         ))
         .unwrap();
 
@@ -2590,26 +2689,32 @@ pub mod tendermint_coin_tests {
         };
     }
 
+    /// TODO ignore it for a while.
     #[test]
+    #[ignore]
     fn test_search_for_swap_tx_spend_spent() {
         let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
 
         let protocol_conf = get_iris_protocol();
 
-        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default()
-            .with_secp256k1_key_pair(crypto::privkey::key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap())
-            .into_mm_arc();
+        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
-        let priv_key = &*ctx.secp256k1_key_pair().private().secret;
+        let conf = TendermintConf {
+            avg_blocktime: 5,
+            derivation_path: None,
+        };
+
+        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
 
         let coin = block_on(TendermintCoin::init(
             &ctx,
             "IRIS-TEST".to_string(),
-            5,
+            conf,
             protocol_conf,
             rpc_urls,
             false,
-            priv_key,
+            priv_key_policy,
         ))
         .unwrap();
 
@@ -2665,20 +2770,24 @@ pub mod tendermint_coin_tests {
 
         let protocol_conf = get_iris_protocol();
 
-        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default()
-            .with_secp256k1_key_pair(crypto::privkey::key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap())
-            .into_mm_arc();
+        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
-        let priv_key = &*ctx.secp256k1_key_pair().private().secret;
+        let conf = TendermintConf {
+            avg_blocktime: 5,
+            derivation_path: None,
+        };
+
+        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
 
         let coin = block_on(TendermintCoin::init(
             &ctx,
             "IRIS-TEST".to_string(),
-            5,
+            conf,
             protocol_conf,
             rpc_urls,
             false,
-            priv_key,
+            priv_key_policy,
         ))
         .unwrap();
 
@@ -2730,18 +2839,24 @@ pub mod tendermint_coin_tests {
     fn test_get_tx_status_code_or_none() {
         let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
         let protocol_conf = get_iris_usdc_ibc_protocol();
-        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default()
-            .with_secp256k1_key_pair(crypto::privkey::key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap())
-            .into_mm_arc();
-        let priv_key = &*ctx.secp256k1_key_pair().private().secret;
+
+        let conf = TendermintConf {
+            avg_blocktime: 5,
+            derivation_path: None,
+        };
+
+        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
+        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
+
         let coin = common::block_on(TendermintCoin::init(
             &ctx,
             "USDC-IBC".to_string(),
-            5,
+            conf,
             protocol_conf,
             rpc_urls,
             false,
-            priv_key,
+            priv_key_policy,
         ))
         .unwrap();
 
