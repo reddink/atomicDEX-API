@@ -14,5 +14,4 @@ pub use tendermint_token::*;
 pub(crate) mod type_urls {
     pub(crate) const CREATE_HTLC_TYPE_URL: &str = "/irismod.htlc.MsgCreateHTLC";
     pub(crate) const CLAIM_HTLC_TYPE_URL: &str = "/irismod.htlc.MsgClaimHTLC";
-    pub(crate) const SEND_TYPE_URL: &str = "/cosmos.bank.v1beta1.MsgSend";
 }

@@ -106,7 +106,7 @@ impl WalletId {
     #[inline]
     pub fn new(ticker: String) -> WalletId {
         WalletId {
-            ticker,
+            ticker: ticker.replace('-', "_"),
             hd_wallet_rmd160: None,
         }
     }

@@ -90,17 +90,25 @@ pub async fn trade_base_rel_iris(
     .unwrap();
 
     dbg!(
-        enable_tendermint(&mm_bob, "IRIS-TEST", &["IRIS-NIMDA", "USDC-IBC-IRIS"], &[
-            "http://34.80.202.172:26657"
-        ])
+        enable_tendermint(
+            &mm_bob,
+            "IRIS-TEST",
+            &["IRIS-NIMDA", "USDC-IBC-IRIS"],
+            &["http://34.80.202.172:26657"],
+            false
+        )
         .await
     );
     dbg!(enable_electrum(&mm_bob, "RICK", false, RICK_ELECTRUM_ADDRS).await);
 
     dbg!(
-        enable_tendermint(&mm_alice, "IRIS-TEST", &["IRIS-NIMDA", "USDC-IBC-IRIS"], &[
-            "http://34.80.202.172:26657"
-        ])
+        enable_tendermint(
+            &mm_alice,
+            "IRIS-TEST",
+            &["IRIS-NIMDA", "USDC-IBC-IRIS"],
+            &["http://34.80.202.172:26657"],
+            false
+        )
         .await
     );
     dbg!(enable_electrum(&mm_alice, "RICK", false, RICK_ELECTRUM_ADDRS).await);

@@ -53,7 +53,7 @@ impl TokenActivationOps for TendermintToken {
 
     async fn enable_token(
         ticker: String,
-        platform_coin: Self::PlatformCoin,
+        platform_coin: <Self as TokenActivationOps>::PlatformCoin,
         _activation_params: Self::ActivationParams,
         protocol_conf: Self::ProtocolInfo,
     ) -> Result<(Self, Self::ActivationResult), MmError<Self::ActivationError>> {
@@ -73,10 +73,6 @@ impl TokenActivationOps for TendermintToken {
             balances,
             platform_coin: token.platform_ticker().into(),
         };
-
-        token
-            .platform_coin
-            .add_activated_token_info(token.ticker.clone(), token.decimals, token.denom.clone());
 
         Ok((token, init_result))
     }

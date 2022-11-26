@@ -14,7 +14,6 @@ use common::executor::{AbortSettings, SpawnAbortable};
 use common::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
@@ -217,11 +216,11 @@ impl PlatformWithTokensActivationOps for TendermintCoin {
 
     fn start_history_background_fetching(
         &self,
-        metrics: MetricsArc,
+        ctx: MmArc,
         storage: impl TxHistoryStorage,
         initial_balance: BigDecimal,
     ) {
-        let fut = tendermint_history_loop(self.clone(), storage, metrics, initial_balance);
+        let fut = tendermint_history_loop(self.clone(), storage, ctx, initial_balance);
 
         let settings = AbortSettings::info_on_abort(format!("tendermint_history_loop stopped for {}", self.ticker()));
         self.spawner().spawn_with_settings(fut, settings);

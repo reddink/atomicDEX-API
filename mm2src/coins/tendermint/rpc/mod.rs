@@ -5,8 +5,11 @@ pub use tendermint_native_rpc::*;
 #[cfg(target_arch = "wasm32")] mod tendermint_wasm_rpc;
 #[cfg(target_arch = "wasm32")] pub use tendermint_wasm_rpc::*;
 
+pub(crate) const TX_SUCCESS_CODE: u32 = 0;
+
+#[repr(u8)]
 pub enum TendermintResultOrder {
-    Ascending,
+    Ascending = 0,
     Descending,
 }
 
@@ -15,15 +18,6 @@ impl From<TendermintResultOrder> for Order {
         match order {
             TendermintResultOrder::Ascending => Self::Ascending,
             TendermintResultOrder::Descending => Self::Descending,
-        }
-    }
-}
-
-impl From<TendermintResultOrder> for i32 {
-    fn from(order: TendermintResultOrder) -> Self {
-        match order {
-            TendermintResultOrder::Ascending => 0,
-            TendermintResultOrder::Descending => 1,
         }
     }
 }

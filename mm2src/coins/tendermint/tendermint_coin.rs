@@ -45,7 +45,7 @@ use futures::{FutureExt, TryFutureExt};
 use futures01::Future;
 use hex::FromHexError;
 use keys::KeyPair;
-use mm2_core::mm_ctx::{MmArc, MmWeak};
+use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_number::MmNumber;
 use parking_lot::Mutex as PaMutex;
@@ -120,12 +120,19 @@ pub struct TendermintConf {
 
 impl TendermintConf {
     pub fn try_from_json(ticker: &str, conf: &Json) -> MmResult<Self, TendermintInitError> {
-        let avg_blocktime = conf["avg_blocktime"].as_f64().unwrap_or_default();
-        let avg_blocktime = (avg_blocktime * 60.0).round() as i64;
-
-        let avg_blocktime = u8::try_from(avg_blocktime).map_err(|_| TendermintInitError {
+        let avg_blocktime = conf.get("avg_blocktime").or_mm_err(|| TendermintInitError {
             ticker: ticker.to_string(),
-            kind: TendermintInitErrorKind::AvgBlockTimeMissingOrInvalid,
+            kind: TendermintInitErrorKind::AvgBlockTimeMissing,
+        })?;
+
+        let avg_blocktime = avg_blocktime.as_i64().or_mm_err(|| TendermintInitError {
+            ticker: ticker.to_string(),
+            kind: TendermintInitErrorKind::AvgBlockTimeInvalid,
+        })?;
+
+        let avg_blocktime = u8::try_from(avg_blocktime).map_to_mm(|_| TendermintInitError {
+            ticker: ticker.to_string(),
+            kind: TendermintInitErrorKind::AvgBlockTimeInvalid,
         })?;
 
         let derivation_path = json::from_value(conf["derivation_path"].clone()).map_to_mm(|e| TendermintInitError {
@@ -159,7 +166,6 @@ pub struct TendermintCoinImpl {
     /// or on [`MmArc::stop`].
     pub(super) abortable_system: AbortableQueue,
     pub(crate) history_sync_state: Mutex<HistorySyncState>,
-    pub ctx: MmWeak,
 }
 
 #[derive(Clone)]
@@ -192,10 +198,10 @@ pub enum TendermintInitErrorKind {
     ErrorDeserializingDerivationPath(String),
     PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed),
     RpcError(String),
-    #[display(
-        fmt = "avg_blocktime missing or invalid. Value must be greater than '0' and less than less than '4.25'."
-    )]
-    AvgBlockTimeMissingOrInvalid,
+    #[display(fmt = "avg_blocktime is missing in coin configuration")]
+    AvgBlockTimeMissing,
+    #[display(fmt = "avg_blocktime must be in-between '0' and '255'.")]
+    AvgBlockTimeInvalid,
 }
 
 #[derive(Display, Debug)]
@@ -231,6 +237,10 @@ impl From<TendermintCoinRpcError> for ValidatePaymentError {
             TendermintCoinRpcError::PerformError(e) => ValidatePaymentError::Transport(e),
         }
     }
+}
+
+impl From<TendermintCoinRpcError> for TradePreimageError {
+    fn from(err: TendermintCoinRpcError) -> Self { TradePreimageError::Transport(err.to_string()) }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -400,7 +410,6 @@ impl TendermintCoin {
             tokens_info: PaMutex::new(HashMap::new()),
             abortable_system,
             history_sync_state: Mutex::new(history_sync_state),
-            ctx: ctx.weak(),
         })))
     }
 
@@ -1091,14 +1100,9 @@ impl TendermintCoin {
                 e
             )))
         })?;
-        let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
 
-        let account_info = self.my_account_info().await.map_err(|e| {
-            MmError::new(TradePreimageError::InternalError(format!(
-                "Could not get account_info. {}",
-                e
-            )))
-        })?;
+        let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
+        let account_info = self.my_account_info().await?;
 
         let simulated_tx = self
             .gen_simulated_tx(
@@ -1114,11 +1118,7 @@ impl TendermintCoin {
                 )))
             })?;
 
-        let fee_uamount = self
-            .calculate_fee_amount_as_u64(simulated_tx)
-            .await
-            .map_err(|e| MmError::new(TradePreimageError::Transport(format!("{:?}", e.into_inner()))))?;
-
+        let fee_uamount = self.calculate_fee_amount_as_u64(simulated_tx).await?;
         let fee_amount = big_decimal_from_sat_unsigned(fee_uamount, self.decimals);
 
         Ok(TradeFee {
@@ -1145,14 +1145,9 @@ impl TendermintCoin {
                 e
             )))
         })?;
-        let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
 
-        let account_info = self.my_account_info().await.map_err(|e| {
-            MmError::new(TradePreimageError::InternalError(format!(
-                "Could not get account_info. {}",
-                e
-            )))
-        })?;
+        let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
+        let account_info = self.my_account_info().await?;
 
         let msg_send = MsgSend {
             from_address: self.account_id.clone(),
@@ -1174,11 +1169,7 @@ impl TendermintCoin {
                 )))
             })?;
 
-        let fee_uamount = self
-            .calculate_fee_amount_as_u64(simulated_tx)
-            .await
-            .map_err(|e| MmError::new(TradePreimageError::Transport(format!("{:?}", e.into_inner()))))?;
-
+        let fee_uamount = self.calculate_fee_amount_as_u64(simulated_tx).await?;
         let fee_amount = big_decimal_from_sat_unsigned(fee_uamount, decimals);
 
         Ok(TradeFee {
@@ -1232,7 +1223,7 @@ impl TendermintCoin {
         if let Some(tx_response) = tx.tx_response {
             // non-zero values are error.
             match tx_response.code {
-                0 => Ok(Some(cosmrs::tendermint::abci::Code::Ok)),
+                TX_SUCCESS_CODE => Ok(Some(cosmrs::tendermint::abci::Code::Ok)),
                 err_code => Ok(Some(cosmrs::tendermint::abci::Code::Err(err_code))),
             }
         } else {
@@ -1290,7 +1281,7 @@ impl TendermintCoin {
                 let request = GetTxsEventRequest {
                     events: vec![events_string],
                     pagination: None,
-                    order_by: TendermintResultOrder::Ascending.into(),
+                    order_by: TendermintResultOrder::Ascending as i32,
                 };
                 let encoded_request = request.encode_to_vec();
 
@@ -1682,10 +1673,10 @@ impl MarketCoinOps for TendermintCoin {
         wait_until: u64,
         check_every: u64,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        let tx_raw: TxRaw = try_fus!(Message::decode(tx_bytes));
-        let tx = TransactionEnum::CosmosTransaction(CosmosTransaction { data: tx_raw });
-        let mut tx_hash = hex::encode_upper(tx.tx_hash().0);
-        tx_hash.make_ascii_uppercase();
+        // Sanity check
+        let _: TxRaw = try_fus!(Message::decode(tx_bytes));
+
+        let tx_hash = hex::encode_upper(sha256(tx_bytes));
 
         let coin = self.clone();
         let fut = async move {
@@ -1735,7 +1726,7 @@ impl MarketCoinOps for TendermintCoin {
         let request = GetTxsEventRequest {
             events: vec![events_string],
             pagination: None,
-            order_by: TendermintResultOrder::Ascending.into(),
+            order_by: TendermintResultOrder::Ascending as i32,
         };
         let encoded_request = request.encode_to_vec();
 
@@ -2151,6 +2142,26 @@ pub mod tendermint_coin_tests {
 
     pub const IRIS_TESTNET_RPC_URL: &str = "http://34.80.202.172:26657";
 
+    const AVG_BLOCKTIME: u8 = 5;
+
+    const SUCCEED_TX_HASH_SAMPLES: &[&str] = &[
+        // https://nyancat.iobscan.io/#/tx?txHash=A010FC0AA33FC6D597A8635F9D127C0A7B892FAAC72489F4DADD90048CFE9279
+        "A010FC0AA33FC6D597A8635F9D127C0A7B892FAAC72489F4DADD90048CFE9279",
+        // https://nyancat.iobscan.io/#/tx?txHash=54FD77054AE311C484CC2EADD4621428BB23D14A9BAAC128B0E7B47422F86EC8
+        "54FD77054AE311C484CC2EADD4621428BB23D14A9BAAC128B0E7B47422F86EC8",
+        // https://nyancat.iobscan.io/#/tx?txHash=7C00FAE7F70C36A316A4736025B08A6EAA2A0CC7919A2C4FC4CD14D9FFD166F9
+        "7C00FAE7F70C36A316A4736025B08A6EAA2A0CC7919A2C4FC4CD14D9FFD166F9",
+    ];
+
+    const FAILED_TX_HASH_SAMPLES: &[&str] = &[
+        // https://nyancat.iobscan.io/#/tx?txHash=57EE62B2DF7E311C98C24AE2A53EB0FF2C16D289CECE0826CA1FF1108C91B3F9
+        "57EE62B2DF7E311C98C24AE2A53EB0FF2C16D289CECE0826CA1FF1108C91B3F9",
+        // https://nyancat.iobscan.io/#/tx?txHash=F3181D69C580318DFD54282C656AC81113BC600BCFBAAA480E6D8A6469EE8786
+        "F3181D69C580318DFD54282C656AC81113BC600BCFBAAA480E6D8A6469EE8786",
+        // https://nyancat.iobscan.io/#/tx?txHash=FE6F9F395DA94A14FCFC04E0E8C496197077D5F4968DA5528D9064C464ADF522
+        "FE6F9F395DA94A14FCFC04E0E8C496197077D5F4968DA5528D9064C464ADF522",
+    ];
+
     fn get_iris_usdc_ibc_protocol() -> TendermintProtocolInfo {
         TendermintProtocolInfo {
             decimals: 6,
@@ -2190,7 +2201,7 @@ pub mod tendermint_coin_tests {
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
         let conf = TendermintConf {
-            avg_blocktime: 5,
+            avg_blocktime: AVG_BLOCKTIME,
             derivation_path: None,
         };
 
@@ -2323,7 +2334,7 @@ pub mod tendermint_coin_tests {
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
         let conf = TendermintConf {
-            avg_blocktime: 5,
+            avg_blocktime: AVG_BLOCKTIME,
             derivation_path: None,
         };
 
@@ -2345,7 +2356,7 @@ pub mod tendermint_coin_tests {
         let request = GetTxsEventRequest {
             events: vec![events.into()],
             pagination: None,
-            order_by: TendermintResultOrder::Ascending.into(),
+            order_by: TendermintResultOrder::Ascending as i32,
         };
         let path = AbciPath::from_str(ABCI_GET_TXS_EVENT_PATH).unwrap();
         let response = block_on(block_on(coin.rpc_client()).unwrap().abci_query(
@@ -2383,7 +2394,7 @@ pub mod tendermint_coin_tests {
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
         let conf = TendermintConf {
-            avg_blocktime: 5,
+            avg_blocktime: AVG_BLOCKTIME,
             derivation_path: None,
         };
 
@@ -2447,7 +2458,7 @@ pub mod tendermint_coin_tests {
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
         let conf = TendermintConf {
-            avg_blocktime: 5,
+            avg_blocktime: AVG_BLOCKTIME,
             derivation_path: None,
         };
 
@@ -2616,7 +2627,7 @@ pub mod tendermint_coin_tests {
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
         let conf = TendermintConf {
-            avg_blocktime: 5,
+            avg_blocktime: AVG_BLOCKTIME,
             derivation_path: None,
         };
 
@@ -2700,7 +2711,7 @@ pub mod tendermint_coin_tests {
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
         let conf = TendermintConf {
-            avg_blocktime: 5,
+            avg_blocktime: AVG_BLOCKTIME,
             derivation_path: None,
         };
 
@@ -2773,7 +2784,7 @@ pub mod tendermint_coin_tests {
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
         let conf = TendermintConf {
-            avg_blocktime: 5,
+            avg_blocktime: AVG_BLOCKTIME,
             derivation_path: None,
         };
 
@@ -2841,7 +2852,7 @@ pub mod tendermint_coin_tests {
         let protocol_conf = get_iris_usdc_ibc_protocol();
 
         let conf = TendermintConf {
-            avg_blocktime: 5,
+            avg_blocktime: AVG_BLOCKTIME,
             derivation_path: None,
         };
 
@@ -2860,34 +2871,16 @@ pub mod tendermint_coin_tests {
         ))
         .unwrap();
 
-        let succeed_tx_hashes = vec![
-            // https://nyancat.iobscan.io/#/tx?txHash=A010FC0AA33FC6D597A8635F9D127C0A7B892FAAC72489F4DADD90048CFE9279
-            "A010FC0AA33FC6D597A8635F9D127C0A7B892FAAC72489F4DADD90048CFE9279".to_string(),
-            // https://nyancat.iobscan.io/#/tx?txHash=54FD77054AE311C484CC2EADD4621428BB23D14A9BAAC128B0E7B47422F86EC8
-            "54FD77054AE311C484CC2EADD4621428BB23D14A9BAAC128B0E7B47422F86EC8".to_string(),
-            // https://nyancat.iobscan.io/#/tx?txHash=7C00FAE7F70C36A316A4736025B08A6EAA2A0CC7919A2C4FC4CD14D9FFD166F9
-            "7C00FAE7F70C36A316A4736025B08A6EAA2A0CC7919A2C4FC4CD14D9FFD166F9".to_string(),
-        ];
-
-        for succeed_tx_hash in succeed_tx_hashes {
-            let status_code = common::block_on(coin.get_tx_status_code_or_none(succeed_tx_hash))
+        for succeed_tx_hash in SUCCEED_TX_HASH_SAMPLES {
+            let status_code = common::block_on(coin.get_tx_status_code_or_none(succeed_tx_hash.to_string()))
                 .unwrap()
                 .expect("tx exists");
 
             assert_eq!(status_code, cosmrs::tendermint::abci::Code::Ok);
         }
 
-        let failed_tx_hashes = vec![
-            // https://nyancat.iobscan.io/#/tx?txHash=57EE62B2DF7E311C98C24AE2A53EB0FF2C16D289CECE0826CA1FF1108C91B3F9
-            "57EE62B2DF7E311C98C24AE2A53EB0FF2C16D289CECE0826CA1FF1108C91B3F9".to_string(),
-            // https://nyancat.iobscan.io/#/tx?txHash=F3181D69C580318DFD54282C656AC81113BC600BCFBAAA480E6D8A6469EE8786
-            "F3181D69C580318DFD54282C656AC81113BC600BCFBAAA480E6D8A6469EE8786".to_string(),
-            // https://nyancat.iobscan.io/#/tx?txHash=FE6F9F395DA94A14FCFC04E0E8C496197077D5F4968DA5528D9064C464ADF522
-            "FE6F9F395DA94A14FCFC04E0E8C496197077D5F4968DA5528D9064C464ADF522".to_string(),
-        ];
-
-        for failed_tx_hash in failed_tx_hashes {
-            let status_code = common::block_on(coin.get_tx_status_code_or_none(failed_tx_hash))
+        for failed_tx_hash in FAILED_TX_HASH_SAMPLES {
+            let status_code = common::block_on(coin.get_tx_status_code_or_none(failed_tx_hash.to_string()))
                 .unwrap()
                 .expect("tx exists");
 
@@ -2901,5 +2894,59 @@ pub mod tendermint_coin_tests {
         let tx_hash = "0000000000000000000000000000000000000000000000000000000000000000".to_string();
         let status_code = common::block_on(coin.get_tx_status_code_or_none(tx_hash)).unwrap();
         assert!(status_code.is_none());
+    }
+
+    #[test]
+    fn test_wait_for_confirmations() {
+        const CHECK_INTERVAL: u64 = 2;
+
+        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let protocol_conf = get_iris_usdc_ibc_protocol();
+
+        let conf = TendermintConf {
+            avg_blocktime: AVG_BLOCKTIME,
+            derivation_path: None,
+        };
+
+        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
+        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
+
+        let coin = common::block_on(TendermintCoin::init(
+            &ctx,
+            "USDC-IBC".to_string(),
+            conf,
+            protocol_conf,
+            rpc_urls,
+            false,
+            priv_key_policy,
+        ))
+        .unwrap();
+
+        let wait_until = || now_ms() + 45;
+
+        for succeed_tx_hash in SUCCEED_TX_HASH_SAMPLES {
+            let tx_bytes = block_on(coin.request_tx(succeed_tx_hash.to_string()))
+                .unwrap()
+                .encode_to_vec();
+
+            block_on(
+                coin.wait_for_confirmations(&tx_bytes, 0, false, wait_until(), CHECK_INTERVAL)
+                    .compat(),
+            )
+            .unwrap();
+        }
+
+        for failed_tx_hash in FAILED_TX_HASH_SAMPLES {
+            let tx_bytes = block_on(coin.request_tx(failed_tx_hash.to_string()))
+                .unwrap()
+                .encode_to_vec();
+
+            block_on(
+                coin.wait_for_confirmations(&tx_bytes, 0, false, wait_until(), CHECK_INTERVAL)
+                    .compat(),
+            )
+            .unwrap_err();
+        }
     }
 }

@@ -91,7 +91,7 @@ impl TokenActivationOps for SplToken {
 
     async fn enable_token(
         ticker: String,
-        platform_coin: Self::PlatformCoin,
+        platform_coin: <Self as TokenActivationOps>::PlatformCoin,
         _activation_params: Self::ActivationParams,
         protocol_conf: Self::ProtocolInfo,
     ) -> Result<(Self, Self::ActivationResult), MmError<Self::ActivationError>> {
