@@ -306,7 +306,7 @@ pub async fn tendermint_tx_history() {
     assert_eq!(self_tx_details.total_amount, tx_amount);
     assert_eq!(self_tx_details.spent_by_me, BigDecimal::default());
     assert_eq!(self_tx_details.received_by_me, tx_amount);
-    assert_eq!(self_tx_details.my_balance_change, &tx_amount - BigDecimal::default());
+    assert_eq!(self_tx_details.my_balance_change, tx_amount);
     assert_eq!(self_tx_details.transaction_type, TransactionType::StandardTransfer);
 
     let token_tx_history_response = get_tendermint_my_tx_history(&mm, token, 2, 1).await;

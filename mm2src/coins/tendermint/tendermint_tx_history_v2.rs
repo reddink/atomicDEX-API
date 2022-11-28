@@ -1,4 +1,3 @@
-use super::iris::htlc_proto::QueryHtlcResponseProto;
 use super::{rpc::*, AllBalancesResult, TendermintCoin, TendermintCoinRpcError, TendermintToken};
 
 use crate::my_tx_history_v2::{CoinWithTxHistoryV2, MyTxHistoryErrorV2, MyTxHistoryTarget, TxHistoryStorage};
@@ -51,8 +50,6 @@ macro_rules! try_or_continue {
 #[async_trait]
 pub trait TendermintTxHistoryOps: CoinWithTxHistoryV2 + MarketCoinOps + Send + Sync + 'static {
     async fn get_rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError>;
-
-    async fn query_htlc(&self, id: String) -> MmResult<QueryHtlcResponseProto, TendermintCoinRpcError>;
 
     fn decimals(&self) -> u8;
 
@@ -325,7 +322,7 @@ where
 
             TxAmounts {
                 total: amount,
-                my_balance_change: received_by_me.clone() - spent_by_me.clone(),
+                my_balance_change: &received_by_me - &spent_by_me,
                 spent_by_me,
                 received_by_me,
             }
@@ -680,7 +677,8 @@ where
         let last_fetched_block = cmp::max(highest_send_tx_height, highest_recieved_tx_height);
 
         log::info!(
-            "Tx history fetching finished for tendermint. Last fetched block {}",
+            "Tx history fetching finished for {}. Last fetched block {}",
+            ctx.coin.platform_ticker(),
             last_fetched_block
         );
 
@@ -761,10 +759,6 @@ where
 #[async_trait]
 impl TendermintTxHistoryOps for TendermintCoin {
     async fn get_rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError> { self.rpc_client().await }
-
-    async fn query_htlc(&self, id: String) -> MmResult<QueryHtlcResponseProto, TendermintCoinRpcError> {
-        self.query_htlc(id).await
-    }
 
     fn decimals(&self) -> u8 { self.decimals }
 

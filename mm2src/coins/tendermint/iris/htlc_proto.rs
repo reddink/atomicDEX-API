@@ -75,7 +75,7 @@ pub struct HtlcProto {
 }
 
 #[derive(prost::Message)]
-pub struct QueryHtlcResponseProto {
+pub(crate) struct QueryHtlcResponseProto {
     #[prost(message, tag = "1")]
     pub(crate) htlc: Option<HtlcProto>,
 }
