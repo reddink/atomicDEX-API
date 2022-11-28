@@ -207,7 +207,7 @@ pub async fn tendermint_tx_history() {
     const TEST_SEED: &str = "iris test seed3";
     const TEST_ADDRESS: &str = "iaa17d8hndl72u2mzae8rymn003hxfpehcslnqcrcd";
     const TEST_ADDRESS2: &str = "iaa1e0rx87mdj79zejewuc4jg7ql9ud2286g2us8f2";
-    const TX_FINISHED_LOG: &str = "Tx history fetching finished for tendermint.";
+    const TX_FINISHED_LOG: &str = "Tx history fetching finished for IRIS-TEST.";
 
     let coins = json!([iris_testnet_conf(), iris_nimda_testnet_conf()]);
     let platform_coin = coins[0]["coin"].as_str().unwrap();
