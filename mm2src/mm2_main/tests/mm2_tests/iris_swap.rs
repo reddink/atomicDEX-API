@@ -17,10 +17,6 @@ const TBNB_URLS: &[&str] = &["https://data-seed-prebsc-1-s3.binance.org:8545/"];
 const TBNB_SWAP_CONTRACT: &str = "0xB1Ad803ea4F57401639c123000C75F5B66E4D123";
 
 #[test]
-// TODO
-// Remove ignore status once tx_search bug(can't search tx by event which includes '_' in it)
-// is fixed in Iris nodes.
-#[ignore]
 fn start_swap_operation() {
     let pairs = [
         ("USDC-IBC-IRIS", "IRIS-NIMDA"),

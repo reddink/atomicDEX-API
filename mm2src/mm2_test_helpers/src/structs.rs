@@ -541,6 +541,7 @@ pub enum TransactionType {
     RemoveDelegation,
     StandardTransfer,
     TokenTransfer(String),
+    Fee(String),
 }
 
 #[derive(Debug, Deserialize)]

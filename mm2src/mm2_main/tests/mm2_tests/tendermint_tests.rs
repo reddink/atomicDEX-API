@@ -6,6 +6,7 @@ use mm2_test_helpers::for_tests::{atom_testnet_conf, enable_tendermint, enable_t
 use mm2_test_helpers::structs::{MyBalanceResponse, RpcV2Response, TendermintActivationResult, TransactionDetails,
                                 TransactionType};
 use serde_json::{self as json, json};
+use std::mem::discriminant;
 use std::str::FromStr;
 
 const ATOM_TEST_BALANCE_SEED: &str = "atom test seed";
@@ -208,15 +209,16 @@ pub async fn tendermint_tx_history() {
     const TEST_ADDRESS2: &str = "iaa1e0rx87mdj79zejewuc4jg7ql9ud2286g2us8f2";
     const TX_FINISHED_LOG: &str = "Tx history fetching finished for tendermint.";
 
-    let coins = json!([iris_testnet_conf()]);
-    let coin = coins[0]["coin"].as_str().unwrap();
+    let coins = json!([iris_testnet_conf(), iris_nimda_testnet_conf()]);
+    let platform_coin = coins[0]["coin"].as_str().unwrap();
+    let token = coins[1]["coin"].as_str().unwrap();
 
     let conf = Mm2TestConf::seednode(TEST_SEED, &coins);
     let mut mm = MarketMakerIt::start_async(conf.conf, conf.rpc_password, None)
         .await
         .unwrap();
 
-    let activation_res = enable_tendermint(&mm, coin, &[], IRIS_TESTNET_RPC_URLS, true).await;
+    let activation_res = enable_tendermint(&mm, platform_coin, &[token], IRIS_TESTNET_RPC_URLS, true).await;
     println!("Activation with assets {}", json::to_string(&activation_res).unwrap());
 
     if let Err(_) = mm.wait_for_log(900., |log| log.contains(TX_FINISHED_LOG)).await {
@@ -224,14 +226,14 @@ pub async fn tendermint_tx_history() {
         assert!(false, "Tx history didn't finish which is not expected");
     }
 
-    let first_tx_history_response = get_tendermint_my_tx_history(&mm, coin, 1, 1).await;
+    let first_tx_history_response = get_tendermint_my_tx_history(&mm, platform_coin, 1, 1).await;
     let first_total_txs = first_tx_history_response["result"]["total"].as_u64().unwrap();
     assert!(first_total_txs > 0);
 
-    // self transfer
-    let withdraw_self = withdraw_v1(&mm, coin, TEST_ADDRESS, "0.01").await;
+    // self platform coin transfer
+    let withdraw_self = withdraw_v1(&mm, platform_coin, TEST_ADDRESS, "0.01").await;
     let withdraw_self_tx_details: TransactionDetails = json::from_value(withdraw_self).unwrap();
-    let raw_tx_self = send_raw_transaction(&mm, coin, &withdraw_self_tx_details.tx_hex).await;
+    let raw_tx_self = send_raw_transaction(&mm, platform_coin, &withdraw_self_tx_details.tx_hex).await;
     let self_tx_hash = raw_tx_self["tx_hash"].as_str().unwrap();
 
     let expected_tx_hash_log = format!("Tx '{}' successfuly parsed.", self_tx_hash);
@@ -245,11 +247,17 @@ pub async fn tendermint_tx_history() {
         assert!(false, "Tx history didn't finish which is not expected");
     }
 
-    // outgoing transfer
-    let withdraw_out = withdraw_v1(&mm, coin, TEST_ADDRESS2, "0.01").await;
+    // outgoing platform coin transfer
+    let withdraw_out = withdraw_v1(&mm, platform_coin, TEST_ADDRESS2, "0.01").await;
     let withdraw_out_tx_details: TransactionDetails = json::from_value(withdraw_out).unwrap();
-    let raw_tx_out = send_raw_transaction(&mm, coin, &withdraw_out_tx_details.tx_hex).await;
+    let raw_tx_out = send_raw_transaction(&mm, platform_coin, &withdraw_out_tx_details.tx_hex).await;
     let out_tx_hash = raw_tx_out["tx_hash"].as_str().unwrap();
+
+    // outgoing token transfer
+    let withdraw_token_out = withdraw_v1(&mm, token, TEST_ADDRESS2, "0.01").await;
+    let withdraw_token_out_tx_details: TransactionDetails = json::from_value(withdraw_token_out).unwrap();
+    let raw_tx_token_out = send_raw_transaction(&mm, token, &withdraw_token_out_tx_details.tx_hex).await;
+    let token_out_tx_hash = raw_tx_token_out["tx_hash"].as_str().unwrap();
 
     let expected_tx_hash_log = format!("Tx '{}' successfuly parsed.", out_tx_hash);
     if let Err(_) = mm.wait_for_log(45., |log| log.contains(&expected_tx_hash_log)).await {
@@ -262,7 +270,7 @@ pub async fn tendermint_tx_history() {
         assert!(false, "Tx history didn't finish which is not expected");
     }
 
-    let second_tx_history_response = get_tendermint_my_tx_history(&mm, coin, 2, 1).await;
+    let second_tx_history_response = get_tendermint_my_tx_history(&mm, platform_coin, 2, 1).await;
     let second_total_txs = second_tx_history_response["result"]["total"].as_u64().unwrap();
     assert_eq!(first_total_txs + 2, second_total_txs);
 
@@ -274,26 +282,81 @@ pub async fn tendermint_tx_history() {
     let tx_amount = BigDecimal::from_str("0.01").unwrap();
 
     let out_tx_details: TransactionDetails = json::from_value(transactions[0].clone()).unwrap();
-    assert_eq!(out_tx_details.coin, coin.to_string());
+    let out_fee_amount = BigDecimal::from_str(out_tx_details.fee_details["amount"].as_str().unwrap()).unwrap();
+
+    assert_eq!(out_tx_details.coin, platform_coin.to_string());
     assert_eq!(out_tx_details.tx_hash, out_tx_hash.to_string());
     assert_eq!(out_tx_details.from, vec![TEST_ADDRESS]);
     assert_eq!(out_tx_details.to, vec![TEST_ADDRESS2]);
-    assert_eq!(out_tx_details.total_amount, tx_amount);
-    assert_eq!(out_tx_details.spent_by_me, tx_amount);
+    assert_eq!(out_tx_details.total_amount, &tx_amount + &out_fee_amount);
+    assert_eq!(out_tx_details.spent_by_me, &tx_amount + &out_fee_amount);
     assert_eq!(out_tx_details.received_by_me, BigDecimal::default());
-    assert_eq!(out_tx_details.my_balance_change, BigDecimal::default() - &tx_amount);
+    assert_eq!(
+        out_tx_details.my_balance_change,
+        BigDecimal::default() - (&tx_amount + &out_fee_amount)
+    );
     assert_eq!(out_tx_details.transaction_type, TransactionType::StandardTransfer);
 
     let self_tx_details: TransactionDetails = json::from_value(transactions[1].clone()).unwrap();
-    assert_eq!(self_tx_details.coin, coin.to_string());
+
+    assert_eq!(self_tx_details.coin, platform_coin.to_string());
     assert_eq!(self_tx_details.tx_hash, self_tx_hash.to_string());
     assert_eq!(self_tx_details.from, vec![TEST_ADDRESS]);
     assert_eq!(self_tx_details.to, vec![TEST_ADDRESS]);
     assert_eq!(self_tx_details.total_amount, tx_amount);
     assert_eq!(self_tx_details.spent_by_me, BigDecimal::default());
     assert_eq!(self_tx_details.received_by_me, tx_amount);
-    assert_eq!(self_tx_details.my_balance_change, tx_amount - BigDecimal::default());
+    assert_eq!(self_tx_details.my_balance_change, &tx_amount - BigDecimal::default());
     assert_eq!(self_tx_details.transaction_type, TransactionType::StandardTransfer);
+
+    let token_tx_history_response = get_tendermint_my_tx_history(&mm, token, 2, 1).await;
+    let mut transactions = token_tx_history_response["result"]["transactions"].clone();
+    // drop confirmations key since TransactionDetails since implements `deny_unknown_fields`
+    transactions[0].as_object_mut().unwrap().remove("confirmations");
+    transactions[1].as_object_mut().unwrap().remove("confirmations");
+
+    let (token_tx, platform_fee_tx_of_token) = {
+        let tx1: TransactionDetails = json::from_value(transactions[0].clone()).unwrap();
+        let tx2: TransactionDetails = json::from_value(transactions[1].clone()).unwrap();
+
+        if tx1.coin == token.to_string() {
+            (tx1, tx2)
+        } else {
+            (tx2, tx1)
+        }
+    };
+
+    assert_eq!(token_tx.coin, token.to_string());
+    assert_eq!(token_tx.tx_hash, token_out_tx_hash.to_string());
+    assert_eq!(token_tx.from, vec![TEST_ADDRESS]);
+    assert_eq!(token_tx.to, vec![TEST_ADDRESS2]);
+    assert_eq!(token_tx.total_amount, tx_amount);
+    assert_eq!(token_tx.spent_by_me, tx_amount);
+    assert_eq!(token_tx.received_by_me, BigDecimal::default());
+    assert_eq!(token_tx.my_balance_change, BigDecimal::default() - &tx_amount);
+    assert_eq!(
+        discriminant(&token_tx.transaction_type),
+        discriminant(&TransactionType::TokenTransfer(String::default()))
+    );
+
+    let token_tx_fee_amount = BigDecimal::from_str(token_tx.fee_details["amount"].as_str().unwrap()).unwrap();
+
+    assert_eq!(platform_fee_tx_of_token.coin, platform_coin.to_string());
+    assert_eq!(platform_fee_tx_of_token.tx_hash, token_out_tx_hash.to_string());
+    assert_eq!(platform_fee_tx_of_token.from, vec![TEST_ADDRESS]);
+    assert!(platform_fee_tx_of_token.to.is_empty());
+    assert!(platform_fee_tx_of_token.fee_details.is_null());
+    assert_eq!(platform_fee_tx_of_token.total_amount, token_tx_fee_amount);
+    assert_eq!(platform_fee_tx_of_token.spent_by_me, token_tx_fee_amount);
+    assert_eq!(platform_fee_tx_of_token.received_by_me, BigDecimal::default());
+    assert_eq!(
+        platform_fee_tx_of_token.my_balance_change,
+        BigDecimal::default() - &token_tx_fee_amount
+    );
+    assert_eq!(
+        discriminant(&platform_fee_tx_of_token.transaction_type),
+        discriminant(&TransactionType::Fee(String::default()))
+    );
 
     mm.stop().await.unwrap();
 }

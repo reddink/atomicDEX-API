@@ -510,10 +510,6 @@ where
                         },
                     };
 
-                    // TODO
-                    // push platform coin fee as tx for each token txs
-                    // if transfer_details.denom != coin.platform_denom() {}
-
                     let decimals = match get_decimals_by_denom(tendermint_assets_conf, &transfer_details.denom) {
                         Some(d) => d,
                         None => {
@@ -525,24 +521,36 @@ where
                         },
                     };
 
-                    let tx_amounts = get_tx_amounts(
-                        transfer_details.amount,
-                        decimals,
-                        address.clone() == transfer_details.from,
-                        transfer_details.to == transfer_details.from,
-                    );
-
                     let fee_details = try_or_continue!(
                         get_fee_details(deserialized_tx.auth_info.fee, coin),
                         "get_fee_details failed"
                     );
 
-                    let transaction_type = if transfer_details.denom == coin.platform_denom() {
-                        TransactionType::StandardTransfer
-                    } else {
-                        let denom_hash = sha256(transfer_details.denom.clone().as_bytes());
-                        let token_id: BytesJson = H256::from(denom_hash.as_slice()).to_vec().into();
+                    let tx_sent_by_me = address.clone() == transfer_details.from;
+                    let is_platform_coin_tx = transfer_details.denom == coin.platform_denom();
+                    let is_self_tx = transfer_details.to == transfer_details.from;
+
+                    let mut tx_amounts = get_tx_amounts(transfer_details.amount, decimals, tx_sent_by_me, is_self_tx);
+                    // if tx is platform coin tx and sent by me
+                    if is_platform_coin_tx && tx_sent_by_me && !is_self_tx {
+                        tx_amounts.total += &fee_details.amount;
+                        tx_amounts.spent_by_me += &fee_details.amount;
+                        tx_amounts.my_balance_change -= &fee_details.amount;
+                    }
+                    drop_mutability!(tx_amounts);
+
+                    let token_id: Option<BytesJson> = match !is_platform_coin_tx {
+                        true => {
+                            let denom_hash = sha256(transfer_details.denom.clone().as_bytes());
+                            Some(H256::from(denom_hash.as_slice()).to_vec().into())
+                        },
+                        false => None,
+                    };
+
+                    let transaction_type = if let Some(token_id) = token_id.clone() {
                         TransactionType::TokenTransfer(token_id)
+                    } else {
+                        TransactionType::StandardTransfer
                     };
 
                     let msg = try_or_continue!(
@@ -551,15 +559,15 @@ where
                     );
 
                     let details = TransactionDetails {
-                        from: vec![transfer_details.from],
+                        from: vec![transfer_details.from.clone()],
                         to: vec![transfer_details.to],
                         total_amount: tx_amounts.total,
                         spent_by_me: tx_amounts.spent_by_me,
                         received_by_me: tx_amounts.received_by_me,
                         my_balance_change: tx_amounts.my_balance_change,
-                        tx_hash,
+                        tx_hash: tx_hash.to_string(),
                         tx_hex: msg.value.as_slice().into(),
-                        fee_details: Some(TxFeeDetails::Tendermint(fee_details)),
+                        fee_details: Some(TxFeeDetails::Tendermint(fee_details.clone())),
                         block_height: tx.height.into(),
                         coin: transfer_details.denom,
                         internal_id,
@@ -568,8 +576,29 @@ where
                         transaction_type,
                     };
 
-                    tx_details.push(details);
+                    tx_details.push(details.clone());
                     log::debug!("Tx '{}' successfuly parsed.", tx.hash);
+
+                    // Display fees as extra transactions for asset txs sent by user
+                    if let Some(token_id) = token_id {
+                        if !tx_sent_by_me {
+                            continue;
+                        }
+
+                        let mut fee_tx_details = details;
+                        fee_tx_details.to = vec![];
+                        fee_tx_details.total_amount = fee_details.amount.clone();
+                        fee_tx_details.spent_by_me = fee_details.amount.clone();
+                        fee_tx_details.received_by_me = BigDecimal::default();
+                        fee_tx_details.my_balance_change = BigDecimal::default() - fee_details.amount;
+                        fee_tx_details.fee_details = None;
+                        fee_tx_details.coin = coin.platform_ticker().to_string();
+                        // Non-reversed version of original internal id
+                        fee_tx_details.internal_id = H256::from(tx.hash.as_bytes()).to_vec().into();
+                        fee_tx_details.transaction_type = TransactionType::Fee(token_id);
+
+                        tx_details.push(fee_tx_details);
+                    }
                 }
 
                 try_or_return_stopped_as_err!(

@@ -15,6 +15,7 @@ use mm2_err_handle::prelude::*;
 use mm2_number::BigDecimal;
 use rpc::v1::types::{Bytes as BytesJson, ToTxHash};
 use std::collections::HashSet;
+use std::mem::discriminant;
 
 #[derive(Debug)]
 pub enum RemoveTxResult {
@@ -210,7 +211,7 @@ impl<'a, Addr: Clone + DisplayAddress + Eq + std::hash::Hash, Tx: Transaction> T
 
         let tx_hash = self.tx.tx_hash();
         let internal_id = match &self.transaction_type {
-            TransactionType::TokenTransfer(token_id) => {
+            TransactionType::TokenTransfer(token_id) | TransactionType::Fee(token_id) => {
                 let mut bytes_for_hash = tx_hash.0.clone();
                 bytes_for_hash.extend_from_slice(&token_id.0);
                 sha256(&bytes_for_hash).to_vec().into()
@@ -413,7 +414,11 @@ where
         .into_iter()
         .map(|mut details| {
             // it can be the platform ticker instead of the token ticker for a pre-saved record
-            if details.coin != request.coin {
+            if details.coin != request.coin
+                // checking if transaction type is not `Fee`
+                // Because updating the platform ticker for fee type txs doesn't make sense
+                && discriminant(&details.transaction_type) != discriminant(&TransactionType::Fee(BytesJson::default()))
+            {
                 details.coin = request.coin.clone();
             }
             let confirmations = if details.block_height == 0 || details.block_height > current_block {

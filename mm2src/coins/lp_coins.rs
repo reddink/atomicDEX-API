@@ -1042,6 +1042,7 @@ pub enum TransactionType {
     RemoveDelegation,
     StandardTransfer,
     TokenTransfer(BytesJson),
+    Fee(BytesJson),
 }
 
 impl Default for TransactionType {
