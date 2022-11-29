@@ -9,7 +9,6 @@ use async_trait::async_trait;
 use bitcrypto::sha256;
 use common::executor::Timer;
 use common::log;
-use common::number_type_casting::SafeTypeCastingNumbers;
 use common::state_machine::prelude::*;
 use cosmrs::tendermint::abci::Event;
 use cosmrs::tx::Fee;
@@ -18,7 +17,6 @@ use mm2_err_handle::prelude::MmResult;
 use mm2_number::BigDecimal;
 use primitives::hash::H256;
 use rpc::v1::types::Bytes as BytesJson;
-use serde_json::Value as Json;
 use std::cmp;
 
 macro_rules! try_or_return_stopped_as_err {
@@ -90,7 +88,6 @@ impl CoinWithTxHistoryV2 for TendermintToken {
 struct TendermintTxHistoryCtx<Coin: TendermintTxHistoryOps, Storage: TxHistoryStorage> {
     coin: Coin,
     storage: Storage,
-    mm_ctx: MmArc,
     balances: AllBalancesResult,
 }
 
@@ -132,16 +129,14 @@ impl<Coin, Storage> Stopped<Coin, Storage> {
 struct WaitForHistoryUpdateTrigger<Coin, Storage> {
     address: String,
     last_height_state: u64,
-    tendermint_assets_conf: Vec<Json>,
     phantom: std::marker::PhantomData<(Coin, Storage)>,
 }
 
 impl<Coin, Storage> WaitForHistoryUpdateTrigger<Coin, Storage> {
-    fn new(address: String, last_height_state: u64, tendermint_assets_conf: Vec<Json>) -> Self {
+    fn new(address: String, last_height_state: u64) -> Self {
         WaitForHistoryUpdateTrigger {
             address,
             last_height_state,
-            tendermint_assets_conf,
             phantom: Default::default(),
         }
     }
@@ -150,16 +145,14 @@ impl<Coin, Storage> WaitForHistoryUpdateTrigger<Coin, Storage> {
 struct OnIoErrorCooldown<Coin, Storage> {
     address: String,
     last_block_height: u64,
-    tendermint_assets_conf: Vec<Json>,
     phantom: std::marker::PhantomData<(Coin, Storage)>,
 }
 
 impl<Coin, Storage> OnIoErrorCooldown<Coin, Storage> {
-    fn new(address: String, last_block_height: u64, tendermint_assets_conf: Vec<Json>) -> Self {
+    fn new(address: String, last_block_height: u64) -> Self {
         OnIoErrorCooldown {
             address,
             last_block_height,
-            tendermint_assets_conf,
             phantom: Default::default(),
         }
     }
@@ -180,11 +173,7 @@ where
         Timer::sleep(30.).await;
 
         // retry history fetching process from last saved block
-        return Self::change_state(FetchingTransactionsData::new(
-            self.address,
-            self.last_block_height,
-            self.tendermint_assets_conf,
-        ));
+        return Self::change_state(FetchingTransactionsData::new(self.address, self.last_block_height));
     }
 }
 
@@ -193,16 +182,14 @@ struct FetchingTransactionsData<Coin, Storage> {
     /// at the `FetchingTxHashes` state.
     address: String,
     from_block_height: u64,
-    tendermint_assets_conf: Vec<Json>,
     phantom: std::marker::PhantomData<(Coin, Storage)>,
 }
 
 impl<Coin, Storage> FetchingTransactionsData<Coin, Storage> {
-    fn new(address: String, from_block_height: u64, tendermint_assets_conf: Vec<Json>) -> Self {
+    fn new(address: String, from_block_height: u64) -> Self {
         FetchingTransactionsData {
             address,
             phantom: Default::default(),
-            tendermint_assets_conf,
             from_block_height,
         }
     }
@@ -243,11 +230,7 @@ where
             let balances = match ctx.coin.all_balances().await {
                 Ok(balances) => balances,
                 Err(_) => {
-                    return Self::change_state(OnIoErrorCooldown::new(
-                        self.address.clone(),
-                        self.last_height_state,
-                        self.tendermint_assets_conf,
-                    ));
+                    return Self::change_state(OnIoErrorCooldown::new(self.address.clone(), self.last_height_state));
                 },
             };
 
@@ -258,7 +241,6 @@ where
                 return Self::change_state(FetchingTransactionsData::new(
                     self.address.clone(),
                     self.last_height_state,
-                    self.tendermint_assets_conf,
                 ));
             }
         }
@@ -288,25 +270,10 @@ where
             total: BigDecimal,
             spent_by_me: BigDecimal,
             received_by_me: BigDecimal,
-            my_balance_change: BigDecimal,
         }
 
-        fn get_decimals_by_denom(tendermint_assets_conf: &[Json], denom: &str) -> Option<u8> {
-            let coin = tendermint_assets_conf.iter().find(|coin| {
-                coin["protocol"]["protocol_data"]["denom"]
-                    .as_str()
-                    // just to be sure for case sensivity
-                    .map(|t| t.to_lowercase())
-                    == Some(denom.to_lowercase())
-            })?;
-
-            coin["protocol"]["protocol_data"]["decimals"]
-                .as_u64()
-                .map(|d| d.into_or(DEFAULT_DECIMALS))
-        }
-
-        fn get_tx_amounts(amount: u64, decimals: u8, sent_by_me: bool, is_self_transfer: bool) -> TxAmounts {
-            let amount = big_decimal_from_sat_unsigned(amount, decimals);
+        fn get_tx_amounts(amount: u64, sent_by_me: bool, is_self_transfer: bool) -> TxAmounts {
+            let amount = BigDecimal::from(amount);
 
             let spent_by_me = if sent_by_me && !is_self_transfer {
                 amount.clone()
@@ -322,7 +289,6 @@ where
 
             TxAmounts {
                 total: amount,
-                my_balance_change: &received_by_me - &spent_by_me,
                 spent_by_me,
                 received_by_me,
             }
@@ -430,7 +396,6 @@ where
         }
 
         async fn fetch_and_insert_txs<Coin, Storage>(
-            tendermint_assets_conf: &[Json],
             address: String,
             coin: &Coin,
             storage: &Storage,
@@ -507,17 +472,6 @@ where
                         },
                     };
 
-                    let decimals = match get_decimals_by_denom(tendermint_assets_conf, &transfer_details.denom) {
-                        Some(d) => d,
-                        None => {
-                            log::debug!(
-                                "Denom '{}' is not supported in current coins configuration, skipping it",
-                                &transfer_details.denom
-                            );
-                            continue;
-                        },
-                    };
-
                     let fee_details = try_or_continue!(
                         get_fee_details(deserialized_tx.auth_info.fee, coin),
                         "get_fee_details failed"
@@ -527,12 +481,11 @@ where
                     let is_platform_coin_tx = transfer_details.denom == coin.platform_denom();
                     let is_self_tx = transfer_details.to == transfer_details.from;
 
-                    let mut tx_amounts = get_tx_amounts(transfer_details.amount, decimals, tx_sent_by_me, is_self_tx);
+                    let mut tx_amounts = get_tx_amounts(transfer_details.amount, tx_sent_by_me, is_self_tx);
                     // if tx is platform coin tx and sent by me
                     if is_platform_coin_tx && tx_sent_by_me && !is_self_tx {
                         tx_amounts.total += &fee_details.amount;
                         tx_amounts.spent_by_me += &fee_details.amount;
-                        tx_amounts.my_balance_change -= &fee_details.amount;
                     }
                     drop_mutability!(tx_amounts);
 
@@ -561,7 +514,7 @@ where
                         total_amount: tx_amounts.total,
                         spent_by_me: tx_amounts.spent_by_me,
                         received_by_me: tx_amounts.received_by_me,
-                        my_balance_change: tx_amounts.my_balance_change,
+                        my_balance_change: BigDecimal::default(),
                         tx_hash: tx_hash.to_string(),
                         tx_hex: msg.value.as_slice().into(),
                         fee_details: Some(TxFeeDetails::Tendermint(fee_details.clone())),
@@ -620,7 +573,6 @@ where
             self.from_block_height
         );
         let highest_send_tx_height = match fetch_and_insert_txs(
-            &self.tendermint_assets_conf,
             self.address.clone(),
             &ctx.coin,
             &ctx.storage,
@@ -633,11 +585,7 @@ where
             Err(stopped) => {
                 if let StopReason::RpcClient(e) = &stopped.stop_reason {
                     log::error!("Sent tx history process turned into cooldown mode due to rpc error: {e}");
-                    return Self::change_state(OnIoErrorCooldown::new(
-                        self.address.clone(),
-                        self.from_block_height,
-                        self.tendermint_assets_conf,
-                    ));
+                    return Self::change_state(OnIoErrorCooldown::new(self.address.clone(), self.from_block_height));
                 }
 
                 return Self::change_state(stopped);
@@ -650,7 +598,6 @@ where
             self.from_block_height
         );
         let highest_recieved_tx_height = match fetch_and_insert_txs(
-            &self.tendermint_assets_conf,
             self.address.clone(),
             &ctx.coin,
             &ctx.storage,
@@ -663,11 +610,7 @@ where
             Err(stopped) => {
                 if let StopReason::RpcClient(e) = &stopped.stop_reason {
                     log::error!("Received tx history process turned into cooldown mode due to rpc error: {e}");
-                    return Self::change_state(OnIoErrorCooldown::new(
-                        self.address.clone(),
-                        self.from_block_height,
-                        self.tendermint_assets_conf,
-                    ));
+                    return Self::change_state(OnIoErrorCooldown::new(self.address.clone(), self.from_block_height));
                 }
 
                 return Self::change_state(stopped);
@@ -686,7 +629,6 @@ where
         Self::change_state(WaitForHistoryUpdateTrigger::new(
             self.address.clone(),
             last_fetched_block,
-            self.tendermint_assets_conf,
         ))
     }
 }
@@ -702,27 +644,12 @@ where
 
     async fn on_changed(self: Box<Self>, ctx: &mut Self::Ctx) -> StateResult<Self::Ctx, Self::Result> {
         const INITIAL_SEARCH_HEIGHT: u64 = 0;
-        const COIN_PROTOCOL_TYPE: &str = "TENDERMINT";
-        const TOKEN_PROTOCOL_TYPE: &str = "TENDERMINTTOKEN";
 
         ctx.coin.set_history_sync_state(HistorySyncState::NotStarted);
 
         if let Err(e) = ctx.storage.init(&ctx.coin.history_wallet_id()).await {
             return Self::change_state(Stopped::storage_error(e));
         }
-
-        let tendermint_assets: Vec<Json> = ctx.mm_ctx.conf["coins"]
-            .as_array()
-            .expect("couldn't read coins context")
-            .iter()
-            .map(|coin| coin.to_owned())
-            .filter(|coin| {
-                matches!(
-                    coin["protocol"]["type"].as_str(),
-                    Some(COIN_PROTOCOL_TYPE) | Some(TOKEN_PROTOCOL_TYPE)
-                )
-            })
-            .collect();
 
         let search_from = match ctx
             .storage
@@ -736,7 +663,6 @@ where
         Self::change_state(FetchingTransactionsData::new(
             ctx.coin.my_address().expect("my_address can't fail"),
             search_from,
-            tendermint_assets,
         ))
     }
 }
@@ -783,7 +709,7 @@ impl TendermintTxHistoryOps for TendermintCoin {
 pub async fn tendermint_history_loop(
     coin: TendermintCoin,
     storage: impl TxHistoryStorage,
-    ctx: MmArc,
+    _ctx: MmArc,
     _current_balance: BigDecimal,
 ) {
     let balances = match coin.all_balances().await {
@@ -797,7 +723,6 @@ pub async fn tendermint_history_loop(
     let ctx = TendermintTxHistoryCtx {
         coin,
         storage,
-        mm_ctx: ctx,
         balances,
     };
 
