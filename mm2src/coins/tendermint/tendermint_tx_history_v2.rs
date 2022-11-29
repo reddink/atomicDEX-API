@@ -724,9 +724,18 @@ where
             })
             .collect();
 
+        let search_from = match ctx
+            .storage
+            .get_highest_block_height(&ctx.coin.history_wallet_id())
+            .await
+        {
+            Ok(Some(height)) => height as u64 - 1,
+            _ => INITIAL_SEARCH_HEIGHT,
+        };
+
         Self::change_state(FetchingTransactionsData::new(
             ctx.coin.my_address().expect("my_address can't fail"),
-            INITIAL_SEARCH_HEIGHT,
+            search_from,
             tendermint_assets,
         ))
     }

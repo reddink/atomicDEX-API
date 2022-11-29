@@ -70,6 +70,9 @@ pub trait TxHistoryStorage: Send + Sync + 'static {
         internal_id: &BytesJson,
     ) -> Result<Option<TransactionDetails>, MmError<Self::Error>>;
 
+    /// Gets the highest block_height from the selected wallet's history
+    async fn get_highest_block_height(&self, wallet_id: &WalletId) -> Result<Option<u32>, MmError<Self::Error>>;
+
     /// Returns whether the history contains unconfirmed transactions.
     async fn history_contains_unconfirmed_txes(
         &self,
