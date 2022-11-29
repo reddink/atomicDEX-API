@@ -167,6 +167,7 @@ pub struct TendermintCoinImpl {
     /// or on [`MmArc::stop`].
     pub(super) abortable_system: AbortableQueue,
     pub(crate) history_sync_state: Mutex<HistorySyncState>,
+    // todo wrap into PaMutex to replace client?
     rpc_client: HttpClient,
 }
 
@@ -421,6 +422,7 @@ impl TendermintCoin {
         } else {
             match self.perform_health_check().await {
                 Ok(client) => Ok(client),
+                // todo iterate through other rpc urls
                 Err(_) => MmError::err(TendermintCoinRpcError::PerformError(
                     "All the current rpc nodes are unavailable.".to_string(),
                 )),
@@ -440,7 +442,6 @@ impl TendermintCoin {
                 "Recieved error from Tendermint rpc node during health check. Error: {:?}",
                 e
             ))),
-
             Err(_) => Err(TendermintCoinRpcError::PerformError(format!(
                 "Tendermint rpc node: {:?} got timeout during health check",
                 self.rpc_client
