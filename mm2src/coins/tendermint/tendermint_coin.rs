@@ -541,13 +541,13 @@ impl TendermintCoin {
             ABCI_REQUEST_PROVE,
         );
 
-        let response = self.rpc_client().await?.perform(request).await?;
-        let response = SimulateResponse::decode(response.response.value.as_slice())?;
+        let raw_response = self.rpc_client().await?.perform(request).await?;
+        let response = SimulateResponse::decode(raw_response.response.value.as_slice())?;
 
         let gas = response.gas_info.as_ref().ok_or_else(|| {
             TendermintCoinRpcError::InvalidResponse(format!(
                 "Could not read gas_info. Invalid Response: {:?}",
-                response
+                raw_response
             ))
         })?;
 
@@ -572,13 +572,13 @@ impl TendermintCoin {
             ABCI_REQUEST_PROVE,
         );
 
-        let response = self.rpc_client().await?.perform(request).await?;
-        let response = SimulateResponse::decode(response.response.value.as_slice())?;
+        let raw_response = self.rpc_client().await?.perform(request).await?;
+        let response = SimulateResponse::decode(raw_response.response.value.as_slice())?;
 
         let gas = response.gas_info.as_ref().ok_or_else(|| {
             TendermintCoinRpcError::InvalidResponse(format!(
                 "Could not read gas_info. Invalid Response: {:?}",
-                response
+                raw_response
             ))
         })?;
 

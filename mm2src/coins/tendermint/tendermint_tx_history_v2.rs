@@ -1,6 +1,8 @@
 use super::{rpc::*, AllBalancesResult, TendermintCoin, TendermintCoinRpcError, TendermintToken};
 
 use crate::my_tx_history_v2::{CoinWithTxHistoryV2, MyTxHistoryErrorV2, MyTxHistoryTarget, TxHistoryStorage};
+use crate::tendermint::iris::htlc_proto::{ClaimHtlcProtoRep, CreateHtlcProtoRep};
+use crate::tendermint::type_urls::{CLAIM_HTLC_TYPE_URL, CREATE_HTLC_TYPE_URL};
 use crate::tendermint::TendermintFeeDetails;
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
@@ -10,12 +12,15 @@ use bitcrypto::sha256;
 use common::executor::Timer;
 use common::log;
 use common::state_machine::prelude::*;
+use cosmrs::tendermint::abci::Code as TxCode;
 use cosmrs::tendermint::abci::Event;
 use cosmrs::tx::Fee;
+use cosmrs::Any;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::MmResult;
 use mm2_number::BigDecimal;
 use primitives::hash::H256;
+use prost::{DecodeError, Message};
 use rpc::v1::types::Bytes as BytesJson;
 use std::cmp;
 
@@ -39,6 +44,17 @@ macro_rules! try_or_continue {
             Ok(t) => t,
             Err(e) => {
                 log::debug!("{}: {}", $fmt, e);
+                continue;
+            },
+        }
+    };
+}
+
+macro_rules! some_or_continue {
+    ($exp:expr) => {
+        match $exp {
+            Some(t) => t,
+            None => {
                 continue;
             },
         }
@@ -258,13 +274,12 @@ where
 
     async fn on_changed(self: Box<Self>, ctx: &mut Self::Ctx) -> StateResult<Self::Ctx, Self::Result> {
         const TX_PAGE_SIZE: u8 = 50;
-        const DEFAULT_DECIMALS: u8 = 6;
-        const DEFAULT_TRANSFER_EVENT_COUNT: usize = 2;
+
+        const DEFAULT_TRANSFER_EVENT_COUNT: usize = 1;
+        const TRANSFER_EVENT: &str = "transfer";
+        const RECIPIENT_TAG_KEY: &str = "recipient";
+        const SENDER_TAG_KEY: &str = "sender";
         const AMOUNT_TAG_KEY: &str = "amount";
-        const RECEIVER_TAG_KEY: &str = "receiver";
-        const SPENDER_TAG_KEY: &str = "spender";
-        const COIN_RECEIVED_EVENT: &str = "coin_received";
-        const COIN_SPENT_EVENT: &str = "coin_spent";
 
         struct TxAmounts {
             total: BigDecimal,
@@ -312,6 +327,7 @@ where
             })
         }
 
+        #[derive(Clone)]
         struct TransferDetails {
             from: String,
             to: String,
@@ -319,65 +335,57 @@ where
             amount: u64,
         }
 
-        fn parse_transfer_values_from_events(tx_events: Vec<&Event>) -> Option<TransferDetails> {
-            let mut from: Option<String> = None;
-            let mut to: Option<String> = None;
-            let mut denom: Option<String> = None;
-            let mut amount: Option<u64> = None;
+        fn parse_transfer_values_from_events(tx_events: Vec<&Event>) -> Vec<TransferDetails> {
+            let mut transfer_details_list = vec![];
 
             for event in tx_events {
-                if amount.is_none() && denom.is_none() {
-                    let amount_with_denom = event
+                if event.type_str.as_str() == TRANSFER_EVENT {
+                    let amount_with_denoms = some_or_continue!(event
                         .attributes
                         .iter()
-                        .find(|tag| tag.key.to_string() == AMOUNT_TAG_KEY)?
+                        .find(|tag| tag.key.to_string() == AMOUNT_TAG_KEY))
+                    .value
+                    .to_string();
+                    let amount_with_denoms = amount_with_denoms.split(',');
+
+                    for amount_with_denom in amount_with_denoms {
+                        let extracted_amount: String =
+                            amount_with_denom.chars().take_while(|c| c.is_numeric()).collect();
+                        let denom = &amount_with_denom[extracted_amount.len()..];
+                        let amount = some_or_continue!(extracted_amount.parse().ok());
+
+                        let from = some_or_continue!(event
+                            .attributes
+                            .iter()
+                            .find(|tag| tag.key.to_string() == SENDER_TAG_KEY))
                         .value
                         .to_string();
 
-                    let extracted_amount: String = amount_with_denom.chars().take_while(|c| c.is_numeric()).collect();
+                        let to = some_or_continue!(event
+                            .attributes
+                            .iter()
+                            .find(|tag| tag.key.to_string() == RECIPIENT_TAG_KEY))
+                        .value
+                        .to_string();
 
-                    denom = Some(amount_with_denom.split(&extracted_amount).collect());
-                    amount = Some(extracted_amount.parse().ok()?);
-                }
-
-                match event.type_str.as_str() {
-                    COIN_SPENT_EVENT if from.is_none() => {
-                        from = Some(
-                            event
-                                .attributes
-                                .iter()
-                                .find(|tag| tag.key.to_string() == SPENDER_TAG_KEY)?
-                                .value
-                                .to_string(),
-                        );
-                    },
-                    COIN_RECEIVED_EVENT if to.is_none() => {
-                        to = Some(
-                            event
-                                .attributes
-                                .iter()
-                                .find(|tag| tag.key.to_string() == RECEIVER_TAG_KEY)?
-                                .value
-                                .to_string(),
-                        );
-                    },
-                    _ => {},
+                        transfer_details_list.push(TransferDetails {
+                            from,
+                            to,
+                            denom: denom.to_owned(),
+                            amount,
+                        });
+                    }
                 }
             }
 
-            Some(TransferDetails {
-                from: from?,
-                to: to?,
-                denom: denom?,
-                amount: amount?,
-            })
+            transfer_details_list
         }
 
-        fn get_transfer_details(tx_events: Vec<Event>, fee_amount_with_denom: String) -> Option<TransferDetails> {
+        fn get_transfer_details(tx_events: Vec<Event>, fee_amount_with_denom: String) -> Vec<TransferDetails> {
             // Filter out irrelevant events
             let mut events: Vec<&Event> = tx_events
                 .iter()
-                .filter(|event| [COIN_SPENT_EVENT, COIN_RECEIVED_EVENT].contains(&event.type_str.as_str()))
+                .filter(|event| TRANSFER_EVENT == event.type_str.as_str())
                 .collect();
 
             if events.len() > DEFAULT_TRANSFER_EVENT_COUNT {
@@ -394,6 +402,31 @@ where
             }
 
             parse_transfer_values_from_events(events)
+        }
+
+        // TODO
+        // if HTLC tx sent in multiple txs,
+        // this function might map incorrect values
+        fn fix_tx_addresses_if_htlc(
+            transfer_details: &TransferDetails,
+            msg: &Any,
+        ) -> Result<Option<TransferDetails>, DecodeError> {
+            match msg.type_url.as_str() {
+                CLAIM_HTLC_TYPE_URL => {
+                    let mut transfer_details = transfer_details.clone();
+                    let claim_htlc = ClaimHtlcProtoRep::decode(msg.value.as_slice())?;
+                    transfer_details.from = claim_htlc.sender;
+                    Ok(Some(transfer_details))
+                },
+                CREATE_HTLC_TYPE_URL => {
+                    let mut transfer_details = transfer_details.clone();
+                    let create_htlc = CreateHtlcProtoRep::decode(msg.value.as_slice())?;
+                    transfer_details.from = create_htlc.sender;
+                    transfer_details.to = create_htlc.to;
+                    Ok(Some(transfer_details))
+                },
+                _ => Ok(None),
+            }
         }
 
         async fn fetch_and_insert_txs<Coin, Storage>(
@@ -434,22 +467,24 @@ where
 
                 let mut tx_details = vec![];
                 for tx in response.txs {
-                    let internal_id = H256::from(tx.hash.as_bytes()).reversed().to_vec().into();
-                    let tx_hash = tx.hash.to_string();
-
-                    if let Ok(Some(_)) = storage
-                        .get_tx_from_history(&coin.history_wallet_id(), &internal_id)
-                        .await
-                    {
-                        log::debug!("Tx '{}' already exists in tx_history. Skipping it.", &tx_hash);
+                    if tx.tx_result.code != TxCode::Ok {
                         continue;
                     }
+
+                    let tx_hash = tx.hash.to_string();
 
                     highest_height = cmp::max(highest_height, tx.height.into());
 
                     let deserialized_tx = try_or_continue!(
                         cosmrs::Tx::from_bytes(tx.tx.as_bytes()),
                         "Could not deserialize transaction"
+                    );
+
+                    // TODO
+                    // maybe there can be htlc msg in messages but not at the first index
+                    let msg = try_or_continue!(
+                        deserialized_tx.body.messages.first().ok_or("Tx body couldn't be read."),
+                        "Tx body messages is empty"
                     );
 
                     let fee_data = match deserialized_tx.auth_info.fee.amount.first() {
@@ -462,95 +497,118 @@ where
 
                     let fee_amount_with_denom = format!("{}{}", fee_data.amount, fee_data.denom);
 
-                    let transfer_details = match get_transfer_details(tx.tx_result.events, fee_amount_with_denom) {
-                        Some(td) => td,
-                        None => {
-                            log::debug!(
-                                "Could not parse transfer details from events for tx '{}', skipping it",
-                                &tx_hash
-                            );
-                            continue;
-                        },
-                    };
+                    let transfer_details_list = get_transfer_details(tx.tx_result.events, fee_amount_with_denom);
+
+                    if transfer_details_list.is_empty() {
+                        log::debug!(
+                            "Could not find transfer details in events for tx '{}', skipping it",
+                            &tx_hash
+                        );
+                        continue;
+                    }
 
                     let fee_details = try_or_continue!(
                         get_fee_details(deserialized_tx.auth_info.fee, coin),
                         "get_fee_details failed"
                     );
 
-                    let tx_sent_by_me = address.clone() == transfer_details.from;
-                    let is_platform_coin_tx = transfer_details.denom == coin.platform_denom();
-                    let is_self_tx = transfer_details.to == transfer_details.from;
+                    let mut fee_added = false;
+                    for (index, transfer_details) in &mut transfer_details_list.iter().enumerate() {
+                        let mut internal_id_hash = index.to_le_bytes().to_vec();
+                        internal_id_hash.extend_from_slice(tx_hash.as_bytes());
+                        drop_mutability!(internal_id_hash);
 
-                    let mut tx_amounts = get_tx_amounts(transfer_details.amount, tx_sent_by_me, is_self_tx);
+                        let internal_id = H256::from(internal_id_hash.as_slice()).reversed().to_vec().into();
 
-                    // if tx is platform coin tx and sent by me
-                    if is_platform_coin_tx && tx_sent_by_me && !is_self_tx {
-                        tx_amounts.total += BigDecimal::from(fee_details.uamount);
-                        tx_amounts.spent_by_me += BigDecimal::from(fee_details.uamount);
-                    }
-                    drop_mutability!(tx_amounts);
-
-                    let token_id: Option<BytesJson> = match !is_platform_coin_tx {
-                        true => {
-                            let denom_hash = sha256(transfer_details.denom.clone().as_bytes());
-                            Some(H256::from(denom_hash.as_slice()).to_vec().into())
-                        },
-                        false => None,
-                    };
-
-                    let transaction_type = if let Some(token_id) = token_id.clone() {
-                        TransactionType::TokenTransfer(token_id)
-                    } else {
-                        TransactionType::StandardTransfer
-                    };
-
-                    let msg = try_or_continue!(
-                        deserialized_tx.body.messages.first().ok_or("Tx body couldn't be read."),
-                        "Tx body messages is empty"
-                    );
-
-                    let details = TransactionDetails {
-                        from: vec![transfer_details.from.clone()],
-                        to: vec![transfer_details.to],
-                        total_amount: tx_amounts.total,
-                        spent_by_me: tx_amounts.spent_by_me,
-                        received_by_me: tx_amounts.received_by_me,
-                        my_balance_change: BigDecimal::default(),
-                        tx_hash: tx_hash.to_string(),
-                        tx_hex: msg.value.as_slice().into(),
-                        fee_details: Some(TxFeeDetails::Tendermint(fee_details.clone())),
-                        block_height: tx.height.into(),
-                        coin: transfer_details.denom,
-                        internal_id,
-                        timestamp: common::now_ms() / 1000,
-                        kmd_rewards: None,
-                        transaction_type,
-                    };
-
-                    tx_details.push(details.clone());
-                    log::debug!("Tx '{}' successfuly parsed.", tx.hash);
-
-                    // Display fees as extra transactions for asset txs sent by user
-                    if let Some(token_id) = token_id {
-                        if !tx_sent_by_me {
+                        if let Ok(Some(_)) = storage
+                            .get_tx_from_history(&coin.history_wallet_id(), &internal_id)
+                            .await
+                        {
+                            log::debug!("Tx '{}' already exists in tx_history. Skipping it.", &tx_hash);
                             continue;
                         }
 
-                        let mut fee_tx_details = details;
-                        fee_tx_details.to = vec![];
-                        fee_tx_details.total_amount = fee_details.amount.clone();
-                        fee_tx_details.spent_by_me = fee_details.amount.clone();
-                        fee_tx_details.received_by_me = BigDecimal::default();
-                        fee_tx_details.my_balance_change = BigDecimal::default() - fee_details.amount;
-                        fee_tx_details.fee_details = None;
-                        fee_tx_details.coin = coin.platform_ticker().to_string();
-                        // Non-reversed version of original internal id
-                        fee_tx_details.internal_id = H256::from(tx.hash.as_bytes()).to_vec().into();
-                        fee_tx_details.transaction_type = TransactionType::Fee(token_id);
+                        let transfer_details = try_or_continue!(
+                            fix_tx_addresses_if_htlc(transfer_details, msg),
+                            "Couldn't decode htlc proto"
+                        )
+                        .unwrap_or_else(|| transfer_details.clone());
 
-                        tx_details.push(fee_tx_details);
+                        let tx_sent_by_me = address.clone() == transfer_details.from;
+                        let is_platform_coin_tx = transfer_details.denom == coin.platform_denom();
+                        let is_self_tx = transfer_details.to == transfer_details.from;
+                        let mut tx_amounts = get_tx_amounts(transfer_details.amount, tx_sent_by_me, is_self_tx);
+
+                        if !fee_added
+                        // if tx is platform coin tx and sent by me
+                            && is_platform_coin_tx && tx_sent_by_me && !is_self_tx
+                        {
+                            tx_amounts.total += BigDecimal::from(fee_details.uamount);
+                            tx_amounts.spent_by_me += BigDecimal::from(fee_details.uamount);
+                            fee_added = true;
+                        }
+                        drop_mutability!(tx_amounts);
+
+                        let token_id: Option<BytesJson> = match !is_platform_coin_tx {
+                            true => {
+                                let denom_hash = sha256(transfer_details.denom.clone().as_bytes());
+                                Some(H256::from(denom_hash.as_slice()).to_vec().into())
+                            },
+                            false => None,
+                        };
+
+                        let transaction_type = if let Some(token_id) = token_id.clone() {
+                            TransactionType::TokenTransfer(token_id)
+                        } else {
+                            TransactionType::StandardTransfer
+                        };
+
+                        let details = TransactionDetails {
+                            from: vec![transfer_details.from],
+                            to: vec![transfer_details.to],
+                            total_amount: tx_amounts.total,
+                            spent_by_me: tx_amounts.spent_by_me,
+                            received_by_me: tx_amounts.received_by_me,
+                            my_balance_change: BigDecimal::default(),
+                            tx_hash: tx_hash.to_string(),
+                            tx_hex: msg.value.as_slice().into(),
+                            fee_details: Some(TxFeeDetails::Tendermint(fee_details.clone())),
+                            block_height: tx.height.into(),
+                            coin: transfer_details.denom,
+                            internal_id,
+                            timestamp: common::now_ms() / 1000,
+                            kmd_rewards: None,
+                            transaction_type,
+                        };
+                        tx_details.push(details.clone());
+
+                        // Display fees as extra transactions for asset txs sent by user
+                        if !fee_added {
+                            if let Some(token_id) = token_id {
+                                if !tx_sent_by_me {
+                                    continue;
+                                }
+
+                                let fee_details = fee_details.clone();
+                                let mut fee_tx_details = details;
+                                fee_tx_details.to = vec![];
+                                fee_tx_details.total_amount = fee_details.amount.clone();
+                                fee_tx_details.spent_by_me = fee_details.amount.clone();
+                                fee_tx_details.received_by_me = BigDecimal::default();
+                                fee_tx_details.my_balance_change = BigDecimal::default() - &fee_details.amount;
+                                fee_tx_details.fee_details = None;
+                                fee_tx_details.coin = coin.platform_ticker().to_string();
+                                // Non-reversed version of original internal id
+                                fee_tx_details.internal_id = H256::from(internal_id_hash.as_slice()).to_vec().into();
+                                fee_tx_details.transaction_type = TransactionType::Fee(token_id);
+
+                                tx_details.push(fee_tx_details);
+                                fee_added = true;
+                            }
+                        }
                     }
+
+                    log::debug!("Tx '{}' successfuly parsed.", tx.hash);
                 }
 
                 try_or_return_stopped_as_err!(
