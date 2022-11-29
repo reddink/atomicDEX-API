@@ -167,7 +167,7 @@ pub struct TendermintCoinImpl {
     /// or on [`MmArc::stop`].
     pub(super) abortable_system: AbortableQueue,
     pub(crate) history_sync_state: Mutex<HistorySyncState>,
-    // todo wrap into PaMutex to replace client?
+    // todo wrap into async_std::sync::RwLock to replace client?
     rpc_client: HttpClient,
 }
 
@@ -423,6 +423,7 @@ impl TendermintCoin {
             match self.perform_health_check().await {
                 Ok(client) => Ok(client),
                 // todo iterate through other rpc urls
+                // log::warn!("Current rpc node is not unavailable.");
                 Err(_) => MmError::err(TendermintCoinRpcError::PerformError(
                     "All the current rpc nodes are unavailable.".to_string(),
                 )),
