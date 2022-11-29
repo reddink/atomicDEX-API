@@ -302,11 +302,12 @@ where
                 .amount
                 .first()
                 .ok_or_else(|| "fee coin can't be empty".to_string())?;
-            let fee_amount: u64 = fee_coin.amount.to_string().parse().map_err(|e| format!("{:?}", e))?;
+            let fee_uamount: u64 = fee_coin.amount.to_string().parse().map_err(|e| format!("{:?}", e))?;
 
             Ok(TendermintFeeDetails {
                 coin: coin.platform_ticker().to_string(),
-                amount: big_decimal_from_sat_unsigned(fee_amount, coin.decimals()),
+                amount: big_decimal_from_sat_unsigned(fee_uamount, coin.decimals()),
+                uamount: fee_uamount,
                 gas_limit: fee.gas_limit.value(),
             })
         }
@@ -482,10 +483,11 @@ where
                     let is_self_tx = transfer_details.to == transfer_details.from;
 
                     let mut tx_amounts = get_tx_amounts(transfer_details.amount, tx_sent_by_me, is_self_tx);
+
                     // if tx is platform coin tx and sent by me
                     if is_platform_coin_tx && tx_sent_by_me && !is_self_tx {
-                        tx_amounts.total += &fee_details.amount;
-                        tx_amounts.spent_by_me += &fee_details.amount;
+                        tx_amounts.total += BigDecimal::from(fee_details.uamount);
+                        tx_amounts.spent_by_me += BigDecimal::from(fee_details.uamount);
                     }
                     drop_mutability!(tx_amounts);
 
@@ -656,7 +658,7 @@ where
             .get_highest_block_height(&ctx.coin.history_wallet_id())
             .await
         {
-            Ok(Some(height)) => height as u64 - 1,
+            Ok(Some(height)) if height > 0 => height as u64 - 1,
             _ => INITIAL_SEARCH_HEIGHT,
         };
 

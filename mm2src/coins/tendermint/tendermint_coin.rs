@@ -91,6 +91,7 @@ const MIN_TIME_LOCK: i64 = 50;
 pub struct TendermintFeeDetails {
     pub coin: String,
     pub amount: BigDecimal,
+    pub uamount: u64,
     pub gas_limit: u64,
 }
 
@@ -1478,6 +1479,7 @@ impl MmCoin for TendermintCoin {
                 fee_details: Some(TxFeeDetails::Tendermint(TendermintFeeDetails {
                     coin: coin.ticker.clone(),
                     amount: fee_amount_dec,
+                    uamount: fee_amount_u64,
                     gas_limit: GAS_LIMIT_DEFAULT,
                 })),
                 coin: coin.ticker.to_string(),

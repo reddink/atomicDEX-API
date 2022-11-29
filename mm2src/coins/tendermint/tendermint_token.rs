@@ -503,6 +503,7 @@ impl MmCoin for TendermintToken {
                 fee_details: Some(TxFeeDetails::Tendermint(TendermintFeeDetails {
                     coin: platform.ticker().to_string(),
                     amount: fee_amount_dec,
+                    uamount: fee_amount_u64,
                     gas_limit: GAS_LIMIT_DEFAULT,
                 })),
                 coin: token.ticker.clone(),
