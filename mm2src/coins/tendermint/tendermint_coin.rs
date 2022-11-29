@@ -91,6 +91,7 @@ const MIN_TIME_LOCK: i64 = 50;
 pub struct TendermintFeeDetails {
     pub coin: String,
     pub amount: BigDecimal,
+    #[serde(skip)]
     pub uamount: u64,
     pub gas_limit: u64,
 }
