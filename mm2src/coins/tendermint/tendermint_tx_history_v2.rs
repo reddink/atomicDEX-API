@@ -1,8 +1,6 @@
 use super::{rpc::*, AllBalancesResult, TendermintCoin, TendermintCoinRpcError, TendermintToken};
 
 use crate::my_tx_history_v2::{CoinWithTxHistoryV2, MyTxHistoryErrorV2, MyTxHistoryTarget, TxHistoryStorage};
-use crate::tendermint::iris::htlc_proto::{ClaimHtlcProtoRep, CreateHtlcProtoRep};
-use crate::tendermint::type_urls::{CLAIM_HTLC_TYPE_URL, CREATE_HTLC_TYPE_URL};
 use crate::tendermint::TendermintFeeDetails;
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
@@ -15,12 +13,10 @@ use common::state_machine::prelude::*;
 use cosmrs::tendermint::abci::Code as TxCode;
 use cosmrs::tendermint::abci::Event;
 use cosmrs::tx::Fee;
-use cosmrs::Any;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::MmResult;
 use mm2_number::BigDecimal;
 use primitives::hash::H256;
-use prost::{DecodeError, Message};
 use rpc::v1::types::Bytes as BytesJson;
 use std::cmp;
 
@@ -56,6 +52,17 @@ macro_rules! some_or_continue {
             Some(t) => t,
             None => {
                 continue;
+            },
+        }
+    };
+}
+
+macro_rules! some_or_return {
+    ($exp:expr) => {
+        match $exp {
+            Some(t) => t,
+            None => {
+                return;
             },
         }
     };
@@ -276,9 +283,13 @@ where
         const TX_PAGE_SIZE: u8 = 50;
 
         const DEFAULT_TRANSFER_EVENT_COUNT: usize = 1;
+        const CREATE_HTLC_EVENT: &str = "create_htlc";
+        const CLAIM_HTLC_EVENT: &str = "claim_htlc";
         const TRANSFER_EVENT: &str = "transfer";
+        const ACCEPTED_EVENTS: &[&str] = &[CREATE_HTLC_EVENT, CLAIM_HTLC_EVENT, TRANSFER_EVENT];
         const RECIPIENT_TAG_KEY: &str = "recipient";
         const SENDER_TAG_KEY: &str = "sender";
+        const RECEIVER_TAG_KEY: &str = "receiver";
         const AMOUNT_TAG_KEY: &str = "amount";
 
         struct TxAmounts {
@@ -335,10 +346,40 @@ where
             amount: u64,
         }
 
+        // updates sender and receiver addressses if tx is htlc, and if not leaves as it is.
+        fn fix_tx_addresses_if_htlc(transfer_details: &mut TransferDetails, msg_event: &&Event, event_type: &str) {
+            match event_type {
+                CREATE_HTLC_EVENT => {
+                    transfer_details.from = some_or_return!(msg_event
+                        .attributes
+                        .iter()
+                        .find(|tag| tag.key.to_string() == SENDER_TAG_KEY))
+                    .value
+                    .to_string();
+
+                    transfer_details.to = some_or_return!(msg_event
+                        .attributes
+                        .iter()
+                        .find(|tag| tag.key.to_string() == RECEIVER_TAG_KEY))
+                    .value
+                    .to_string();
+                },
+                CLAIM_HTLC_EVENT => {
+                    transfer_details.from = some_or_return!(msg_event
+                        .attributes
+                        .iter()
+                        .find(|tag| tag.key.to_string() == SENDER_TAG_KEY))
+                    .value
+                    .to_string();
+                },
+                _ => {},
+            }
+        }
+
         fn parse_transfer_values_from_events(tx_events: Vec<&Event>) -> Vec<TransferDetails> {
             let mut transfer_details_list = vec![];
 
-            for event in tx_events {
+            for (index, event) in tx_events.iter().enumerate() {
                 if event.type_str.as_str() == TRANSFER_EVENT {
                     let amount_with_denoms = some_or_continue!(event
                         .attributes
@@ -348,6 +389,8 @@ where
                     .to_string();
                     let amount_with_denoms = amount_with_denoms.split(',');
 
+                    // TODO
+                    // 4999017E91E576DD2E53E034EB8F7F52637C8DA35A29DBCD466DCD2DE3A0FBD2
                     for amount_with_denom in amount_with_denoms {
                         let extracted_amount: String =
                             amount_with_denom.chars().take_while(|c| c.is_numeric()).collect();
@@ -368,12 +411,24 @@ where
                         .value
                         .to_string();
 
-                        transfer_details_list.push(TransferDetails {
+                        let mut tx_details = TransferDetails {
                             from,
                             to,
                             denom: denom.to_owned(),
                             amount,
-                        });
+                        };
+
+                        if index != 0 {
+                            // If previous message is htlc related, that means current transfer
+                            // addresses will be wrong.
+                            if let Some(prev_event) = tx_events.get(index - 1) {
+                                if [CREATE_HTLC_EVENT, CLAIM_HTLC_EVENT].contains(&prev_event.type_str.as_str()) {
+                                    fix_tx_addresses_if_htlc(&mut tx_details, prev_event, prev_event.type_str.as_str());
+                                }
+                            };
+                        }
+
+                        transfer_details_list.push(tx_details);
                     }
                 }
             }
@@ -385,48 +440,29 @@ where
             // Filter out irrelevant events
             let mut events: Vec<&Event> = tx_events
                 .iter()
-                .filter(|event| TRANSFER_EVENT == event.type_str.as_str())
+                .filter(|event| ACCEPTED_EVENTS.contains(&event.type_str.as_str()))
                 .collect();
+
+            events.reverse();
 
             if events.len() > DEFAULT_TRANSFER_EVENT_COUNT {
                 // Retain fee related events
                 events.retain(|event| {
-                    let amount_with_denom = event
-                        .attributes
-                        .iter()
-                        .find(|tag| tag.key.to_string() == AMOUNT_TAG_KEY)
-                        .map(|t| t.value.to_string());
+                    if event.type_str == TRANSFER_EVENT {
+                        let amount_with_denom = event
+                            .attributes
+                            .iter()
+                            .find(|tag| tag.key.to_string() == AMOUNT_TAG_KEY)
+                            .map(|t| t.value.to_string());
 
-                    amount_with_denom != Some(fee_amount_with_denom.clone())
+                        amount_with_denom != Some(fee_amount_with_denom.clone())
+                    } else {
+                        true
+                    }
                 });
             }
 
             parse_transfer_values_from_events(events)
-        }
-
-        // TODO
-        // if HTLC tx sent in multiple txs,
-        // this function might map incorrect values
-        fn fix_tx_addresses_if_htlc(
-            transfer_details: &TransferDetails,
-            msg: &Any,
-        ) -> Result<Option<TransferDetails>, DecodeError> {
-            match msg.type_url.as_str() {
-                CLAIM_HTLC_TYPE_URL => {
-                    let mut transfer_details = transfer_details.clone();
-                    let claim_htlc = ClaimHtlcProtoRep::decode(msg.value.as_slice())?;
-                    transfer_details.from = claim_htlc.sender;
-                    Ok(Some(transfer_details))
-                },
-                CREATE_HTLC_TYPE_URL => {
-                    let mut transfer_details = transfer_details.clone();
-                    let create_htlc = CreateHtlcProtoRep::decode(msg.value.as_slice())?;
-                    transfer_details.from = create_htlc.sender;
-                    transfer_details.to = create_htlc.to;
-                    Ok(Some(transfer_details))
-                },
-                _ => Ok(None),
-            }
         }
 
         async fn fetch_and_insert_txs<Coin, Storage>(
@@ -480,12 +516,12 @@ where
                         "Could not deserialize transaction"
                     );
 
-                    // TODO
-                    // maybe there can be htlc msg in messages but not at the first index
                     let msg = try_or_continue!(
                         deserialized_tx.body.messages.first().ok_or("Tx body couldn't be read."),
                         "Tx body messages is empty"
-                    );
+                    )
+                    .value
+                    .as_slice();
 
                     let fee_data = match deserialized_tx.auth_info.fee.amount.first() {
                         Some(data) => data,
@@ -513,7 +549,7 @@ where
                     );
 
                     let mut fee_added = false;
-                    for (index, transfer_details) in &mut transfer_details_list.iter().enumerate() {
+                    for (index, transfer_details) in transfer_details_list.iter().enumerate() {
                         let mut internal_id_hash = index.to_le_bytes().to_vec();
                         internal_id_hash.extend_from_slice(tx_hash.as_bytes());
                         drop_mutability!(internal_id_hash);
@@ -527,12 +563,6 @@ where
                             log::debug!("Tx '{}' already exists in tx_history. Skipping it.", &tx_hash);
                             continue;
                         }
-
-                        let transfer_details = try_or_continue!(
-                            fix_tx_addresses_if_htlc(transfer_details, msg),
-                            "Couldn't decode htlc proto"
-                        )
-                        .unwrap_or_else(|| transfer_details.clone());
 
                         let tx_sent_by_me = address.clone() == transfer_details.from;
                         let is_platform_coin_tx = transfer_details.denom == coin.platform_denom();
@@ -564,17 +594,17 @@ where
                         };
 
                         let details = TransactionDetails {
-                            from: vec![transfer_details.from],
-                            to: vec![transfer_details.to],
+                            from: vec![transfer_details.from.clone()],
+                            to: vec![transfer_details.to.clone()],
                             total_amount: tx_amounts.total,
                             spent_by_me: tx_amounts.spent_by_me,
                             received_by_me: tx_amounts.received_by_me,
                             my_balance_change: BigDecimal::default(),
                             tx_hash: tx_hash.to_string(),
-                            tx_hex: msg.value.as_slice().into(),
+                            tx_hex: msg.into(),
                             fee_details: Some(TxFeeDetails::Tendermint(fee_details.clone())),
                             block_height: tx.height.into(),
-                            coin: transfer_details.denom,
+                            coin: transfer_details.denom.clone(),
                             internal_id,
                             timestamp: common::now_ms() / 1000,
                             kmd_rewards: None,
@@ -711,7 +741,7 @@ where
             return Self::change_state(Stopped::storage_error(e));
         }
 
-        let search_from = match ctx
+        let _search_from = match ctx
             .storage
             .get_highest_block_height(&ctx.coin.history_wallet_id())
             .await
@@ -719,6 +749,8 @@ where
             Ok(Some(height)) if height > 0 => height as u64 - 1,
             _ => INITIAL_SEARCH_HEIGHT,
         };
+
+        let search_from = 6135052;
 
         Self::change_state(FetchingTransactionsData::new(
             ctx.coin.my_address().expect("my_address can't fail"),
