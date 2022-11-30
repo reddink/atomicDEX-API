@@ -389,8 +389,6 @@ where
                     .to_string();
                     let amount_with_denoms = amount_with_denoms.split(',');
 
-                    // TODO
-                    // 4999017E91E576DD2E53E034EB8F7F52637C8DA35A29DBCD466DCD2DE3A0FBD2
                     for amount_with_denom in amount_with_denoms {
                         let extracted_amount: String =
                             amount_with_denom.chars().take_while(|c| c.is_numeric()).collect();
@@ -741,7 +739,7 @@ where
             return Self::change_state(Stopped::storage_error(e));
         }
 
-        let _search_from = match ctx
+        let search_from = match ctx
             .storage
             .get_highest_block_height(&ctx.coin.history_wallet_id())
             .await
@@ -749,8 +747,6 @@ where
             Ok(Some(height)) if height > 0 => height as u64 - 1,
             _ => INITIAL_SEARCH_HEIGHT,
         };
-
-        let search_from = 6135052;
 
         Self::change_state(FetchingTransactionsData::new(
             ctx.coin.my_address().expect("my_address can't fail"),
