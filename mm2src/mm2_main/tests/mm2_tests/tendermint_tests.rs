@@ -3,11 +3,8 @@ use mm2_number::BigDecimal;
 use mm2_test_helpers::for_tests::{atom_testnet_conf, enable_tendermint, enable_tendermint_token,
                                   get_tendermint_my_tx_history, iris_nimda_testnet_conf, iris_testnet_conf,
                                   my_balance, send_raw_transaction, withdraw_v1, MarketMakerIt, Mm2TestConf};
-use mm2_test_helpers::structs::{MyBalanceResponse, RpcV2Response, TendermintActivationResult, TransactionDetails,
-                                TransactionType};
+use mm2_test_helpers::structs::{MyBalanceResponse, RpcV2Response, TendermintActivationResult, TransactionDetails};
 use serde_json::{self as json, json};
-use std::mem::discriminant;
-use std::str::FromStr;
 
 const ATOM_TEST_BALANCE_SEED: &str = "atom test seed";
 const ATOM_TEST_WITHDRAW_SEED: &str = "atom test withdraw seed";
@@ -201,162 +198,78 @@ fn test_tendermint_token_activation_and_withdraw() {
 }
 
 #[test]
-fn test_tendermint_tx_history() { block_on(tendermint_tx_history()); }
-
-pub async fn tendermint_tx_history() {
-    const TEST_SEED: &str = "iris test seed3";
-    const TEST_ADDRESS: &str = "iaa17d8hndl72u2mzae8rymn003hxfpehcslnqcrcd";
-    const TEST_ADDRESS2: &str = "iaa1e0rx87mdj79zejewuc4jg7ql9ud2286g2us8f2";
+fn test_tendermint_tx_history() {
+    const TEST_SEED: &str = "Vdo8Xt8pTAetRlMq3kV0LzE393eVYbPSn5Mhtw4p";
     const TX_FINISHED_LOG: &str = "Tx history fetching finished for IRIS-TEST.";
+    const TX_HISTORY_PAGE_LIMIT: usize = 50;
+    const IRIS_TEST_EXPECTED_TX_COUNT: u64 = 7;
+    const IRIS_NIMDA_EXPECTED_TX_COUNT: u64 = 11;
+
+    let iris_test_constant_history_txs = include_str!("../../../mm2_test_helpers/dummy_files/iris_test_history.json");
+    let iris_test_constant_history_txs: Vec<TransactionDetails> =
+        serde_json::from_str(iris_test_constant_history_txs).unwrap();
+
+    let iris_nimda_constant_history_txs = include_str!("../../../mm2_test_helpers/dummy_files/iris_nimda_history.json");
+    let iris_nimda_constant_history_txs: Vec<TransactionDetails> =
+        serde_json::from_str(iris_nimda_constant_history_txs).unwrap();
 
     let coins = json!([iris_testnet_conf(), iris_nimda_testnet_conf()]);
     let platform_coin = coins[0]["coin"].as_str().unwrap();
     let token = coins[1]["coin"].as_str().unwrap();
 
     let conf = Mm2TestConf::seednode(TEST_SEED, &coins);
-    let mut mm = MarketMakerIt::start_async(conf.conf, conf.rpc_password, None)
-        .await
-        .unwrap();
+    let mut mm = block_on(MarketMakerIt::start_async(conf.conf, conf.rpc_password, None)).unwrap();
 
-    let activation_res = enable_tendermint(&mm, platform_coin, &[token], IRIS_TESTNET_RPC_URLS, true).await;
-    println!("Activation with assets {}", json::to_string(&activation_res).unwrap());
+    block_on(enable_tendermint(
+        &mm,
+        platform_coin,
+        &[token],
+        IRIS_TESTNET_RPC_URLS,
+        true,
+    ));
 
-    if let Err(_) = mm.wait_for_log(900., |log| log.contains(TX_FINISHED_LOG)).await {
+    if let Err(_) = block_on(mm.wait_for_log(60., |log| log.contains(TX_FINISHED_LOG))) {
         println!("{}", mm.log_as_utf8().unwrap());
         assert!(false, "Tx history didn't finish which is not expected");
     }
 
-    let first_tx_history_response = get_tendermint_my_tx_history(&mm, platform_coin, 1, 1).await;
-    let first_total_txs = first_tx_history_response["result"]["total"].as_u64().unwrap();
-    assert!(first_total_txs > 0);
+    // testing IRIS-TEST history
+    let iris_tx_history_response = block_on(get_tendermint_my_tx_history(
+        &mm,
+        platform_coin,
+        TX_HISTORY_PAGE_LIMIT,
+        1,
+    ));
+    let total_txs = iris_tx_history_response["result"]["total"].as_u64().unwrap();
+    assert_eq!(total_txs, IRIS_TEST_EXPECTED_TX_COUNT);
 
-    // self platform coin transfer
-    let withdraw_self = withdraw_v1(&mm, platform_coin, TEST_ADDRESS, "0.01").await;
-    let withdraw_self_tx_details: TransactionDetails = json::from_value(withdraw_self).unwrap();
-    let raw_tx_self = send_raw_transaction(&mm, platform_coin, &withdraw_self_tx_details.tx_hex).await;
-    let self_tx_hash = raw_tx_self["tx_hash"].as_str().unwrap();
-
-    let expected_tx_hash_log = format!("Tx '{}' successfuly parsed.", self_tx_hash);
-    if let Err(_) = mm.wait_for_log(45., |log| log.contains(&expected_tx_hash_log)).await {
-        println!("{}", mm.log_as_utf8().unwrap());
-        assert!(false, "Couldn't find history log for {}", self_tx_hash);
+    let mut iris_txs_from_request = iris_tx_history_response["result"]["transactions"].clone();
+    for i in 0..IRIS_TEST_EXPECTED_TX_COUNT {
+        iris_txs_from_request[i as usize]["timestamp"] = json!(0);
+        iris_txs_from_request[i as usize]
+            .as_object_mut()
+            .unwrap()
+            .remove("confirmations");
     }
+    let iris_txs_from_request: Vec<TransactionDetails> = serde_json::from_value(iris_txs_from_request).unwrap();
+    assert_eq!(iris_test_constant_history_txs, iris_txs_from_request);
 
-    if let Err(_) = mm.wait_for_log(15., |log| log.contains(TX_FINISHED_LOG)).await {
-        println!("{}", mm.log_as_utf8().unwrap());
-        assert!(false, "Tx history didn't finish which is not expected");
+    // testing IRIS-NIMDA history
+    let nimda_tx_history_response = block_on(get_tendermint_my_tx_history(&mm, token, TX_HISTORY_PAGE_LIMIT, 1));
+    let total_txs = nimda_tx_history_response["result"]["total"].as_u64().unwrap();
+    assert_eq!(total_txs, IRIS_NIMDA_EXPECTED_TX_COUNT);
+
+    let mut nimda_txs_from_request = nimda_tx_history_response["result"]["transactions"].clone();
+    for i in 0..IRIS_NIMDA_EXPECTED_TX_COUNT {
+        nimda_txs_from_request[i as usize]["timestamp"] = json!(0);
+        nimda_txs_from_request[i as usize]
+            .as_object_mut()
+            .unwrap()
+            .remove("confirmations");
     }
+    let nimda_txs_from_request: Vec<TransactionDetails> = serde_json::from_value(nimda_txs_from_request).unwrap();
 
-    // outgoing platform coin transfer
-    let withdraw_out = withdraw_v1(&mm, platform_coin, TEST_ADDRESS2, "0.01").await;
-    let withdraw_out_tx_details: TransactionDetails = json::from_value(withdraw_out).unwrap();
-    let raw_tx_out = send_raw_transaction(&mm, platform_coin, &withdraw_out_tx_details.tx_hex).await;
-    let out_tx_hash = raw_tx_out["tx_hash"].as_str().unwrap();
+    assert_eq!(iris_nimda_constant_history_txs, nimda_txs_from_request);
 
-    // outgoing token transfer
-    let withdraw_token_out = withdraw_v1(&mm, token, TEST_ADDRESS2, "0.01").await;
-    let withdraw_token_out_tx_details: TransactionDetails = json::from_value(withdraw_token_out).unwrap();
-    let raw_tx_token_out = send_raw_transaction(&mm, token, &withdraw_token_out_tx_details.tx_hex).await;
-    let token_out_tx_hash = raw_tx_token_out["tx_hash"].as_str().unwrap();
-
-    let expected_tx_hash_log = format!("Tx '{}' successfuly parsed.", out_tx_hash);
-    if let Err(_) = mm.wait_for_log(45., |log| log.contains(&expected_tx_hash_log)).await {
-        println!("{}", mm.log_as_utf8().unwrap());
-        assert!(false, "Couldn't find history log for {}", out_tx_hash);
-    }
-
-    if let Err(_) = mm.wait_for_log(15., |log| log.contains(TX_FINISHED_LOG)).await {
-        println!("{}", mm.log_as_utf8().unwrap());
-        assert!(false, "Tx history didn't finish which is not expected");
-    }
-
-    let second_tx_history_response = get_tendermint_my_tx_history(&mm, platform_coin, 2, 1).await;
-    let second_total_txs = second_tx_history_response["result"]["total"].as_u64().unwrap();
-    assert_eq!(first_total_txs + 2, second_total_txs);
-
-    let mut transactions = second_tx_history_response["result"]["transactions"].clone();
-    // drop confirmations key since TransactionDetails since implements `deny_unknown_fields`
-    transactions[0].as_object_mut().unwrap().remove("confirmations");
-    transactions[1].as_object_mut().unwrap().remove("confirmations");
-
-    let tx_amount = BigDecimal::from_str("0.01").unwrap();
-
-    let out_tx_details: TransactionDetails = json::from_value(transactions[0].clone()).unwrap();
-    let out_fee_amount = BigDecimal::from_str(out_tx_details.fee_details["amount"].as_str().unwrap()).unwrap();
-
-    assert_eq!(out_tx_details.coin, platform_coin.to_string());
-    assert_eq!(out_tx_details.tx_hash, out_tx_hash.to_string());
-    assert_eq!(out_tx_details.from, vec![TEST_ADDRESS]);
-    assert_eq!(out_tx_details.to, vec![TEST_ADDRESS2]);
-    assert_eq!(out_tx_details.total_amount, &tx_amount + &out_fee_amount);
-    assert_eq!(out_tx_details.spent_by_me, &tx_amount + &out_fee_amount);
-    assert_eq!(out_tx_details.received_by_me, BigDecimal::default());
-    assert_eq!(
-        out_tx_details.my_balance_change,
-        BigDecimal::default() - (&tx_amount + &out_fee_amount)
-    );
-    assert_eq!(out_tx_details.transaction_type, TransactionType::StandardTransfer);
-
-    let self_tx_details: TransactionDetails = json::from_value(transactions[1].clone()).unwrap();
-
-    assert_eq!(self_tx_details.coin, platform_coin.to_string());
-    assert_eq!(self_tx_details.tx_hash, self_tx_hash.to_string());
-    assert_eq!(self_tx_details.from, vec![TEST_ADDRESS]);
-    assert_eq!(self_tx_details.to, vec![TEST_ADDRESS]);
-    assert_eq!(self_tx_details.total_amount, tx_amount);
-    assert_eq!(self_tx_details.spent_by_me, BigDecimal::default());
-    assert_eq!(self_tx_details.received_by_me, tx_amount);
-    assert_eq!(self_tx_details.my_balance_change, tx_amount);
-    assert_eq!(self_tx_details.transaction_type, TransactionType::StandardTransfer);
-
-    let token_tx_history_response = get_tendermint_my_tx_history(&mm, token, 2, 1).await;
-    let mut transactions = token_tx_history_response["result"]["transactions"].clone();
-    // drop confirmations key since TransactionDetails since implements `deny_unknown_fields`
-    transactions[0].as_object_mut().unwrap().remove("confirmations");
-    transactions[1].as_object_mut().unwrap().remove("confirmations");
-
-    let (token_tx, platform_fee_tx_of_token) = {
-        let tx1: TransactionDetails = json::from_value(transactions[0].clone()).unwrap();
-        let tx2: TransactionDetails = json::from_value(transactions[1].clone()).unwrap();
-
-        if tx1.coin == token.to_string() {
-            (tx1, tx2)
-        } else {
-            (tx2, tx1)
-        }
-    };
-
-    assert_eq!(token_tx.coin, token.to_string());
-    assert_eq!(token_tx.tx_hash, token_out_tx_hash.to_string());
-    assert_eq!(token_tx.from, vec![TEST_ADDRESS]);
-    assert_eq!(token_tx.to, vec![TEST_ADDRESS2]);
-    assert_eq!(token_tx.total_amount, tx_amount);
-    assert_eq!(token_tx.spent_by_me, tx_amount);
-    assert_eq!(token_tx.received_by_me, BigDecimal::default());
-    assert_eq!(token_tx.my_balance_change, BigDecimal::default() - &tx_amount);
-    assert_eq!(
-        discriminant(&token_tx.transaction_type),
-        discriminant(&TransactionType::TokenTransfer(String::default()))
-    );
-
-    let token_tx_fee_amount = BigDecimal::from_str(token_tx.fee_details["amount"].as_str().unwrap()).unwrap();
-
-    assert_eq!(platform_fee_tx_of_token.coin, platform_coin.to_string());
-    assert_eq!(platform_fee_tx_of_token.tx_hash, token_out_tx_hash.to_string());
-    assert_eq!(platform_fee_tx_of_token.from, vec![TEST_ADDRESS]);
-    assert!(platform_fee_tx_of_token.to.is_empty());
-    assert!(platform_fee_tx_of_token.fee_details.is_null());
-    assert_eq!(platform_fee_tx_of_token.total_amount, token_tx_fee_amount);
-    assert_eq!(platform_fee_tx_of_token.spent_by_me, token_tx_fee_amount);
-    assert_eq!(platform_fee_tx_of_token.received_by_me, BigDecimal::default());
-    assert_eq!(
-        platform_fee_tx_of_token.my_balance_change,
-        BigDecimal::default() - &token_tx_fee_amount
-    );
-    assert_eq!(
-        discriminant(&platform_fee_tx_of_token.transaction_type),
-        discriminant(&TransactionType::Fee(String::default()))
-    );
-
-    mm.stop().await.unwrap();
+    block_on(mm.stop()).unwrap();
 }

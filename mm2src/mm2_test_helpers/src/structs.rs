@@ -544,7 +544,7 @@ pub enum TransactionType {
     Fee(String),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TransactionDetails {
     pub tx_hex: String,
