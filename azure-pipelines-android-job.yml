@@ -61,8 +61,6 @@ jobs:
       - bash: |
           rm -rf upload
           mkdir upload
-#          zip upload/mm2-$(COMMIT_HASH)-android-armv7-Release target/armv7-linux-androideabi/release/libmm2.a -j
-#          zip upload/mm2-$(COMMIT_HASH)-android-aarch64-Release target/aarch64-linux-android/release/libmm2.a -j
           zip upload/mm2-$(COMMIT_HASH)-android-i686-Release target/i686-linux-android/release/libmm2.a -j
           zip upload/mm2-$(COMMIT_HASH)-android-x86_64-Release target/x86_64-linux-android/release/libmm2.a -j
         displayName: 'Prepare upload'
