@@ -17,13 +17,12 @@ use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal,
             UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr,
             ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput, VerificationError, VerificationResult,
             WatcherOps, WatcherValidatePaymentInput, WithdrawError, WithdrawFut, WithdrawRequest};
-use async_std::prelude::FutureExt as AsyncStdFutureExt;
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
 use common::executor::Timer;
 use common::executor::{abortable_queue::AbortableQueue, AbortableSystem};
 use common::log::warn;
-use common::{get_utc_timestamp, log, now_ms, Future01CompatExt, DEX_FEE_ADDR_PUBKEY};
+use common::{get_utc_timestamp, now_ms, Future01CompatExt, DEX_FEE_ADDR_PUBKEY};
 use cosmrs::bank::MsgSend;
 use cosmrs::crypto::secp256k1::SigningKey;
 use cosmrs::proto::cosmos::auth::v1beta1::{BaseAccount, QueryAccountRequest, QueryAccountResponse};
@@ -58,7 +57,6 @@ use std::convert::TryFrom;
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use uuid::Uuid;
 
 // ABCI Request Paths
@@ -162,9 +160,10 @@ impl TendermintConf {
     }
 }
 
+#[allow(dead_code)]
 pub struct TendermintCoinImpl {
     ticker: String,
-    rpc_clients: Vec<HttpClient>,
+    rpc_urls: Vec<String>,
     /// As seconds
     avg_blocktime: u8,
     /// My address
@@ -181,6 +180,7 @@ pub struct TendermintCoinImpl {
     /// or on [`MmArc::stop`].
     pub(super) abortable_system: AbortableQueue,
     pub(crate) history_sync_state: Mutex<HistorySyncState>,
+    rpc_client: AsyncMutex<HttpClient>,
 }
 
 #[derive(Clone)]
@@ -204,7 +204,8 @@ pub enum TendermintInitErrorKind {
     InvalidPrivKey(String),
     CouldNotGenerateAccountId(String),
     EmptyRpcUrls,
-    RpcClientInitError(String),
+    #[display(fmt = "Fail to init HttpClient during rpc urls iteration {:?}", _0)]
+    RpcClientInitError(Vec<tendermint_rpc::Error>),
     InvalidChainId(String),
     InvalidDenom(String),
     #[display(fmt = "'derivation_path' field is not found in config")]
@@ -384,20 +385,18 @@ impl TendermintCommons for TendermintCoin {
     // work anymore.
     // Also, try couple times more on health check errors.
     async fn rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError> {
-        for rpc_client in self.rpc_clients.iter() {
-            match rpc_client.perform(HealthRequest).timeout(Duration::from_secs(3)).await {
-                Ok(Ok(_)) => return Ok(rpc_client.clone()),
-                Ok(Err(e)) => log::warn!(
-                    "Recieved error from Tendermint rpc node during health check. Error: {:?}",
-                    e
-                ),
-                Err(_) => log::warn!("Tendermint rpc node: {:?} got timeout during health check", rpc_client),
-            };
+        if let Ok(client) = self.perform_health_check().await {
+            Ok(client)
+        } else {
+            match self.perform_health_check().await {
+                Ok(client) => Ok(client),
+                // todo iterate over other rpc urls
+                // log::warn!("Current rpc node is not unavailable.");
+                Err(_) => MmError::err(TendermintCoinRpcError::PerformError(
+                    "All the current rpc nodes are unavailable.".to_string(),
+                )),
+            }
         }
-
-        MmError::err(TendermintCoinRpcError::PerformError(
-            "All the current rpc nodes are unavailable.".to_string(),
-        ))
     }
 }
 
@@ -428,17 +427,11 @@ impl TendermintCoin {
                 }
             })?;
 
-        let rpc_clients: Result<Vec<HttpClient>, _> = rpc_urls
-            .iter()
-            .map(|url| {
-                HttpClient::new(url.as_str()).map_to_mm(|e| TendermintInitError {
-                    ticker: ticker.clone(),
-                    kind: TendermintInitErrorKind::RpcClientInitError(e.to_string()),
-                })
-            })
-            .collect();
-
-        let rpc_clients = rpc_clients?;
+        // we just find client, do health check in perform func later
+        let (rpc_client, rpc_urls) = find_client(rpc_urls).map_to_mm(|e| TendermintInitError {
+            ticker: ticker.clone(),
+            kind: TendermintInitErrorKind::RpcClientInitError(e),
+        })?;
 
         let chain_id = ChainId::try_from(protocol_info.chain_id).map_to_mm(|e| TendermintInitError {
             ticker: ticker.clone(),
@@ -468,7 +461,7 @@ impl TendermintCoin {
 
         Ok(TendermintCoin(Arc::new(TendermintCoinImpl {
             ticker,
-            rpc_clients,
+            rpc_urls,
             account_id,
             account_prefix: protocol_info.account_prefix,
             priv_key: priv_key.to_vec(),
@@ -481,7 +474,19 @@ impl TendermintCoin {
             tokens_info: PaMutex::new(HashMap::new()),
             abortable_system,
             history_sync_state: Mutex::new(history_sync_state),
+            rpc_client: AsyncMutex::new(rpc_client),
         })))
+    }
+
+    async fn perform_health_check(&self) -> Result<HttpClient, TendermintCoinRpcError> {
+        let rpc_client = self.rpc_client.lock().await;
+        match rpc_client.perform(HealthRequest).await {
+            Ok(_) => Ok(rpc_client.clone()),
+            Err(e) => Err(TendermintCoinRpcError::PerformError(format!(
+                "Recieved error from Tendermint rpc node during health check. Error: {:?}",
+                e
+            ))),
+        }
     }
 
     #[inline(always)]
@@ -1352,6 +1357,30 @@ impl TendermintCoin {
             },
             unexpected_state => MmError::err(SearchForSwapTxSpendErr::UnexpectedHtlcState(unexpected_state)),
         }
+    }
+}
+
+fn find_client(rpc_urls: Vec<String>) -> Result<(HttpClient, Vec<String>), Vec<tendermint_rpc::Error>> {
+    let mut res_urls = rpc_urls.clone();
+    let mut errors = Vec::new();
+    let mut clients = Vec::new();
+    for (i, url) in rpc_urls.iter().enumerate() {
+        match HttpClient::new(url.as_str()) {
+            Ok(client) => clients.push(client),
+            Err(e) => {
+                errors.push(e);
+                res_urls.remove(i);
+            },
+        }
+    }
+    if let Some(client) = clients.pop() {
+        if !rpc_urls.is_empty() {
+            Ok((client, rpc_urls))
+        } else {
+            Err(errors)
+        }
+    } else {
+        Err(errors)
     }
 }
 
