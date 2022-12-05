@@ -77,7 +77,7 @@ pub use rlp;
 
 #[cfg(test)] mod eth_tests;
 #[cfg(target_arch = "wasm32")] mod eth_wasm_tests;
-mod web3_transport;
+pub mod web3_transport;
 
 #[path = "eth/v2_activation.rs"] pub mod v2_activation;
 use v2_activation::key_pair_from_priv_key_policy;

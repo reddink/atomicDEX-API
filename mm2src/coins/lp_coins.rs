@@ -33,6 +33,8 @@
 #[macro_use] extern crate serde_json;
 #[macro_use] extern crate ser_error_derive;
 
+use crate::eth::web3_transport::Web3TransportNode;
+use crate::tendermint::rpc::HttpClient;
 use async_trait::async_trait;
 use base58::FromBase58Error;
 use common::executor::{abortable_queue::{AbortableQueue, WeakSpawner},
@@ -66,7 +68,13 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use tonic::transport::Channel as TonicChannel;
 use utxo_signer::with_key_pair::UtxoSignWithKeyPairError;
+use z_coin_grpc::compact_tx_streamer_client::CompactTxStreamerClient;
+
+mod z_coin_grpc {
+    tonic::include_proto!("cash.z.wallet.sdk.rpc");
+}
 
 cfg_native! {
     use crate::lightning::LightningCoin;
@@ -3390,4 +3398,21 @@ where
     } else {
         b.block_height.cmp(&a.block_height)
     }
+}
+
+pub enum RpcCommonError {
+    PerformError(String),
+}
+
+pub enum RpcClientEnum {
+    ZcoinRpcClient(CompactTxStreamerClient<TonicChannel>),
+    TendermintHttpClient(HttpClient),
+    Web3TransportNode(Web3TransportNode),
+}
+
+#[async_trait]
+pub trait RpcCommonOps {
+    fn get_rpc_client(&self) -> MmResult<RpcClientEnum, RpcCommonError>;
+
+    fn iterate_over_urls(rpc_urls: Vec<String>) -> MmResult<RpcClientEnum, RpcCommonError>;
 }
