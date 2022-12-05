@@ -33,7 +33,7 @@
 #[macro_use] extern crate serde_json;
 #[macro_use] extern crate ser_error_derive;
 
-use crate::eth::web3_transport::Web3TransportNode;
+use crate::eth::web3_transport::http_transport::HttpTransportNode;
 use crate::tendermint::rpc::HttpClient;
 use async_trait::async_trait;
 use base58::FromBase58Error;
@@ -3403,7 +3403,7 @@ pub enum RpcCommonError {
 pub enum RpcClientEnum {
     ZcoinRpcClient(CompactTxStreamerClient<TonicChannel>),
     TendermintHttpClient(HttpClient),
-    Web3TransportNode(Web3TransportNode),
+    Web3HttpTransportNode(HttpTransportNode),
 }
 
 #[async_trait]
