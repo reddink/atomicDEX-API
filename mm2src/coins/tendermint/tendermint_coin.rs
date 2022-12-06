@@ -251,7 +251,7 @@ pub enum TendermintCoinRpcError {
     Prost(DecodeError),
     InvalidResponse(String),
     PerformError(String),
-    WrongEnumValue,
+    WrongRpcClient,
 }
 
 impl From<DecodeError> for TendermintCoinRpcError {
@@ -268,7 +268,7 @@ impl From<TendermintCoinRpcError> for BalanceError {
             TendermintCoinRpcError::InvalidResponse(e) => BalanceError::InvalidResponse(e),
             TendermintCoinRpcError::Prost(e) => BalanceError::InvalidResponse(e.to_string()),
             TendermintCoinRpcError::PerformError(e) => BalanceError::Transport(e),
-            TendermintCoinRpcError::WrongEnumValue => BalanceError::Internal("Wrong rpc client type".to_string()),
+            TendermintCoinRpcError::WrongRpcClient => BalanceError::Internal("Wrong rpc client type".to_string()),
         }
     }
 }
@@ -279,8 +279,8 @@ impl From<TendermintCoinRpcError> for ValidatePaymentError {
             TendermintCoinRpcError::InvalidResponse(e) => ValidatePaymentError::InvalidRpcResponse(e),
             TendermintCoinRpcError::Prost(e) => ValidatePaymentError::InvalidRpcResponse(e.to_string()),
             TendermintCoinRpcError::PerformError(e) => ValidatePaymentError::Transport(e),
-            TendermintCoinRpcError::WrongEnumValue => {
-                ValidatePaymentError::InvalidParameter("Wrong rpc client type".to_string())
+            TendermintCoinRpcError::WrongRpcClient => {
+                ValidatePaymentError::InternalError("Wrong rpc client type".to_string())
             },
         }
     }
@@ -421,7 +421,7 @@ impl TendermintCommons for TendermintCoin {
                 RpcClientEnum::TendermintHttpClient(client) => Ok(client),
                 // todo we should unwrap inner value from enum more easily,
                 // bcz in get_rpc_client we definitely know that's TendermintHttpClient. Then delete TendermintCoinRpcError::WrongEnumValue
-                _ => MmError::err(TendermintCoinRpcError::WrongEnumValue),
+                _ => MmError::err(TendermintCoinRpcError::WrongRpcClient),
             },
             // todo iterate over other rpc urls
             // log::warn!("Current rpc node is not unavailable.");
