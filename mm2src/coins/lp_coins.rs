@@ -71,10 +71,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use tonic::transport::Channel as TonicChannel;
 use utxo_signer::with_key_pair::UtxoSignWithKeyPairError;
-use z_coin_grpc::compact_tx_streamer_client::CompactTxStreamerClient;
 
+#[cfg(not(target_arch = "wasm32"))]
 mod z_coin_grpc {
     tonic::include_proto!("cash.z.wallet.sdk.rpc");
 }
@@ -89,6 +88,8 @@ cfg_native! {
     use std::io;
     use zcash_primitives::transaction::Transaction as ZTransaction;
     use z_coin::ZcoinProtocolInfo;
+    use tonic::transport::Channel as TonicChannel;
+    use z_coin_grpc::compact_tx_streamer_client::CompactTxStreamerClient;
 }
 
 cfg_wasm32! {
