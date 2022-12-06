@@ -9,14 +9,15 @@ use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal,
             CoinBalance, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin,
             NegotiateSwapContractAddrErr, PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy,
             PrivKeyPolicyNotAllowed, RawTransactionError, RawTransactionFut, RawTransactionRequest, RawTransactionRes,
-            SearchForSwapTxSpendInput, SendMakerPaymentArgs, SendMakerRefundsPaymentArgs,
-            SendMakerSpendsTakerPaymentArgs, SendTakerPaymentArgs, SendTakerRefundsPaymentArgs,
-            SendTakerSpendsMakerPaymentArgs, SignatureError, SignatureResult, SwapOps, TradeFee, TradePreimageError,
-            TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum,
-            TransactionErr, TransactionFut, TransactionType, TxFeeDetails, TxMarshalingErr,
-            UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr,
-            ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput, VerificationError, VerificationResult,
-            WatcherOps, WatcherValidatePaymentInput, WithdrawError, WithdrawFut, WithdrawRequest};
+            RpcClientEnum, RpcCommonError, RpcCommonOps, SearchForSwapTxSpendInput, SendMakerPaymentArgs,
+            SendMakerRefundsPaymentArgs, SendMakerSpendsTakerPaymentArgs, SendTakerPaymentArgs,
+            SendTakerRefundsPaymentArgs, SendTakerSpendsMakerPaymentArgs, SignatureError, SignatureResult, SwapOps,
+            TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue,
+            TransactionDetails, TransactionEnum, TransactionErr, TransactionFut, TransactionType, TxFeeDetails,
+            TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs,
+            ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput,
+            VerificationError, VerificationResult, WatcherOps, WatcherValidatePaymentInput, WithdrawError,
+            WithdrawFut, WithdrawRequest};
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
 use common::executor::Timer;
@@ -161,9 +162,34 @@ impl TendermintConf {
 }
 
 #[allow(dead_code)]
+struct TendermintRpcClient {
+    rpc_urls: Vec<String>,
+    rpc_client: AsyncMutex<HttpClient>,
+}
+
+#[async_trait]
+impl RpcCommonOps for TendermintRpcClient {
+    async fn get_rpc_client(&self) -> Result<RpcClientEnum, RpcCommonError> {
+        let rpc_client = self.rpc_client.lock().await;
+        match rpc_client.perform(HealthRequest).await {
+            Ok(_) => Ok(RpcClientEnum::TendermintHttpClient(rpc_client.clone())),
+            Err(_) => match rpc_client.perform(HealthRequest).await {
+                Ok(_) => Ok(RpcClientEnum::TendermintHttpClient(rpc_client.clone())),
+                Err(e) => Err(RpcCommonError::PerformError(format!(
+                    "Recieved error from Tendermint rpc node during health check. Error: {:?}",
+                    e
+                ))),
+            },
+        }
+    }
+
+    #[allow(dead_code)]
+    fn iterate_over_urls(_rpc_urls: Vec<String>) -> Result<RpcClientEnum, RpcCommonError> { todo!() }
+}
+
+#[allow(dead_code)]
 pub struct TendermintCoinImpl {
     ticker: String,
-    rpc_urls: Vec<String>,
     /// As seconds
     avg_blocktime: u8,
     /// My address
@@ -180,7 +206,7 @@ pub struct TendermintCoinImpl {
     /// or on [`MmArc::stop`].
     pub(super) abortable_system: AbortableQueue,
     pub(crate) history_sync_state: Mutex<HistorySyncState>,
-    rpc_client: AsyncMutex<HttpClient>,
+    client_impl: TendermintRpcClient,
 }
 
 #[derive(Clone)]
@@ -225,6 +251,7 @@ pub enum TendermintCoinRpcError {
     Prost(DecodeError),
     InvalidResponse(String),
     PerformError(String),
+    WrongEnumValue,
 }
 
 impl From<DecodeError> for TendermintCoinRpcError {
@@ -241,6 +268,7 @@ impl From<TendermintCoinRpcError> for BalanceError {
             TendermintCoinRpcError::InvalidResponse(e) => BalanceError::InvalidResponse(e),
             TendermintCoinRpcError::Prost(e) => BalanceError::InvalidResponse(e.to_string()),
             TendermintCoinRpcError::PerformError(e) => BalanceError::Transport(e),
+            TendermintCoinRpcError::WrongEnumValue => BalanceError::Internal("Wrong rpc client type".to_string()),
         }
     }
 }
@@ -251,6 +279,9 @@ impl From<TendermintCoinRpcError> for ValidatePaymentError {
             TendermintCoinRpcError::InvalidResponse(e) => ValidatePaymentError::InvalidRpcResponse(e),
             TendermintCoinRpcError::Prost(e) => ValidatePaymentError::InvalidRpcResponse(e.to_string()),
             TendermintCoinRpcError::PerformError(e) => ValidatePaymentError::Transport(e),
+            TendermintCoinRpcError::WrongEnumValue => {
+                ValidatePaymentError::InvalidParameter("Wrong rpc client type".to_string())
+            },
         }
     }
 }
@@ -383,19 +414,20 @@ impl TendermintCommons for TendermintCoin {
     // TODO
     // Save one working client to the coin context, only try others once it doesn't
     // work anymore.
-    // Also, try couple times more on health check errors.
+    // Also, try couple times more on health check errors. - done in get_rpc_client func
     async fn rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError> {
-        if let Ok(client) = self.perform_health_check().await {
-            Ok(client)
-        } else {
-            match self.perform_health_check().await {
-                Ok(client) => Ok(client),
-                // todo iterate over other rpc urls
-                // log::warn!("Current rpc node is not unavailable.");
-                Err(_) => MmError::err(TendermintCoinRpcError::PerformError(
-                    "All the current rpc nodes are unavailable.".to_string(),
-                )),
-            }
+        match self.client_impl.get_rpc_client().await {
+            Ok(client) => match client {
+                RpcClientEnum::TendermintHttpClient(client) => Ok(client),
+                // todo we should unwrap inner value from enum more easily,
+                // bcz in get_rpc_client we definitely know that's TendermintHttpClient. Then delete TendermintCoinRpcError::WrongEnumValue
+                _ => MmError::err(TendermintCoinRpcError::WrongEnumValue),
+            },
+            // todo iterate over other rpc urls
+            // log::warn!("Current rpc node is not unavailable.");
+            Err(_) => MmError::err(TendermintCoinRpcError::PerformError(
+                "All the current rpc nodes are unavailable.".to_string(),
+            )),
         }
     }
 }
@@ -433,6 +465,11 @@ impl TendermintCoin {
             kind: TendermintInitErrorKind::RpcClientInitError(e),
         })?;
 
+        let client_impl = TendermintRpcClient {
+            rpc_urls,
+            rpc_client: AsyncMutex::new(rpc_client),
+        };
+
         let chain_id = ChainId::try_from(protocol_info.chain_id).map_to_mm(|e| TendermintInitError {
             ticker: ticker.clone(),
             kind: TendermintInitErrorKind::InvalidChainId(e.to_string()),
@@ -461,7 +498,6 @@ impl TendermintCoin {
 
         Ok(TendermintCoin(Arc::new(TendermintCoinImpl {
             ticker,
-            rpc_urls,
             account_id,
             account_prefix: protocol_info.account_prefix,
             priv_key: priv_key.to_vec(),
@@ -474,19 +510,8 @@ impl TendermintCoin {
             tokens_info: PaMutex::new(HashMap::new()),
             abortable_system,
             history_sync_state: Mutex::new(history_sync_state),
-            rpc_client: AsyncMutex::new(rpc_client),
+            client_impl,
         })))
-    }
-
-    async fn perform_health_check(&self) -> Result<HttpClient, TendermintCoinRpcError> {
-        let rpc_client = self.rpc_client.lock().await;
-        match rpc_client.perform(HealthRequest).await {
-            Ok(_) => Ok(rpc_client.clone()),
-            Err(e) => Err(TendermintCoinRpcError::PerformError(format!(
-                "Recieved error from Tendermint rpc node during health check. Error: {:?}",
-                e
-            ))),
-        }
     }
 
     #[inline(always)]

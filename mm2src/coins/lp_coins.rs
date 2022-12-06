@@ -3408,7 +3408,7 @@ pub enum RpcClientEnum {
 
 #[async_trait]
 pub trait RpcCommonOps {
-    fn get_rpc_client(&self) -> MmResult<RpcClientEnum, RpcCommonError>;
+    async fn get_rpc_client(&self) -> Result<RpcClientEnum, RpcCommonError>;
 
-    fn iterate_over_urls(rpc_urls: Vec<String>) -> MmResult<RpcClientEnum, RpcCommonError>;
+    fn iterate_over_urls(rpc_urls: Vec<String>) -> Result<RpcClientEnum, RpcCommonError>;
 }
