@@ -173,6 +173,7 @@ impl RpcCommonOps for TendermintRpcClient {
         let rpc_client = self.rpc_client.lock().await;
         match rpc_client.perform(HealthRequest).await {
             Ok(_) => Ok(RpcClientEnum::TendermintHttpClient(rpc_client.clone())),
+            // try HealthRequest once more time
             Err(_) => match rpc_client.perform(HealthRequest).await {
                 Ok(_) => Ok(RpcClientEnum::TendermintHttpClient(rpc_client.clone())),
                 Err(e) => Err(RpcCommonError::PerformError(format!(
@@ -184,7 +185,20 @@ impl RpcCommonOps for TendermintRpcClient {
     }
 
     #[allow(dead_code)]
-    fn iterate_over_urls(_rpc_urls: Vec<String>) -> Result<RpcClientEnum, RpcCommonError> { todo!() }
+    async fn iterate_over_urls(&self) -> Result<RpcClientEnum, RpcCommonError> {
+        let urls = &self.rpc_urls;
+        for url in urls {
+            let client = HttpClient::new(url.as_str());
+            if let Ok(client) = client {
+                if client.perform(HealthRequest).await.is_ok() {
+                    return Ok(RpcClientEnum::TendermintHttpClient(client.clone()));
+                }
+            }
+        }
+        Err(RpcCommonError::PerformError(
+            "All the current rpc nodes are unavailable.".to_string(),
+        ))
+    }
 }
 
 #[allow(dead_code)]
@@ -230,6 +244,7 @@ pub enum TendermintInitErrorKind {
     InvalidPrivKey(String),
     CouldNotGenerateAccountId(String),
     EmptyRpcUrls,
+    #[display(fmt = "Fail to init HttpClient during rpc urls iteration {}", _0)]
     RpcClientInitError(String),
     InvalidChainId(String),
     InvalidDenom(String),

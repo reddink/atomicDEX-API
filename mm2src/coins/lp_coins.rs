@@ -3476,6 +3476,16 @@ pub enum RpcCommonError {
     PerformError(String),
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+impl From<tendermint_rpc::Error> for RpcCommonError {
+    fn from(err: tendermint_rpc::Error) -> Self { RpcCommonError::PerformError(err.to_string()) }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl From<PerformError> for RpcCommonError {
+    fn from(err: PerformError) -> Self { RpcCommonError::PerformError(err.to_string()) }
+}
+
 pub enum RpcClientEnum {
     #[cfg(not(target_arch = "wasm32"))]
     ZcoinRpcClient(CompactTxStreamerClient<TonicChannel>),
@@ -3487,5 +3497,5 @@ pub enum RpcClientEnum {
 pub trait RpcCommonOps {
     async fn get_rpc_client(&self) -> Result<RpcClientEnum, RpcCommonError>;
 
-    fn iterate_over_urls(rpc_urls: Vec<String>) -> Result<RpcClientEnum, RpcCommonError>;
+    async fn iterate_over_urls(&self) -> Result<RpcClientEnum, RpcCommonError>;
 }
