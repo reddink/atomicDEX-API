@@ -170,7 +170,7 @@ struct TendermintRpcClient {
 #[async_trait]
 impl RpcCommonOps for TendermintRpcClient {
     async fn get_rpc_client(&self) -> Result<RpcClientEnum, RpcCommonError> {
-        let rpc_client = self.rpc_client.lock().await;
+        let mut rpc_client = self.rpc_client.lock().await;
         match rpc_client.perform(HealthRequest).await {
             Ok(_) => Ok(RpcClientEnum::TendermintHttpClient(rpc_client.clone())),
             // try HealthRequest one more time
@@ -181,12 +181,12 @@ impl RpcCommonOps for TendermintRpcClient {
                     // todo we should unwrap inner value from enum more easily
                     match new_client {
                         RpcClientEnum::TendermintHttpClient(client) => {
-                            *rpc_client = client;
-                            Ok(new_client)
+                            *rpc_client = client.clone();
+                            Ok(RpcClientEnum::TendermintHttpClient(client))
                         },
-                        _ => Err(RpcCommonError::WrongRpcClient)
+                        _ => Err(RpcCommonError::WrongRpcClient),
                     }
-                }
+                },
             },
         }
     }
@@ -445,7 +445,6 @@ impl TendermintCommons for TendermintCoin {
                 _ => MmError::err(TendermintCoinRpcError::WrongRpcClient),
             },
             // todo iterate over other rpc urls
-            // log::warn!("Current rpc node is not unavailable.");
             Err(_) => MmError::err(TendermintCoinRpcError::PerformError(
                 "All the current rpc nodes are unavailable.".to_string(),
             )),
