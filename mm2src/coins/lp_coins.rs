@@ -3477,6 +3477,7 @@ pub enum RpcCommonError {
 }
 
 pub enum RpcClientEnum {
+    #[cfg(not(target_arch = "wasm32"))]
     ZcoinRpcClient(CompactTxStreamerClient<TonicChannel>),
     TendermintHttpClient(HttpClient),
     Web3HttpTransportNode(HttpTransportNode),

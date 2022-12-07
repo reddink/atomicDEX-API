@@ -230,8 +230,7 @@ pub enum TendermintInitErrorKind {
     InvalidPrivKey(String),
     CouldNotGenerateAccountId(String),
     EmptyRpcUrls,
-    #[display(fmt = "Fail to init HttpClient during rpc urls iteration {:?}", _0)]
-    RpcClientInitError(Vec<tendermint_rpc::Error>),
+    RpcClientInitError(String),
     InvalidChainId(String),
     InvalidDenom(String),
     #[display(fmt = "'derivation_path' field is not found in config")]
@@ -1385,7 +1384,7 @@ impl TendermintCoin {
     }
 }
 
-fn find_client(rpc_urls: Vec<String>) -> Result<(HttpClient, Vec<String>), Vec<tendermint_rpc::Error>> {
+fn find_client(rpc_urls: Vec<String>) -> Result<(HttpClient, Vec<String>), String> {
     let mut res_urls = rpc_urls.clone();
     let mut errors = Vec::new();
     let mut clients = Vec::new();
@@ -1402,9 +1401,11 @@ fn find_client(rpc_urls: Vec<String>) -> Result<(HttpClient, Vec<String>), Vec<t
         if !rpc_urls.is_empty() {
             Ok((client, rpc_urls))
         } else {
+            let errors: String = errors.iter().map(|e| format!("{:?}", e)).collect();
             Err(errors)
         }
     } else {
+        let errors: String = errors.iter().map(|e| format!("{:?}", e)).collect();
         Err(errors)
     }
 }
