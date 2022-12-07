@@ -3477,16 +3477,6 @@ pub enum RpcCommonError {
     WrongRpcClient,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-impl From<tendermint_rpc::Error> for RpcCommonError {
-    fn from(err: tendermint_rpc::Error) -> Self { RpcCommonError::PerformError(err.to_string()) }
-}
-
-#[cfg(target_arch = "wasm32")]
-impl From<PerformError> for RpcCommonError {
-    fn from(err: PerformError) -> Self { RpcCommonError::PerformError(err.to_string()) }
-}
-
 pub enum RpcClientEnum {
     #[cfg(not(target_arch = "wasm32"))]
     ZcoinRpcClient(CompactTxStreamerClient<TonicChannel>),
