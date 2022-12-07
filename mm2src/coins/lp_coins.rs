@@ -3474,6 +3474,7 @@ where
 
 pub enum RpcCommonError {
     PerformError(String),
+    WrongRpcClient,
 }
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -173,13 +173,20 @@ impl RpcCommonOps for TendermintRpcClient {
         let rpc_client = self.rpc_client.lock().await;
         match rpc_client.perform(HealthRequest).await {
             Ok(_) => Ok(RpcClientEnum::TendermintHttpClient(rpc_client.clone())),
-            // try HealthRequest once more time
+            // try HealthRequest one more time
             Err(_) => match rpc_client.perform(HealthRequest).await {
                 Ok(_) => Ok(RpcClientEnum::TendermintHttpClient(rpc_client.clone())),
-                Err(e) => Err(RpcCommonError::PerformError(format!(
-                    "Recieved error from Tendermint rpc node during health check. Error: {:?}",
-                    e
-                ))),
+                Err(_) => {
+                    let new_client = self.iterate_over_urls().await?;
+                    // todo we should unwrap inner value from enum more easily
+                    match new_client {
+                        RpcClientEnum::TendermintHttpClient(client) => {
+                            *rpc_client = client;
+                            Ok(new_client)
+                        },
+                        _ => Err(RpcCommonError::WrongRpcClient)
+                    }
+                }
             },
         }
     }
