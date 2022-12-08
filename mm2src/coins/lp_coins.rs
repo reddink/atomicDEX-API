@@ -3472,11 +3472,13 @@ where
     }
 }
 
+#[derive(Display, Debug)]
 pub enum RpcCommonError {
-    PerformError(String),
+    FindClientError(String),
     WrongRpcClient,
 }
 
+#[derive(Debug)]
 pub enum RpcClientEnum {
     #[cfg(not(target_arch = "wasm32"))]
     ZcoinRpcClient(CompactTxStreamerClient<TonicChannel>),

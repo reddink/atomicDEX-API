@@ -178,7 +178,6 @@ impl RpcCommonOps for TendermintRpcClient {
                 Ok(_) => Ok(RpcClientEnum::TendermintHttpClient(rpc_client.clone())),
                 Err(_) => {
                     let new_client = self.iterate_over_urls().await?;
-                    // todo we should unwrap inner value from enum more easily
                     match new_client {
                         RpcClientEnum::TendermintHttpClient(client) => {
                             *rpc_client = client.clone();
@@ -202,7 +201,7 @@ impl RpcCommonOps for TendermintRpcClient {
                 }
             }
         }
-        Err(RpcCommonError::PerformError(
+        Err(RpcCommonError::FindClientError(
             "All the current rpc nodes are unavailable.".to_string(),
         ))
     }
@@ -272,11 +271,17 @@ pub enum TendermintCoinRpcError {
     Prost(DecodeError),
     InvalidResponse(String),
     PerformError(String),
+    // todo should be removed, bcz its from RpcCommonError
     WrongRpcClient,
+    RpcClientError(RpcCommonError),
 }
 
 impl From<DecodeError> for TendermintCoinRpcError {
     fn from(err: DecodeError) -> Self { TendermintCoinRpcError::Prost(err) }
+}
+
+impl From<RpcCommonError> for TendermintCoinRpcError {
+    fn from(err: RpcCommonError) -> Self { TendermintCoinRpcError::RpcClientError(err) }
 }
 
 impl From<TendermintCoinRpcError> for WithdrawError {
@@ -290,6 +295,7 @@ impl From<TendermintCoinRpcError> for BalanceError {
             TendermintCoinRpcError::Prost(e) => BalanceError::InvalidResponse(e.to_string()),
             TendermintCoinRpcError::PerformError(e) => BalanceError::Transport(e),
             TendermintCoinRpcError::WrongRpcClient => BalanceError::Internal("Wrong rpc client type".to_string()),
+            TendermintCoinRpcError::RpcClientError(_) => todo!(),
         }
     }
 }
@@ -303,6 +309,7 @@ impl From<TendermintCoinRpcError> for ValidatePaymentError {
             TendermintCoinRpcError::WrongRpcClient => {
                 ValidatePaymentError::InternalError("Wrong rpc client type".to_string())
             },
+            TendermintCoinRpcError::RpcClientError(_) => todo!(),
         }
     }
 }
@@ -437,17 +444,11 @@ impl TendermintCommons for TendermintCoin {
     // work anymore.
     // Also, try couple times more on health check errors. - done in get_rpc_client func
     async fn rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError> {
-        match self.client_impl.get_rpc_client().await {
-            Ok(client) => match client {
-                RpcClientEnum::TendermintHttpClient(client) => Ok(client),
-                // todo we should unwrap inner value from enum more easily,
-                // bcz in get_rpc_client we definitely know that's TendermintHttpClient. Then delete TendermintCoinRpcError::WrongEnumValue
-                _ => MmError::err(TendermintCoinRpcError::WrongRpcClient),
-            },
-            // todo iterate over other rpc urls
-            Err(_) => MmError::err(TendermintCoinRpcError::PerformError(
-                "All the current rpc nodes are unavailable.".to_string(),
-            )),
+        // todo propagate error here
+        let client_enum = self.client_impl.get_rpc_client().await?;
+        match client_enum {
+            RpcClientEnum::TendermintHttpClient(client) => Ok(client),
+            _ => MmError::err(TendermintCoinRpcError::WrongRpcClient),
         }
     }
 }
