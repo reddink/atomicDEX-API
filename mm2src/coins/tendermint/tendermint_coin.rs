@@ -271,7 +271,6 @@ pub enum TendermintCoinRpcError {
     Prost(DecodeError),
     InvalidResponse(String),
     PerformError(String),
-    // todo should be removed, bcz its from RpcCommonError
     WrongRpcClient,
     RpcClientError(RpcCommonError),
 }
@@ -444,7 +443,6 @@ impl TendermintCommons for TendermintCoin {
     // work anymore.
     // Also, try couple times more on health check errors. - done in get_rpc_client func
     async fn rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError> {
-        // todo propagate error here
         let client_enum = self.client_impl.get_rpc_client().await?;
         match client_enum {
             RpcClientEnum::TendermintHttpClient(client) => Ok(client),
