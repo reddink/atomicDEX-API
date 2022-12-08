@@ -161,7 +161,6 @@ impl TendermintConf {
     }
 }
 
-#[allow(dead_code)]
 struct TendermintRpcClient {
     rpc_urls: Vec<String>,
     rpc_client: AsyncMutex<HttpClient>,
@@ -190,7 +189,6 @@ impl RpcCommonOps for TendermintRpcClient {
         }
     }
 
-    #[allow(dead_code)]
     async fn iterate_over_urls(&self) -> Result<RpcClientEnum, RpcCommonError> {
         let urls = &self.rpc_urls;
         for url in urls {
@@ -207,7 +205,6 @@ impl RpcCommonOps for TendermintRpcClient {
     }
 }
 
-#[allow(dead_code)]
 pub struct TendermintCoinImpl {
     ticker: String,
     /// As seconds
@@ -474,7 +471,6 @@ impl TendermintCoin {
                 }
             })?;
 
-        // we just find client, do health check in perform func later
         let (rpc_client, rpc_urls) = find_client(rpc_urls).map_to_mm(|e| TendermintInitError {
             ticker: ticker.clone(),
             kind: TendermintInitErrorKind::RpcClientInitError(e),
