@@ -294,7 +294,7 @@ impl From<TendermintCoinRpcError> for BalanceError {
             TendermintCoinRpcError::Prost(e) => BalanceError::InvalidResponse(e.to_string()),
             TendermintCoinRpcError::PerformError(e) => BalanceError::Transport(e),
             TendermintCoinRpcError::WrongRpcClient => BalanceError::Internal("Wrong rpc client type".to_string()),
-            TendermintCoinRpcError::RpcClientError(_) => todo!(),
+            TendermintCoinRpcError::RpcClientError(e) => BalanceError::Transport(format!("{}", e)),
         }
     }
 }
@@ -308,7 +308,7 @@ impl From<TendermintCoinRpcError> for ValidatePaymentError {
             TendermintCoinRpcError::WrongRpcClient => {
                 ValidatePaymentError::InternalError("Wrong rpc client type".to_string())
             },
-            TendermintCoinRpcError::RpcClientError(_) => todo!(),
+            TendermintCoinRpcError::RpcClientError(e) => ValidatePaymentError::Transport(format!("{}", e)),
         }
     }
 }
@@ -438,10 +438,6 @@ impl TendermintCommons for TendermintCoin {
         Ok(result)
     }
 
-    // TODO
-    // Save one working client to the coin context, only try others once it doesn't
-    // work anymore.
-    // Also, try couple times more on health check errors. - done in get_rpc_client func
     async fn rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError> {
         let client_enum = self.client_impl.get_rpc_client().await?;
         match client_enum {
