@@ -3535,9 +3535,12 @@ pub enum RpcClientEnum {
     Web3HttpTransportNode(HttpTransportNode),
 }
 
+/// Use trait in the case, when we have to send requests to rpc client.
 #[async_trait]
 pub trait RpcCommonOps {
+    /// get alive client from custom `RpcClient` structure, that contains one rpc client and vector of rpc urls.
     async fn get_rpc_client(&self) -> Result<RpcClientEnum, RpcCommonError>;
 
+    /// if rpc client isn't available anymore, iterate over rpc urls, to get the first available client.
     async fn iterate_over_urls(&self) -> Result<RpcClientEnum, RpcCommonError>;
 }
