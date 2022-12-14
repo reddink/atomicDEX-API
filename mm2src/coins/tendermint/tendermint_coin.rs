@@ -58,7 +58,6 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
@@ -163,11 +162,13 @@ impl TendermintConf {
     }
 }
 
+struct TendermintRpcClient(AsyncMutex<TendermintRpcClientImpl>);
+
 #[allow(dead_code)]
-struct TendermintRpcClient {
+struct TendermintRpcClientImpl {
     rpc_urls: Vec<String>,
-    rpc_client: AsyncMutex<HttpClient>,
-    current: AtomicUsize,
+    rpc_client: HttpClient,
+    current: usize,
 }
 
 #[async_trait]
@@ -176,16 +177,18 @@ impl RpcCommonOps for TendermintRpcClient {
     type Error = TendermintCoinRpcError;
 
     async fn get_live_client(&self) -> Result<Self::RpcClient, Self::Error> {
-        let mut rpc_client = self.rpc_client.lock().await;
-        match rpc_client.perform(HealthRequest).await {
-            Ok(_) => return Ok(rpc_client.clone()),
-            Err(_) => match rpc_client.perform(HealthRequest).await {
-                Ok(_) => return Ok(rpc_client.clone()),
-                Err(_) => {
-                    *rpc_client = HttpClient::new("https://cosmos-testnet-rpc.allthatnode.com:26657").unwrap();
-                },
+        let mut client_impl = self.0.lock().await;
+        let current_client = client_impl.rpc_client.clone();
+        match current_client.perform(HealthRequest).await {
+            Ok(_) => return Ok(current_client),
+            // try HealthRequest one more time
+            Err(_) => {
+                if current_client.perform(HealthRequest).await.is_ok() {
+                    return Ok(current_client);
+                }
             },
         }
+        client_impl.rpc_client = HttpClient::new("https://cosmos-testnet-rpc.allthatnode.com:26657").unwrap();
         return Err(TendermintCoinRpcError::WrongRpcClient);
     }
 
@@ -472,10 +475,10 @@ impl TendermintCoin {
             kind: TendermintInitErrorKind::RpcClientInitError(e),
         })?;
 
-        let client_impl = TendermintRpcClient {
+        let client_impl = TendermintRpcClientImpl {
             rpc_urls,
-            rpc_client: AsyncMutex::new(rpc_client),
-            current: AtomicUsize::new(1),
+            rpc_client,
+            current: 1,
         };
 
         let chain_id = ChainId::try_from(protocol_info.chain_id).map_to_mm(|e| TendermintInitError {
@@ -518,7 +521,7 @@ impl TendermintCoin {
             tokens_info: PaMutex::new(HashMap::new()),
             abortable_system,
             history_sync_state: Mutex::new(history_sync_state),
-            client: client_impl,
+            client: TendermintRpcClient(AsyncMutex::new(client_impl)),
         })))
     }
 
