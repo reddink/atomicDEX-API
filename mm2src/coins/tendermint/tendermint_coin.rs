@@ -188,7 +188,11 @@ impl RpcCommonOps for TendermintCoin {
                 }
             },
         }
-        for (i, url) in client_impl.rpc_urls.iter().enumerate() {
+        let mut rpc_urls = client_impl.rpc_urls.clone();
+        let current_url = rpc_urls.remove(client_impl.current);
+        // push current url to the end
+        rpc_urls.push(current_url);
+        for (i, url) in rpc_urls.iter().enumerate() {
             let client = HttpClient::new(url.as_str());
             if let Ok(new_client) = client {
                 if new_client.perform(HealthRequest).await.is_ok() {
