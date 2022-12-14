@@ -33,8 +33,6 @@
 #[macro_use] extern crate serde_json;
 #[macro_use] extern crate ser_error_derive;
 
-use crate::eth::web3_transport::http_transport::HttpTransportNode;
-use crate::tendermint::rpc::HttpClient;
 use async_trait::async_trait;
 use base58::FromBase58Error;
 use common::executor::{abortable_queue::{AbortableQueue, WeakSpawner},
@@ -207,6 +205,7 @@ use coin_errors::{MyAddressError, ValidatePaymentError, ValidatePaymentFut};
 pub mod coins_tests;
 
 pub mod eth;
+use eth::web3_transport::http_transport::HttpTransportNode;
 use eth::{eth_coin_from_conf_and_request, EthCoin, EthTxFeeDetails, SignedEthTx};
 
 pub mod hd_pubkey;
@@ -229,6 +228,7 @@ use rpc_command::{init_account_balance::{AccountBalanceTaskManager, AccountBalan
                   init_withdraw::{WithdrawTaskManager, WithdrawTaskManagerShared}};
 
 pub mod tendermint;
+use tendermint::rpc::HttpClient;
 use tendermint::{CosmosTransaction, CustomTendermintMsgType, TendermintCoin, TendermintFeeDetails,
                  TendermintProtocolInfo, TendermintToken, TendermintTokenProtocolInfo};
 
@@ -3538,9 +3538,10 @@ pub enum RpcClientEnum {
 /// Use trait in the case, when we have to send requests to rpc client.
 #[async_trait]
 pub trait RpcCommonOps {
-    /// get alive client from custom `RpcClient` structure, that contains one rpc client and vector of rpc urls.
-    async fn get_rpc_client(&self) -> Result<RpcClientEnum, RpcCommonError>;
+    type RpcClient;
+    type Error;
 
-    /// if rpc client isn't available anymore, iterate over rpc urls, to get the first available client.
-    async fn iterate_over_urls(&self) -> Result<RpcClientEnum, RpcCommonError>;
+    /// Get live client from custom `RpcClient` structure, that contains one rpc client and vector of rpc urls.
+    /// If rpc client isn't available anymore, iterate over rpc urls, to get the first available client.
+    async fn get_live_client(&self) -> Result<Self::RpcClient, Self::Error>;
 }

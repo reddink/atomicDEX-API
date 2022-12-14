@@ -9,7 +9,7 @@ use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal,
             CoinBalance, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin,
             NegotiateSwapContractAddrErr, PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy,
             PrivKeyPolicyNotAllowed, RawTransactionError, RawTransactionFut, RawTransactionRequest, RawTransactionRes,
-            RpcClientEnum, RpcCommonError, RpcCommonOps, SearchForSwapTxSpendInput, SendMakerPaymentArgs,
+            RpcCommonError, RpcCommonOps, SearchForSwapTxSpendInput, SendMakerPaymentArgs,
             SendMakerRefundsPaymentArgs, SendMakerSpendsTakerPaymentArgs, SendTakerPaymentArgs,
             SendTakerRefundsPaymentArgs, SendTakerSpendsMakerPaymentArgs, SignatureError, SignatureResult, SwapOps,
             TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue,
@@ -58,6 +58,7 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::ops::Deref;
 use std::str::FromStr;
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
@@ -162,48 +163,46 @@ impl TendermintConf {
     }
 }
 
+#[allow(dead_code)]
 struct TendermintRpcClient {
     rpc_urls: Vec<String>,
     rpc_client: AsyncMutex<HttpClient>,
+    current: AtomicUsize,
 }
 
 #[async_trait]
 impl RpcCommonOps for TendermintRpcClient {
-    async fn get_rpc_client(&self) -> Result<RpcClientEnum, RpcCommonError> {
+    type RpcClient = HttpClient;
+    type Error = TendermintCoinRpcError;
+
+    async fn get_live_client(&self) -> Result<Self::RpcClient, Self::Error> {
         let mut rpc_client = self.rpc_client.lock().await;
         match rpc_client.perform(HealthRequest).await {
-            Ok(_) => Ok(RpcClientEnum::TendermintHttpClient(rpc_client.clone())),
-            // try HealthRequest one more time
+            Ok(_) => return Ok(rpc_client.clone()),
             Err(_) => match rpc_client.perform(HealthRequest).await {
-                Ok(_) => Ok(RpcClientEnum::TendermintHttpClient(rpc_client.clone())),
+                Ok(_) => return Ok(rpc_client.clone()),
                 Err(_) => {
-                    let new_client = self.iterate_over_urls().await?;
-                    match new_client {
-                        RpcClientEnum::TendermintHttpClient(client) => {
-                            *rpc_client = client.clone();
-                            Ok(RpcClientEnum::TendermintHttpClient(client))
-                        },
-                        _ => Err(RpcCommonError::WrongRpcClient),
-                    }
+                    *rpc_client = HttpClient::new("https://cosmos-testnet-rpc.allthatnode.com:26657").unwrap();
                 },
             },
         }
+        return Err(TendermintCoinRpcError::WrongRpcClient);
     }
 
-    async fn iterate_over_urls(&self) -> Result<RpcClientEnum, RpcCommonError> {
-        let urls = &self.rpc_urls;
-        for url in urls {
-            let client = HttpClient::new(url.as_str());
-            if let Ok(client) = client {
-                if client.perform(HealthRequest).await.is_ok() {
-                    return Ok(RpcClientEnum::TendermintHttpClient(client.clone()));
-                }
-            }
-        }
-        Err(RpcCommonError::FindClientError(
-            "All the current rpc nodes are unavailable.".to_string(),
-        ))
-    }
+    // async fn iterate_over_urls(&self) -> Result<RpcClientEnum, RpcCommonError> {
+    //     let urls = &self.rpc_urls;
+    //     for url in urls {
+    //         let client = HttpClient::new(url.as_str());
+    //         if let Ok(client) = client {
+    //             if client.perform(HealthRequest).await.is_ok() {
+    //                 return Ok(RpcClientEnum::TendermintHttpClient(client.clone()));
+    //             }
+    //         }
+    //     }
+    //     Err(RpcCommonError::FindClientError(
+    //         "All the current rpc nodes are unavailable.".to_string(),
+    //     ))
+    // }
 }
 
 pub struct TendermintCoinImpl {
@@ -224,7 +223,7 @@ pub struct TendermintCoinImpl {
     /// or on [`MmArc::stop`].
     pub(super) abortable_system: AbortableQueue,
     pub(crate) history_sync_state: Mutex<HistorySyncState>,
-    client_impl: TendermintRpcClient,
+    client: TendermintRpcClient,
 }
 
 #[derive(Clone)]
@@ -437,11 +436,7 @@ impl TendermintCommons for TendermintCoin {
     }
 
     async fn rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError> {
-        let client_enum = self.client_impl.get_rpc_client().await?;
-        match client_enum {
-            RpcClientEnum::TendermintHttpClient(client) => Ok(client),
-            _ => MmError::err(TendermintCoinRpcError::WrongRpcClient),
-        }
+        self.client.get_live_client().await.map_to_mm(|e| e)
     }
 }
 
@@ -480,6 +475,7 @@ impl TendermintCoin {
         let client_impl = TendermintRpcClient {
             rpc_urls,
             rpc_client: AsyncMutex::new(rpc_client),
+            current: AtomicUsize::new(1),
         };
 
         let chain_id = ChainId::try_from(protocol_info.chain_id).map_to_mm(|e| TendermintInitError {
@@ -522,7 +518,7 @@ impl TendermintCoin {
             tokens_info: PaMutex::new(HashMap::new()),
             abortable_system,
             history_sync_state: Mutex::new(history_sync_state),
-            client_impl,
+            client: client_impl,
         })))
     }
 
