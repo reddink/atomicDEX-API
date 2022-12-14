@@ -23,7 +23,7 @@ use bitcrypto::{dhash160, sha256};
 use common::executor::{abortable_queue::AbortableQueue, AbortableSystem};
 use common::executor::{AbortedError, Timer};
 use common::log::warn;
-use common::{get_utc_timestamp, now_ms, Future01CompatExt, DEX_FEE_ADDR_PUBKEY};
+use common::{get_utc_timestamp, log, now_ms, Future01CompatExt, DEX_FEE_ADDR_PUBKEY};
 use cosmrs::bank::MsgSend;
 use cosmrs::crypto::secp256k1::SigningKey;
 use cosmrs::proto::cosmos::auth::v1beta1::{BaseAccount, QueryAccountRequest, QueryAccountResponse};
@@ -250,7 +250,6 @@ pub enum TendermintInitErrorKind {
     InvalidPrivKey(String),
     CouldNotGenerateAccountId(String),
     EmptyRpcUrls,
-    #[display(fmt = "Fail to init HttpClient during rpc urls iteration {}", _0)]
     RpcClientInitError(String),
     InvalidChainId(String),
     InvalidDenom(String),
@@ -429,6 +428,7 @@ impl TendermintCommons for TendermintCoin {
         Ok(result)
     }
 
+    #[inline(always)]
     async fn rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError> {
         self.get_live_client().await.map_to_mm(|e| e)
     }
@@ -461,7 +461,7 @@ impl TendermintCoin {
                 }
             })?;
 
-        let (rpc_client, rpc_urls) = find_client(rpc_urls).map_to_mm(|e| TendermintInitError {
+        let (rpc_client, rpc_urls, current) = find_client(rpc_urls).map_to_mm(|e| TendermintInitError {
             ticker: ticker.clone(),
             kind: TendermintInitErrorKind::RpcClientInitError(e),
         })?;
@@ -469,7 +469,7 @@ impl TendermintCoin {
         let client_impl = TendermintRpcClientImpl {
             rpc_urls,
             rpc_client,
-            current: 1,
+            current,
         };
 
         let chain_id = ChainId::try_from(protocol_info.chain_id).map_to_mm(|e| TendermintInitError {
@@ -1387,29 +1387,34 @@ impl TendermintCoin {
     }
 }
 
-fn find_client(rpc_urls: Vec<String>) -> Result<(HttpClient, Vec<String>), String> {
+fn find_client(rpc_urls: Vec<String>) -> Result<(HttpClient, Vec<String>, usize), String> {
     let mut res_urls = rpc_urls.clone();
-    let mut errors = Vec::new();
+    let mut keep_url = Vec::new();
     let mut clients = Vec::new();
-    for (i, url) in rpc_urls.iter().enumerate() {
+    for url in rpc_urls.iter() {
         match HttpClient::new(url.as_str()) {
-            Ok(client) => clients.push(client),
+            Ok(client) => {
+                clients.push(client);
+                keep_url.push(true);
+            },
             Err(e) => {
-                errors.push(e);
-                res_urls.remove(i);
+                log::error!("Invalid url {} will be removed, got error {}", url, e);
+                keep_url.push(false);
             },
         }
     }
-    if let Some(client) = clients.pop() {
-        if !res_urls.is_empty() {
-            Ok((client, res_urls))
+    let mut iter_keep = keep_url.iter();
+    // use retain to remove invalid urls
+    res_urls.retain(|_| *iter_keep.next().unwrap());
+    if clients.len() == res_urls.len() {
+        if let Some(client) = clients.pop() {
+            let current = res_urls.len() - 1;
+            Ok((client, res_urls, current))
         } else {
-            let errors: String = errors.iter().map(|e| format!("{:?}", e)).collect();
-            Err(errors)
+            Err("Fail to init HttpClient during rpc urls iteration".to_string())
         }
     } else {
-        let errors: String = errors.iter().map(|e| format!("{:?}", e)).collect();
-        Err(errors)
+        Err("Fail to init HttpClient during rpc urls iteration".to_string())
     }
 }
 
