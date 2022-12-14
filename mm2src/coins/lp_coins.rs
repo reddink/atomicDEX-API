@@ -71,11 +71,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use utxo_signer::with_key_pair::UtxoSignWithKeyPairError;
 
-#[cfg(not(target_arch = "wasm32"))]
-mod z_coin_grpc {
-    tonic::include_proto!("cash.z.wallet.sdk.rpc");
-}
-
 cfg_native! {
     use crate::lightning::LightningCoin;
     use crate::lightning::ln_conf::PlatformCoinConfirmationTargets;
@@ -86,8 +81,6 @@ cfg_native! {
     use std::io;
     use zcash_primitives::transaction::Transaction as ZTransaction;
     use z_coin::ZcoinProtocolInfo;
-    use tonic::transport::Channel as TonicChannel;
-    use z_coin_grpc::compact_tx_streamer_client::CompactTxStreamerClient;
 }
 
 cfg_wasm32! {
@@ -205,7 +198,6 @@ use coin_errors::{MyAddressError, ValidatePaymentError, ValidatePaymentFut};
 pub mod coins_tests;
 
 pub mod eth;
-use eth::web3_transport::http_transport::HttpTransportNode;
 use eth::{eth_coin_from_conf_and_request, EthCoin, EthTxFeeDetails, SignedEthTx};
 
 pub mod hd_pubkey;
@@ -228,7 +220,6 @@ use rpc_command::{init_account_balance::{AccountBalanceTaskManager, AccountBalan
                   init_withdraw::{WithdrawTaskManager, WithdrawTaskManagerShared}};
 
 pub mod tendermint;
-use tendermint::rpc::HttpClient;
 use tendermint::{CosmosTransaction, CustomTendermintMsgType, TendermintCoin, TendermintFeeDetails,
                  TendermintProtocolInfo, TendermintToken, TendermintTokenProtocolInfo};
 
@@ -3521,27 +3512,12 @@ where
     }
 }
 
-#[derive(Display, Debug)]
-pub enum RpcCommonError {
-    FindClientError(String),
-    WrongRpcClient,
-}
-
-#[derive(Debug)]
-pub enum RpcClientEnum {
-    #[cfg(not(target_arch = "wasm32"))]
-    ZcoinRpcClient(CompactTxStreamerClient<TonicChannel>),
-    TendermintHttpClient(HttpClient),
-    Web3HttpTransportNode(HttpTransportNode),
-}
-
 /// Use trait in the case, when we have to send requests to rpc client.
 #[async_trait]
 pub trait RpcCommonOps {
     type RpcClient;
     type Error;
 
-    /// Get live client from custom `RpcClient` structure, that contains one rpc client and vector of rpc urls.
-    /// If rpc client isn't available anymore, iterate over rpc urls, to get the first available client.
+    /// Returns an alive RPC client or returns an error if no RPC endpoint is currently available.
     async fn get_live_client(&self) -> Result<Self::RpcClient, Self::Error>;
 }

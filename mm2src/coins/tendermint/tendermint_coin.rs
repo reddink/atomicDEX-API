@@ -271,7 +271,6 @@ pub enum TendermintCoinRpcError {
     Prost(DecodeError),
     InvalidResponse(String),
     PerformError(String),
-    WrongRpcClient,
     RpcClientError(String),
 }
 
@@ -289,7 +288,6 @@ impl From<TendermintCoinRpcError> for BalanceError {
             TendermintCoinRpcError::InvalidResponse(e) => BalanceError::InvalidResponse(e),
             TendermintCoinRpcError::Prost(e) => BalanceError::InvalidResponse(e.to_string()),
             TendermintCoinRpcError::PerformError(e) => BalanceError::Transport(e),
-            TendermintCoinRpcError::WrongRpcClient => BalanceError::Internal("Wrong rpc client type".to_string()),
             TendermintCoinRpcError::RpcClientError(e) => BalanceError::Transport(e),
         }
     }
@@ -301,9 +299,6 @@ impl From<TendermintCoinRpcError> for ValidatePaymentError {
             TendermintCoinRpcError::InvalidResponse(e) => ValidatePaymentError::InvalidRpcResponse(e),
             TendermintCoinRpcError::Prost(e) => ValidatePaymentError::InvalidRpcResponse(e.to_string()),
             TendermintCoinRpcError::PerformError(e) => ValidatePaymentError::Transport(e),
-            TendermintCoinRpcError::WrongRpcClient => {
-                ValidatePaymentError::InternalError("Wrong rpc client type".to_string())
-            },
             TendermintCoinRpcError::RpcClientError(e) => ValidatePaymentError::Transport(e),
         }
     }
