@@ -9,15 +9,15 @@ use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal,
             CoinBalance, CoinFutSpawner, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin,
             NegotiateSwapContractAddrErr, PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy,
             PrivKeyPolicyNotAllowed, RawTransactionError, RawTransactionFut, RawTransactionRequest, RawTransactionRes,
-            RpcCommonError, RpcCommonOps, SearchForSwapTxSpendInput, SendMakerPaymentArgs,
-            SendMakerRefundsPaymentArgs, SendMakerSpendsTakerPaymentArgs, SendTakerPaymentArgs,
-            SendTakerRefundsPaymentArgs, SendTakerSpendsMakerPaymentArgs, SignatureError, SignatureResult, SwapOps,
-            TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue,
-            TransactionDetails, TransactionEnum, TransactionErr, TransactionFut, TransactionType, TxFeeDetails,
-            TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs,
-            ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput,
-            VerificationError, VerificationResult, WatcherOps, WatcherSearchForSwapTxSpendInput,
-            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawError, WithdrawFut, WithdrawRequest};
+            RpcCommonOps, SearchForSwapTxSpendInput, SendMakerPaymentArgs, SendMakerRefundsPaymentArgs,
+            SendMakerSpendsTakerPaymentArgs, SendTakerPaymentArgs, SendTakerRefundsPaymentArgs,
+            SendTakerSpendsMakerPaymentArgs, SignatureError, SignatureResult, SwapOps, TradeFee, TradePreimageError,
+            TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum,
+            TransactionErr, TransactionFut, TransactionType, TxFeeDetails, TxMarshalingErr,
+            UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr,
+            ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput, VerificationError, VerificationResult,
+            WatcherOps, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput,
+            WithdrawError, WithdrawFut, WithdrawRequest};
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
 use common::executor::{abortable_queue::AbortableQueue, AbortableSystem};
@@ -172,12 +172,12 @@ struct TendermintRpcClientImpl {
 }
 
 #[async_trait]
-impl RpcCommonOps for TendermintRpcClient {
+impl RpcCommonOps for TendermintCoin {
     type RpcClient = HttpClient;
     type Error = TendermintCoinRpcError;
 
     async fn get_live_client(&self) -> Result<Self::RpcClient, Self::Error> {
-        let mut client_impl = self.0.lock().await;
+        let mut client_impl = self.client.0.lock().await;
         let current_client = client_impl.rpc_client.clone();
         match current_client.perform(HealthRequest).await {
             Ok(_) => return Ok(current_client),
@@ -188,24 +188,20 @@ impl RpcCommonOps for TendermintRpcClient {
                 }
             },
         }
-        client_impl.rpc_client = HttpClient::new("https://cosmos-testnet-rpc.allthatnode.com:26657").unwrap();
-        return Err(TendermintCoinRpcError::WrongRpcClient);
+        for (i, url) in client_impl.rpc_urls.iter().enumerate() {
+            let client = HttpClient::new(url.as_str());
+            if let Ok(new_client) = client {
+                if new_client.perform(HealthRequest).await.is_ok() {
+                    client_impl.rpc_client = new_client.clone();
+                    client_impl.current = i;
+                    return Ok(new_client);
+                }
+            }
+        }
+        return Err(TendermintCoinRpcError::RpcClientError(
+            "All the current rpc nodes are unavailable.".to_string(),
+        ));
     }
-
-    // async fn iterate_over_urls(&self) -> Result<RpcClientEnum, RpcCommonError> {
-    //     let urls = &self.rpc_urls;
-    //     for url in urls {
-    //         let client = HttpClient::new(url.as_str());
-    //         if let Ok(client) = client {
-    //             if client.perform(HealthRequest).await.is_ok() {
-    //                 return Ok(RpcClientEnum::TendermintHttpClient(client.clone()));
-    //             }
-    //         }
-    //     }
-    //     Err(RpcCommonError::FindClientError(
-    //         "All the current rpc nodes are unavailable.".to_string(),
-    //     ))
-    // }
 }
 
 pub struct TendermintCoinImpl {
@@ -272,15 +268,11 @@ pub enum TendermintCoinRpcError {
     InvalidResponse(String),
     PerformError(String),
     WrongRpcClient,
-    RpcClientError(RpcCommonError),
+    RpcClientError(String),
 }
 
 impl From<DecodeError> for TendermintCoinRpcError {
     fn from(err: DecodeError) -> Self { TendermintCoinRpcError::Prost(err) }
-}
-
-impl From<RpcCommonError> for TendermintCoinRpcError {
-    fn from(err: RpcCommonError) -> Self { TendermintCoinRpcError::RpcClientError(err) }
 }
 
 impl From<TendermintCoinRpcError> for WithdrawError {
@@ -294,7 +286,7 @@ impl From<TendermintCoinRpcError> for BalanceError {
             TendermintCoinRpcError::Prost(e) => BalanceError::InvalidResponse(e.to_string()),
             TendermintCoinRpcError::PerformError(e) => BalanceError::Transport(e),
             TendermintCoinRpcError::WrongRpcClient => BalanceError::Internal("Wrong rpc client type".to_string()),
-            TendermintCoinRpcError::RpcClientError(e) => BalanceError::Transport(format!("{}", e)),
+            TendermintCoinRpcError::RpcClientError(e) => BalanceError::Transport(e),
         }
     }
 }
@@ -308,7 +300,7 @@ impl From<TendermintCoinRpcError> for ValidatePaymentError {
             TendermintCoinRpcError::WrongRpcClient => {
                 ValidatePaymentError::InternalError("Wrong rpc client type".to_string())
             },
-            TendermintCoinRpcError::RpcClientError(e) => ValidatePaymentError::Transport(format!("{}", e)),
+            TendermintCoinRpcError::RpcClientError(e) => ValidatePaymentError::Transport(e),
         }
     }
 }
@@ -439,7 +431,7 @@ impl TendermintCommons for TendermintCoin {
     }
 
     async fn rpc_client(&self) -> MmResult<HttpClient, TendermintCoinRpcError> {
-        self.client.get_live_client().await.map_to_mm(|e| e)
+        self.get_live_client().await.map_to_mm(|e| e)
     }
 }
 
@@ -1410,8 +1402,8 @@ fn find_client(rpc_urls: Vec<String>) -> Result<(HttpClient, Vec<String>), Strin
         }
     }
     if let Some(client) = clients.pop() {
-        if !rpc_urls.is_empty() {
-            Ok((client, rpc_urls))
+        if !res_urls.is_empty() {
+            Ok((client, res_urls))
         } else {
             let errors: String = errors.iter().map(|e| format!("{:?}", e)).collect();
             Err(errors)
