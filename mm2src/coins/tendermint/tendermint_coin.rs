@@ -192,10 +192,12 @@ impl RpcCommonOps for TendermintCoin {
         let current_url = rpc_urls.remove(client_impl.current);
         // push current url to the end
         rpc_urls.push(current_url);
+        // try to find first live client
         for (i, url) in rpc_urls.iter().enumerate() {
             let client = HttpClient::new(url.as_str());
             if let Ok(new_client) = client {
                 if new_client.perform(HealthRequest).await.is_ok() {
+                    // replace an unavailable client with a new one
                     client_impl.rpc_client = new_client.clone();
                     client_impl.current = i;
                     return Ok(new_client);
@@ -461,7 +463,7 @@ impl TendermintCoin {
                 }
             })?;
 
-        let (rpc_client, rpc_urls, current) = find_client(rpc_urls).map_to_mm(|e| TendermintInitError {
+        let (rpc_client, rpc_urls, current) = find_client_valid_urls(rpc_urls).map_to_mm(|e| TendermintInitError {
             ticker: ticker.clone(),
             kind: TendermintInitErrorKind::RpcClientInitError(e),
         })?;
@@ -1387,10 +1389,11 @@ impl TendermintCoin {
     }
 }
 
-fn find_client(rpc_urls: Vec<String>) -> Result<(HttpClient, Vec<String>, usize), String> {
+fn find_client_valid_urls(rpc_urls: Vec<String>) -> Result<(HttpClient, Vec<String>, usize), String> {
     let mut res_urls = rpc_urls.clone();
     let mut keep_url = Vec::new();
     let mut clients = Vec::new();
+    // find valid urls and create clients
     for url in rpc_urls.iter() {
         match HttpClient::new(url.as_str()) {
             Ok(client) => {
@@ -1408,13 +1411,15 @@ fn find_client(rpc_urls: Vec<String>) -> Result<(HttpClient, Vec<String>, usize)
     res_urls.retain(|_| *iter_keep.next().unwrap());
     if clients.len() == res_urls.len() {
         if let Some(client) = clients.pop() {
+            // if clients len equals to res_urls len,
+            // than the last client from vector has index = urls vector length - 1
             let current = res_urls.len() - 1;
             Ok((client, res_urls, current))
         } else {
             Err("Fail to init HttpClient during rpc urls iteration".to_string())
         }
     } else {
-        Err("Fail to init HttpClient during rpc urls iteration".to_string())
+        Err("Got inconsistent data, clients number didn't match their urls number".to_string())
     }
 }
 
