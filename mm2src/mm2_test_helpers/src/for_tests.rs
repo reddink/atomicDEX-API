@@ -2537,7 +2537,7 @@ pub async fn start_swaps(
     // issue sell request on Bob side by setting base/rel price
     for (base, rel) in pairs.iter() {
         common::log::info!("Issue maker {}/{} sell request", base, rel);
-        set_price(&maker, base, rel, &maker_price.to_string(), &volume.to_string(), false)
+        set_price(maker, base, rel, &maker_price.to_string(), &volume.to_string(), false)
             .await
             .unwrap();
     }
@@ -2563,7 +2563,7 @@ pub async fn start_swaps(
         assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
         Timer::sleep(1.).await;
         common::log::info!("Issue taker {}/{} buy request", base, rel);
-        let rc = buy(&taker, base, rel, &taker_price.to_string(), &volume.to_string())
+        let rc = buy(taker, base, rel, &taker_price.to_string(), &volume.to_string())
             .await
             .unwrap();
         uuids.push(rc.result.uuid.to_string());
