@@ -2479,7 +2479,7 @@ pub async fn set_price(
     price: &str,
     vol: &str,
     max: bool,
-) -> SetPriceResponse {
+) -> Result<SetPriceResponse, String> {
     let request = mm
         .rpc(&json!({
             "userpass": mm.userpass,
@@ -2492,8 +2492,36 @@ pub async fn set_price(
         }))
         .await
         .unwrap();
-    assert_eq!(request.0, StatusCode::OK, "'setprice' failed: {}", request.1);
-    json::from_str(&request.1).unwrap()
+    if request.0.is_success() {
+        Ok(json::from_str(&request.1).unwrap())
+    } else {
+        Err(request.1)
+    }
+}
+
+pub async fn buy(
+    mm: &MarketMakerIt,
+    base: &str,
+    rel: &str,
+    price: &str,
+    vol: &str,
+) -> Result<BuyOrSellRpcResult, String> {
+    let request = mm
+        .rpc(&json!({
+            "userpass": mm.userpass,
+            "method": "buy",
+            "base": base,
+            "rel": rel,
+            "price": price,
+            "volume": vol,
+        }))
+        .await
+        .unwrap();
+    if request.0.is_success() {
+        Ok(json::from_str(&request.1).unwrap())
+    } else {
+        Err(request.1)
+    }
 }
 
 pub async fn start_swaps(
@@ -2509,18 +2537,9 @@ pub async fn start_swaps(
     // issue sell request on Bob side by setting base/rel price
     for (base, rel) in pairs.iter() {
         common::log::info!("Issue maker {}/{} sell request", base, rel);
-        let rc = maker
-            .rpc(&json!({
-                "userpass": maker.userpass,
-                "method": "setprice",
-                "base": base,
-                "rel": rel,
-                "price": maker_price,
-                "volume": volume
-            }))
+        set_price(&maker, base, rel, &maker_price.to_string(), &volume.to_string(), false)
             .await
             .unwrap();
-        assert!(rc.0.is_success(), "!setprice: {}", rc.1);
     }
 
     for (base, rel) in pairs.iter() {
@@ -2544,20 +2563,10 @@ pub async fn start_swaps(
         assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
         Timer::sleep(1.).await;
         common::log::info!("Issue taker {}/{} buy request", base, rel);
-        let rc = taker
-            .rpc(&json!({
-                "userpass": taker.userpass,
-                "method": "buy",
-                "base": base,
-                "rel": rel,
-                "volume": volume,
-                "price": taker_price
-            }))
+        let rc = buy(&taker, base, rel, &taker_price.to_string(), &volume.to_string())
             .await
             .unwrap();
-        assert!(rc.0.is_success(), "!buy: {}", rc.1);
-        let buy_json: Json = serde_json::from_str(&rc.1).unwrap();
-        uuids.push(buy_json["result"]["uuid"].as_str().unwrap().to_owned());
+        uuids.push(rc.result.uuid.to_string());
     }
 
     for uuid in uuids.iter() {

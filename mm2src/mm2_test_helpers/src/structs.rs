@@ -77,7 +77,7 @@ impl RpcResponse {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(tag = "type", content = "data")]
 pub enum OrderType {
@@ -120,7 +120,7 @@ pub enum MatchBy {
     Pubkeys(HashSet<H256Json>),
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BuyOrSellRpcRes {
     pub base: String,
@@ -144,7 +144,7 @@ pub struct BuyOrSellRpcRes {
     pub rel_orderbook_ticker: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BuyOrSellRpcResult {
     pub result: BuyOrSellRpcRes,
