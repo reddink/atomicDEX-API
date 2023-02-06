@@ -235,8 +235,7 @@ impl Deserializable for BlockHeader {
             None
         };
 
-        let is_zcash = (version == 4 && !reader.coin_variant().is_btc_or_ppc())
-            || (version == 1 && reader.coin_variant().is_rick());
+        let is_zcash = version == 4 && !reader.coin_variant().is_btc_or_ppc() || reader.coin_variant().is_rick();
         let hash_final_sapling_root = if is_zcash { Some(reader.read()?) } else { None };
         let time = reader.read()?;
         let bits = if is_zcash {
