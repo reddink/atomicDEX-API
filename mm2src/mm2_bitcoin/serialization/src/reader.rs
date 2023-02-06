@@ -85,6 +85,8 @@ impl From<&str> for CoinVariant {
             t if t == "LBC" || t.contains("LBC-") || t.contains("LBC_") => CoinVariant::LBC,
             // "PPC", "PPC-segwit", etc..
             t if t == "PPC" || t.contains("PPC-") || t.contains("PPC_") => CoinVariant::PPC,
+            // "RICK"
+            t if t == "RICK" || t.contains("RICK-") || t.contains("RICK_") => CoinVariant::RICK,
             _ => CoinVariant::Standard,
         }
     }
