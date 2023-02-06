@@ -307,7 +307,7 @@ impl Deserializable for BlockHeader {
             (None, None, None)
         };
 
-        let header = BlockHeader {
+        Ok(BlockHeader {
             version,
             previous_header_hash,
             merkle_root_hash,
@@ -328,9 +328,7 @@ impl Deserializable for BlockHeader {
             n_height,
             n_nonce_u64,
             mix_hash,
-        };
-
-        Ok(header)
+        })
     }
 }
 
