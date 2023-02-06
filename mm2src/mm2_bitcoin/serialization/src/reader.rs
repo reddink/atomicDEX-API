@@ -57,6 +57,9 @@ pub enum CoinVariant {
     LBC,
     Standard,
     PPC,
+    /// Needed to deserialize `RICK` block headers correctly as it's genesis header is `version 1` while all other
+    /// block headers are `version 4`.
+    RICK,
 }
 
 impl CoinVariant {
@@ -66,7 +69,9 @@ impl CoinVariant {
 
     pub fn is_lbc(&self) -> bool { matches!(self, CoinVariant::LBC) }
 
-    pub fn is_ppc(&self) -> bool { matches!(self, CoinVariant::PPC) }
+    pub fn is_rick(&self) -> bool { matches!(self, CoinVariant::RICK) }
+
+    pub fn is_btc_or_ppc(&self) -> bool { matches!(self, CoinVariant::BTC | CoinVariant::PPC) }
 }
 
 impl From<&str> for CoinVariant {
