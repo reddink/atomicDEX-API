@@ -5,7 +5,8 @@ use common::{block_on, log};
 use gstuff::now_ms;
 use http::StatusCode;
 use mm2_number::BigDecimal;
-use mm2_test_helpers::for_tests::{init_lightning, init_lightning_status, my_balance, sign_message, start_swaps,
+use mm2_test_helpers::for_tests::{assert_coin_not_found_on_balance, disable_coin, disable_platform_coin_err,
+                                  init_lightning, init_lightning_status, my_balance, sign_message, start_swaps,
                                   verify_message, wait_for_swaps_finish_and_check_status, MarketMakerIt};
 use mm2_test_helpers::structs::{InitLightningStatus, InitTaskResult, LightningActivationResult, RpcV2Response,
                                 SignatureResponse, VerificationResponse};
@@ -241,38 +242,15 @@ fn test_enable_lightning() {
         "02ce55b18d617bf4ac27b0f045301a0bb4e71669ae45cb5f2529f2f217520ffca1"
     );
 
-    // Disable tBTC-TEST-segwit
-    let disabled = block_on(mm.rpc(&json! ({
-        "userpass": mm.userpass,
-        "method": "disable_coin",
-        "coin": "tBTC-TEST-segwit",
-    })))
-    .unwrap();
-    assert_eq!(disabled.0, StatusCode::OK);
+    // Try to disable platform coin, tBTC-TEST-segwit. This should fail without the `disable_tokens` flag.
+    block_on(disable_platform_coin_err(&mm, "tBTC-TEST-segwit"));
 
-    // Restart unit test to cover disabling platform coin with it's tokens for LightningCoin
-    let _electrum = block_on(enable_electrum(&mm, "tBTC-TEST-segwit", false, T_BTC_ELECTRUMS));
-    let enable_lightning = block_on(enable_lightning(&mm, "tBTC-TEST-lightning", 600));
-    assert_eq!(&enable_lightning.platform_coin, "tBTC-TEST-segwit");
-
-    // We try to disable tBTC-TEST-segwit
-    let disabled = block_on(mm.rpc(&json! ({
-        "userpass": mm.userpass,
-        "method": "disable_coin",
-        "coin": "tBTC-TEST-segwit",
-    })))
-    .unwrap();
-    assert_eq!(disabled.0, StatusCode::OK);
-
-    // Confirm that tBTC-TEST-lightning is also disabled!.
-    let response = block_on(mm.rpc(&json! ({
-        "userpass": mm.userpass,
-        "method": "my_balance",
-        "coin": "tBTC-TEST-lightning",
-    })))
-    .unwrap();
-    assert_eq!(response.0, StatusCode::INTERNAL_SERVER_ERROR);
-    assert!(response.1.contains("No such coin: tBTC-TEST-lightning"));
+    // Try to disable platform coin, tBTC-TEST-segwit, with the `disable_tokens` flag.
+    // tBTC-TEST-segwit and tBTC-TEST-lightning should be deactivated at once.
+    let res = block_on(disable_coin(&mm, "tBTC-TEST-segwit", Some(true)));
+    // Confirm that tBTC-TEST-lightning is also disabled.
+    assert!(res.tokens.contains("tBTC-TEST-lightning"));
+    block_on(assert_coin_not_found_on_balance(&mm, "tBTC-TEST-lightning"));
 
     // Stop mm2
     block_on(mm.stop()).unwrap();

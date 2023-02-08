@@ -1,7 +1,7 @@
 use common::block_on;
-use http::StatusCode;
 use mm2_number::BigDecimal;
-use mm2_test_helpers::for_tests::{atom_testnet_conf, enable_tendermint, enable_tendermint_token,
+use mm2_test_helpers::for_tests::{assert_coin_not_found_on_balance, atom_testnet_conf, disable_coin,
+                                  disable_platform_coin_err, enable_tendermint, enable_tendermint_token,
                                   get_tendermint_my_tx_history, iris_nimda_testnet_conf, iris_testnet_conf,
                                   my_balance, send_raw_transaction, withdraw_v1, MarketMakerIt, Mm2TestConf};
 use mm2_test_helpers::structs::{RpcV2Response, TendermintActivationResult, TransactionDetails};
@@ -290,22 +290,13 @@ fn test_disable_tendermint_platform_coin_with_token() {
     let activation_res = block_on(enable_tendermint_token(&mm, token));
     assert!(&activation_res.get("result").unwrap().get("balances").is_some());
 
-    // Try to disable platform coin, IRIS-TEST
-    let disable = block_on(mm.rpc(&json! ({
-        "userpass": mm.userpass,
-        "method": "disable_coin",
-        "coin": "IRIS-TEST",
-    })))
-    .unwrap();
-    assert_eq!(disable.0, StatusCode::OK);
+    // Try to disable platform coin, IRIS-TEST. This should fail without the `disable_tokens` flag.
+    block_on(disable_platform_coin_err(&mm, "IRIS-TEST"));
 
-    // Confirm platform coin token IRIS-NIMDA is also disabled
-    let response = block_on(mm.rpc(&json! ({
-        "userpass": mm.userpass,
-        "method": "my_balance",
-        "coin": "IRIS-NIMDA"
-    })))
-    .unwrap();
-    assert_eq!(response.0, StatusCode::INTERNAL_SERVER_ERROR);
-    assert!(response.1.contains("No such coin: IRIS-NIMDA"));
+    // Try to disable platform coin, IRIS-TEST, with the `disable_tokens` flag.
+    // IRIS-TEST and IRIS-NIMDA should be deactivated at once.
+    let res = block_on(disable_coin(&mm, "IRIS-TEST", Some(true)));
+    // Confirm IRIS-NIMDA token is also disabled
+    assert!(res.tokens.contains("IRIS-NIMDA"));
+    block_on(assert_coin_not_found_on_balance(&mm, "IRIS-NIMDA"));
 }

@@ -62,9 +62,17 @@ pub fn disable_coin_err(
         .map_err(|e| ERRL!("{}", e))
 }
 
+#[derive(Deserialize)]
+struct DisableCoinRequest {
+    coin: String,
+    #[serde(default)]
+    disable_tokens: bool,
+}
+
 /// Attempts to disable the coin
 pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
-    let ticker = try_s!(req["coin"].as_str().ok_or("No 'coin' field")).to_owned();
+    let req: DisableCoinRequest = try_s!(json::from_value(req));
+    let ticker = req.coin;
     let coin = match lp_coinfind(&ctx, &ticker).await {
         Ok(Some(t)) => t,
         Ok(None) => return ERR!("No such coin: {}", ticker),
@@ -74,6 +82,14 @@ pub async fn disable_coin(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, St
 
     // If a platform coin is to be disabled, we get all the enabled tokens for this platform coin first.
     let mut tokens_to_disable = coins_ctx.get_tokens_to_disable(&ticker).await;
+    if !req.disable_tokens && !tokens_to_disable.is_empty() {
+        return ERR!(
+            "There are tokens dependent on '{}': {:?}. Consider using 'disable_tokens' parameter to deactivate them",
+            ticker,
+            tokens_to_disable
+        );
+    }
+
     // We then add the platform coin to the list of the coins to be disabled.
     tokens_to_disable.insert(ticker.clone());
 
