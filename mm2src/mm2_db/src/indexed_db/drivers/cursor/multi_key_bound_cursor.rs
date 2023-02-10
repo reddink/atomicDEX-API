@@ -12,26 +12,19 @@ use web_sys::{IdbIndex, IdbKeyRange};
 /// with the multiple `only` and `bound` restrictions.
 /// https://developer.mozilla.org/en-US/docs/Web/API/IDBKeyRange/bound
 pub struct IdbMultiKeyBoundCursor {
-    db_index: IdbIndex,
     only_values: Vec<(String, Json)>,
     bound_values: Vec<(String, CursorBoundValue, CursorBoundValue)>,
-    /// An additional predicate that may be used to filter records.
-    collect_filter: Option<DbFilter>,
 }
 
 impl IdbMultiKeyBoundCursor {
     pub(super) fn new(
-        db_index: IdbIndex,
         only_values: Vec<(String, Json)>,
         bound_values: Vec<(String, CursorBoundValue, CursorBoundValue)>,
-        collect_filter: Option<DbFilter>,
     ) -> CursorResult<IdbMultiKeyBoundCursor> {
         Self::check_bounds(&only_values, &bound_values)?;
         Ok(IdbMultiKeyBoundCursor {
-            db_index,
             only_values,
             bound_values,
-            collect_filter,
         })
     }
 
@@ -85,8 +78,6 @@ impl IdbMultiKeyBoundCursor {
 
 #[async_trait(?Send)]
 impl CursorOps for IdbMultiKeyBoundCursor {
-    fn db_index(&self) -> &IdbIndex { &self.db_index }
-
     fn key_range(&self) -> CursorResult<Option<IdbKeyRange>> {
         let lower = Array::new();
         let upper = Array::new();
@@ -209,11 +200,6 @@ impl CursorOps for IdbMultiKeyBoundCursor {
             idx_in_index += 1;
             idx_in_bounds += 1;
         }
-
-        // `index_key` is in our expected bounds
-        if let Some(ref mut filter) = self.collect_filter {
-            return Ok(filter(value));
-        }
         Ok((CollectItemAction::Include, CollectCursorAction::Continue))
     }
 }
@@ -311,10 +297,7 @@ mod tests {
             ),
         ];
 
-        // Use [`wasm_bindgen::JsCast::unchecked_from_js`] to create not-valid `IdbIndex`
-        // that is not used by [`IdbMultiKeyBoundCursor::on_collect_iter`] anyway.
-        let db_index = IdbIndex::unchecked_from_js(JsValue::NULL);
-        let mut cursor = IdbMultiKeyBoundCursor::new(db_index, only_values, bound_values, None).unwrap();
+        let mut cursor = IdbMultiKeyBoundCursor::new(only_values, bound_values).unwrap();
 
         //////////////////
 
@@ -405,10 +388,7 @@ mod tests {
             ),
         ];
 
-        // Use [`wasm_bindgen::JsCast::unchecked_from_js`] to create not-valid `IdbIndex`
-        // that is not used by [`IdbMultiKeyBoundCursor::on_collect_iter`] anyway.
-        let db_index = IdbIndex::unchecked_from_js(JsValue::NULL);
-        let mut cursor = IdbMultiKeyBoundCursor::new(db_index, only_values, bound_values, None).unwrap();
+        let mut cursor = IdbMultiKeyBoundCursor::new(only_values, bound_values).unwrap();
 
         //////////////////
 
@@ -463,10 +443,7 @@ mod tests {
             CursorBoundValue::Uint(5), // upper bound
         )];
 
-        // Use [`wasm_bindgen::JsCast::unchecked_from_js`] to create not-valid `IdbIndex`
-        // that is not used by [`IdbMultiKeyBoundCursor::on_collect_iter`] anyway.
-        let db_index = IdbIndex::unchecked_from_js(JsValue::NULL);
-        let mut cursor = IdbMultiKeyBoundCursor::new(db_index, only_values, bound_values, None).unwrap();
+        let mut cursor = IdbMultiKeyBoundCursor::new(only_values, bound_values).unwrap();
 
         //////////////////
 
@@ -512,10 +489,7 @@ mod tests {
             CursorBoundValue::Uint(5), // upper bound
         )];
 
-        // Use [`wasm_bindgen::JsCast::unchecked_from_js`] to create not-valid `IdbIndex`
-        // that is not used by [`IdbMultiKeyBoundCursor::on_collect_iter`] anyway.
-        let db_index = IdbIndex::unchecked_from_js(JsValue::NULL);
-        let mut cursor = IdbMultiKeyBoundCursor::new(db_index, only_values, bound_values, None).unwrap();
+        let mut cursor = IdbMultiKeyBoundCursor::new(only_values, bound_values).unwrap();
 
         //////////////////
 

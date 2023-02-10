@@ -51,8 +51,8 @@
 
 use crate::indexed_db::db_driver::cursor::{CollectCursorAction, CollectItemAction, CursorBoundValue, CursorOps,
                                            DbFilter, IdbCursorBuilder};
-pub use crate::indexed_db::db_driver::cursor::{CursorError, CursorResult};
-use crate::indexed_db::{ItemId, TableSignature};
+pub use crate::indexed_db::db_driver::cursor::{CursorError, CursorResult,CursorFilters};
+use crate::indexed_db::{DbTable, ItemId, TableSignature};
 use async_trait::async_trait;
 use futures::channel::{mpsc, oneshot};
 use futures::StreamExt;
@@ -65,33 +65,66 @@ use std::marker::PhantomData;
 pub(super) type DbCursorEventTx = mpsc::UnboundedSender<DbCursorEvent>;
 pub(super) type DbCursorEventRx = mpsc::UnboundedReceiver<DbCursorEvent>;
 
-pub enum DbCursorEvent {
-    Collect {
-        options: CursorCollectOptions,
-        result_tx: oneshot::Sender<CursorResult<Vec<(ItemId, Json)>>>,
-    },
+pub struct CursorBuilder<'a, Table> {
+    index: String,
+    db_table: &'a DbTable<'a, Table>,
+    filters: CursorFilters,
 }
 
-pub enum CursorCollectOptions {
-    SingleKey {
-        field_name: String,
-        field_value: Json,
-        filter: Option<DbFilter>,
-    },
-    SingleKeyBound {
-        field_name: String,
-        lower_bound: CursorBoundValue,
-        upper_bound: CursorBoundValue,
-        filter: Option<DbFilter>,
-    },
-    MultiKey {
-        keys: Vec<(String, Json)>,
-        filter: Option<DbFilter>,
-    },
-    MultiKeyBound {
-        only_keys: Vec<(String, Json)>,
-        bound_keys: Vec<(String, CursorBoundValue, CursorBoundValue)>,
-        filter: Option<DbFilter>,
+impl<'a, Table: TableSignature> CursorBuilder<'a, Table> {
+    pub(crate) fn new(index: &str, db_table: &'a DbTable<'a, Table>) -> Self {
+        CursorBuilder {
+            index: index.to_string(),
+            db_table,
+            filters: CursorFilters::default(),
+        }
+    }
+
+    pub fn only<Value>(&mut self, field_name: &str, field_value: Value) -> CursorResult<()>
+    where
+        Value: Serialize + fmt::Debug,
+    {
+        let field_value_str = format!("{:?}", field_value);
+        let field_value = json::to_value(field_value).map_to_mm(|e| CursorError::ErrorSerializingIndexFieldValue {
+            field: field_name.to_owned(),
+            value: field_value_str,
+            description: e.to_string(),
+        })?;
+
+        self.filters.only_keys.push((field_name.to_owned(), field_value));
+        Ok(())
+    }
+
+    pub fn bound<Value>(&mut self, field_name: &str, lower_bound: Value, upper_bound: Value)
+    where
+        CursorBoundValue: From<Value>,
+    {
+        let lower_bound = CursorBoundValue::from(lower_bound);
+        let upper_bound = CursorBoundValue::from(upper_bound);
+        self.filters
+            .bound_keys
+            .push((field_name.to_owned(), lower_bound, upper_bound));
+    }
+
+    /// Opens a cursor by the specified `index`.
+    /// https://developer.mozilla.org/en-US/docs/Web/API/IDBObjectStore/openCursor
+    pub async fn open_cursor(self) -> CursorResult<CursorIter<'a, Table>> {
+        let event_tx = self.db_table.open_cursor(&self.index, self.filters).await?;
+        Ok(CursorIter {
+            event_tx,
+            phantom: PhantomData::default(),
+        })
+    }
+}
+
+pub struct CursorIter<'a, Table> {
+    event_tx: DbCursorEventTx,
+    phantom: PhantomData<&'a Table>,
+}
+
+pub enum DbCursorEvent {
+    NextItem {
+        result_tx: oneshot::Sender<CursorResult<Vec<(ItemId, Json)>>>,
     },
 }
 
@@ -155,364 +188,6 @@ async fn on_collect_cursor_event(
 
     let result = on_collect_cursor_event_impl(options, cursor_builder).await;
     result_tx.send(result).ok();
-}
-
-pub trait WithOnly: Sized {
-    type ResultCursor;
-
-    fn only<Value>(self, field_name: &str, field_value: Value) -> CursorResult<Self::ResultCursor>
-    where
-        Value: Serialize + fmt::Debug,
-    {
-        let field_value_str = format!("{:?}", field_value);
-        let field_value = json::to_value(field_value).map_to_mm(|e| CursorError::ErrorSerializingIndexFieldValue {
-            field: field_name.to_owned(),
-            value: field_value_str,
-            description: e.to_string(),
-        })?;
-        Ok(self.only_json(field_name, field_value))
-    }
-
-    fn only_json(self, field_name: &str, field_value: Json) -> Self::ResultCursor;
-}
-
-pub trait WithBound: Sized {
-    type ResultCursor;
-
-    fn bound<Value>(self, field_name: &str, lower_bound: Value, upper_bound: Value) -> Self::ResultCursor
-    where
-        CursorBoundValue: From<Value>,
-    {
-        let lower_bound = CursorBoundValue::from(lower_bound);
-        let upper_bound = CursorBoundValue::from(upper_bound);
-        self.bound_values(field_name, lower_bound, upper_bound)
-    }
-
-    fn bound_values(
-        self,
-        field_name: &str,
-        lower_bound: CursorBoundValue,
-        upper_bound: CursorBoundValue,
-    ) -> Self::ResultCursor;
-}
-
-pub trait WithFilter: Sized {
-    fn filter<F>(self, filter: F) -> Self
-    where
-        F: FnMut(&Json) -> (CollectItemAction, CollectCursorAction) + Send + 'static,
-    {
-        let filter = Box::new(filter);
-        self.filter_boxed(filter)
-    }
-
-    fn filter_boxed(self, filter: DbFilter) -> Self;
-}
-
-#[async_trait]
-pub trait CollectCursor<Table: TableSignature> {
-    async fn collect(self) -> CursorResult<Vec<(ItemId, Table)>>;
-}
-
-#[async_trait]
-impl<Table: TableSignature, T: CollectCursorImpl<Table> + Send> CollectCursor<Table> for T {
-    async fn collect(self) -> CursorResult<Vec<(ItemId, Table)>> { self.collect_impl().await }
-}
-
-#[async_trait]
-pub(crate) trait CollectCursorImpl<Table: TableSignature>: Sized {
-    fn into_collect_options(self) -> CursorCollectOptions;
-
-    fn event_tx(&self) -> DbCursorEventTx;
-
-    async fn collect_impl(self) -> CursorResult<Vec<(ItemId, Table)>> {
-        let event_tx = self.event_tx();
-        let options = self.into_collect_options();
-
-        let (result_tx, result_rx) = oneshot::channel();
-        let event = DbCursorEvent::Collect { result_tx, options };
-        let items: Vec<(ItemId, Json)> = send_event_recv_response(&event_tx, event, result_rx).await?;
-
-        items
-            .into_iter()
-            .map(|(item_id, item)| json::from_value(item).map(|item| (item_id, item)))
-            .map(|res| res.map_to_mm(|e| CursorError::ErrorDeserializingItem(e.to_string())))
-            // Item = CursorResult<(ItemId, Table)>
-            .collect()
-    }
-}
-
-pub struct DbEmptyCursor<'a, Table: TableSignature> {
-    event_tx: DbCursorEventTx,
-    filter: Option<DbFilter>,
-    phantom: PhantomData<&'a Table>,
-}
-
-impl<'a, Table: TableSignature> WithOnly for DbEmptyCursor<'a, Table> {
-    type ResultCursor = DbSingleKeyCursor<'a, Table>;
-
-    fn only_json(self, field_name: &str, field_value: Json) -> Self::ResultCursor {
-        DbSingleKeyCursor {
-            event_tx: self.event_tx,
-            field_name: field_name.to_owned(),
-            field_value,
-            filter: self.filter,
-            phantom: PhantomData::default(),
-        }
-    }
-}
-
-impl<'a, Table: TableSignature> WithBound for DbEmptyCursor<'a, Table> {
-    type ResultCursor = DbSingleKeyBoundCursor<'a, Table>;
-
-    fn bound_values(
-        self,
-        field_name: &str,
-        lower_bound: CursorBoundValue,
-        upper_bound: CursorBoundValue,
-    ) -> Self::ResultCursor {
-        DbSingleKeyBoundCursor {
-            event_tx: self.event_tx,
-            field_name: field_name.to_owned(),
-            lower_bound,
-            upper_bound,
-            filter: self.filter,
-            phantom: PhantomData::default(),
-        }
-    }
-}
-
-impl<'a, Table: TableSignature> WithFilter for DbEmptyCursor<'a, Table> {
-    fn filter_boxed(mut self, filter: DbFilter) -> Self {
-        self.filter = Some(filter);
-        self
-    }
-}
-
-impl<'a, Table: TableSignature> DbEmptyCursor<'a, Table> {
-    pub(super) fn new(event_tx: DbCursorEventTx) -> DbEmptyCursor<'a, Table> {
-        DbEmptyCursor {
-            event_tx,
-            filter: None,
-            phantom: PhantomData::default(),
-        }
-    }
-}
-
-pub struct DbSingleKeyCursor<'a, Table: TableSignature> {
-    event_tx: DbCursorEventTx,
-    field_name: String,
-    field_value: Json,
-    filter: Option<DbFilter>,
-    phantom: PhantomData<&'a Table>,
-}
-
-impl<'a, Table: TableSignature> WithOnly for DbSingleKeyCursor<'a, Table> {
-    type ResultCursor = DbMultiKeyCursor<'a, Table>;
-
-    fn only_json(self, field_name: &str, field_value: Json) -> Self::ResultCursor {
-        let keys = vec![
-            (self.field_name, self.field_value),
-            (field_name.to_owned(), field_value),
-        ];
-        DbMultiKeyCursor {
-            event_tx: self.event_tx,
-            keys,
-            filter: self.filter,
-            phantom: PhantomData::default(),
-        }
-    }
-}
-
-impl<'a, Table: TableSignature> WithBound for DbSingleKeyCursor<'a, Table> {
-    type ResultCursor = DbMultiKeyBoundCursor<'a, Table>;
-
-    fn bound_values(
-        self,
-        field_name: &str,
-        lower_bound: CursorBoundValue,
-        upper_bound: CursorBoundValue,
-    ) -> Self::ResultCursor {
-        let only_keys = vec![(self.field_name, self.field_value)];
-        let bound_keys = vec![(field_name.to_owned(), lower_bound, upper_bound)];
-        DbMultiKeyBoundCursor {
-            event_tx: self.event_tx,
-            only_keys,
-            bound_keys,
-            filter: self.filter,
-            phantom: PhantomData::default(),
-        }
-    }
-}
-
-impl<'a, Table: TableSignature> WithFilter for DbSingleKeyCursor<'a, Table> {
-    fn filter_boxed(mut self, filter: DbFilter) -> Self {
-        self.filter = Some(filter);
-        self
-    }
-}
-
-#[async_trait]
-impl<'a, Table: TableSignature> CollectCursorImpl<Table> for DbSingleKeyCursor<'a, Table> {
-    fn into_collect_options(self) -> CursorCollectOptions {
-        CursorCollectOptions::SingleKey {
-            field_name: self.field_name,
-            field_value: self.field_value,
-            filter: self.filter,
-        }
-    }
-
-    fn event_tx(&self) -> DbCursorEventTx { self.event_tx.clone() }
-}
-
-/// `DbSingleKeyBoundCursor` doesn't implement `WithOnly` trait, because indexes MUST start with `only` values.
-pub struct DbSingleKeyBoundCursor<'a, Table: TableSignature> {
-    event_tx: DbCursorEventTx,
-    field_name: String,
-    lower_bound: CursorBoundValue,
-    upper_bound: CursorBoundValue,
-    filter: Option<DbFilter>,
-    phantom: PhantomData<&'a Table>,
-}
-
-impl<'a, Table: TableSignature> WithBound for DbSingleKeyBoundCursor<'a, Table> {
-    type ResultCursor = DbMultiKeyBoundCursor<'a, Table>;
-
-    fn bound_values(
-        self,
-        field_name: &str,
-        lower_bound: CursorBoundValue,
-        upper_bound: CursorBoundValue,
-    ) -> Self::ResultCursor {
-        let bound_keys = vec![
-            (self.field_name, self.lower_bound, self.upper_bound),
-            (field_name.to_owned(), lower_bound, upper_bound),
-        ];
-        DbMultiKeyBoundCursor {
-            event_tx: self.event_tx,
-            only_keys: Vec::new(),
-            bound_keys,
-            filter: self.filter,
-            phantom: PhantomData::default(),
-        }
-    }
-}
-
-impl<'a, Table: TableSignature> WithFilter for DbSingleKeyBoundCursor<'a, Table> {
-    fn filter_boxed(mut self, filter: DbFilter) -> Self {
-        self.filter = Some(filter);
-        self
-    }
-}
-
-#[async_trait]
-impl<'a, Table: TableSignature> CollectCursorImpl<Table> for DbSingleKeyBoundCursor<'a, Table> {
-    fn into_collect_options(self) -> CursorCollectOptions {
-        CursorCollectOptions::SingleKeyBound {
-            field_name: self.field_name,
-            lower_bound: self.lower_bound,
-            upper_bound: self.upper_bound,
-            filter: self.filter,
-        }
-    }
-
-    fn event_tx(&self) -> DbCursorEventTx { self.event_tx.clone() }
-}
-
-pub struct DbMultiKeyCursor<'a, Table: TableSignature> {
-    event_tx: DbCursorEventTx,
-    keys: Vec<(String, Json)>,
-    filter: Option<DbFilter>,
-    phantom: PhantomData<&'a Table>,
-}
-
-impl<'a, Table: TableSignature> WithOnly for DbMultiKeyCursor<'a, Table> {
-    type ResultCursor = DbMultiKeyCursor<'a, Table>;
-
-    fn only_json(mut self, field_name: &str, field_value: Json) -> Self::ResultCursor {
-        self.keys.push((field_name.to_owned(), field_value));
-        self
-    }
-}
-
-impl<'a, Table: TableSignature> WithBound for DbMultiKeyCursor<'a, Table> {
-    type ResultCursor = DbMultiKeyBoundCursor<'a, Table>;
-
-    fn bound_values(
-        self,
-        field_name: &str,
-        lower_bound: CursorBoundValue,
-        upper_bound: CursorBoundValue,
-    ) -> Self::ResultCursor {
-        DbMultiKeyBoundCursor {
-            event_tx: self.event_tx,
-            only_keys: self.keys,
-            bound_keys: vec![(field_name.to_owned(), lower_bound, upper_bound)],
-            filter: self.filter,
-            phantom: PhantomData::default(),
-        }
-    }
-}
-
-impl<'a, Table: TableSignature> WithFilter for DbMultiKeyCursor<'a, Table> {
-    fn filter_boxed(mut self, filter: DbFilter) -> Self {
-        self.filter = Some(filter);
-        self
-    }
-}
-
-#[async_trait]
-impl<'a, Table: TableSignature> CollectCursorImpl<Table> for DbMultiKeyCursor<'a, Table> {
-    fn into_collect_options(self) -> CursorCollectOptions {
-        CursorCollectOptions::MultiKey {
-            keys: self.keys,
-            filter: self.filter,
-        }
-    }
-
-    fn event_tx(&self) -> DbCursorEventTx { self.event_tx.clone() }
-}
-
-/// `DbMultiKeyBoundCursor` doesn't implement `WithOnly` trait, because indexes MUST start with `only` values.
-pub struct DbMultiKeyBoundCursor<'a, Table: TableSignature> {
-    event_tx: DbCursorEventTx,
-    only_keys: Vec<(String, Json)>,
-    bound_keys: Vec<(String, CursorBoundValue, CursorBoundValue)>,
-    filter: Option<DbFilter>,
-    phantom: PhantomData<&'a Table>,
-}
-
-impl<'a, Table: TableSignature> WithBound for DbMultiKeyBoundCursor<'a, Table> {
-    type ResultCursor = DbMultiKeyBoundCursor<'a, Table>;
-
-    fn bound_values(
-        mut self,
-        field_name: &str,
-        lower_bound: CursorBoundValue,
-        upper_bound: CursorBoundValue,
-    ) -> Self::ResultCursor {
-        self.bound_keys.push((field_name.to_owned(), lower_bound, upper_bound));
-        self
-    }
-}
-
-impl<'a, Table: TableSignature> WithFilter for DbMultiKeyBoundCursor<'a, Table> {
-    fn filter_boxed(mut self, filter: DbFilter) -> Self {
-        self.filter = Some(filter);
-        self
-    }
-}
-
-#[async_trait]
-impl<'a, Table: TableSignature> CollectCursorImpl<Table> for DbMultiKeyBoundCursor<'a, Table> {
-    fn into_collect_options(self) -> CursorCollectOptions {
-        CursorCollectOptions::MultiKeyBound {
-            only_keys: self.only_keys,
-            bound_keys: self.bound_keys,
-            filter: self.filter,
-        }
-    }
-
-    fn event_tx(&self) -> DbCursorEventTx { self.event_tx.clone() }
 }
 
 async fn send_event_recv_response<Event, Result>(

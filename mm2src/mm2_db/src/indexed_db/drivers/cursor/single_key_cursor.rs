@@ -10,37 +10,25 @@ use web_sys::{IdbIndex, IdbKeyRange};
 /// whose value of the [`IdbSingleKeyCursor::field_name`] field equals to the [`IdbSingleKeyCursor::field_value`] value.
 /// https://developer.mozilla.org/en-US/docs/Web/API/IDBKeyRange/only
 pub struct IdbSingleKeyCursor {
-    db_index: IdbIndex,
     #[allow(dead_code)]
     field_name: String,
     field_value: Json,
-    /// An additional predicate that may be used to filter records.
-    collect_filter: Option<DbFilter>,
 }
 
 impl IdbSingleKeyCursor {
-    pub(super) fn new(
-        db_index: IdbIndex,
-        field_name: String,
-        field_value: Json,
-        filter: Option<DbFilter>,
-    ) -> IdbSingleKeyCursor {
+    pub(super) fn new(field_name: String, field_value: Json, filter: Option<DbFilter>) -> IdbSingleKeyCursor {
         if filter.is_none() {
             warn!("Consider using 'IdbObjectStoreImpl::get_items' instead of 'IdbSingleKeyCursor'");
         }
         IdbSingleKeyCursor {
-            db_index,
             field_name,
             field_value,
-            collect_filter: None,
         }
     }
 }
 
 #[async_trait(?Send)]
 impl CursorOps for IdbSingleKeyCursor {
-    fn db_index(&self) -> &IdbIndex { &self.db_index }
-
     fn key_range(&self) -> CursorResult<Option<IdbKeyRange>> {
         let js_value =
             serialize_to_js(&self.field_value).map_to_mm(|e| CursorError::ErrorSerializingIndexFieldValue {
@@ -60,9 +48,6 @@ impl CursorOps for IdbSingleKeyCursor {
         _key: JsValue,
         value: &Json,
     ) -> CursorResult<(CollectItemAction, CollectCursorAction)> {
-        if let Some(ref mut filter) = self.collect_filter {
-            return Ok(filter(value));
-        }
         Ok((CollectItemAction::Include, CollectCursorAction::Continue))
     }
 }

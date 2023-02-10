@@ -48,7 +48,7 @@ pub use db_driver::{DbTransactionError, DbTransactionResult, DbUpgrader, InitDbE
 pub use db_lock::{ConstructibleDb, DbLocked, SharedDb, WeakDb};
 
 use db_driver::{IdbDatabaseBuilder, IdbDatabaseImpl, IdbObjectStoreImpl, IdbTransactionImpl, OnUpgradeNeededCb};
-use indexed_cursor::{cursor_event_loop, DbCursorEventTx, DbEmptyCursor};
+use indexed_cursor::{cursor_event_loop, CursorBuilder, CursorFilters, DbCursorEventTx};
 
 type DbEventTx = mpsc::UnboundedSender<internal::DbEvent>;
 type DbTransactionEventTx = mpsc::UnboundedSender<internal::DbTransactionEvent>;
@@ -307,7 +307,7 @@ pub enum AddOrIgnoreResult {
     ExistAlready(ItemId),
 }
 
-impl<Table: TableSignature> DbTable<'_, Table> {
+impl<'a, Table: TableSignature> DbTable<'a, Table> {
     /// Adds the given item to the table.
     /// https://developer.mozilla.org/en-US/docs/Web/API/IDBObjectStore/add
     pub async fn add_item(&self, item: &Table) -> DbTransactionResult<ItemId> {
@@ -636,23 +636,27 @@ impl<Table: TableSignature> DbTable<'_, Table> {
         send_event_recv_response(&self.event_tx, event, result_rx).await
     }
 
-    /// Opens a cursor by the specified `index`.
-    /// https://developer.mozilla.org/en-US/docs/Web/API/IDBObjectStore/openCursor
-    pub async fn open_cursor(&self, index: &str) -> DbTransactionResult<DbEmptyCursor<'_, Table>> {
-        let (result_tx, result_rx) = oneshot::channel();
-        let event = internal::DbTableEvent::OpenCursor {
-            index: index.to_owned(),
-            result_tx,
-        };
-        let cursor_event_tx = send_event_recv_response(&self.event_tx, event, result_rx).await?;
-        Ok(DbEmptyCursor::new(cursor_event_tx))
-    }
+    /// TODO add a comment.
+    pub fn cursor_builder(&self, index: &str) -> CursorBuilder<DbTable<'a, Table>> { CursorBuilder::new(index, self) }
 
     /// Whether the transaction is aborted.
     pub async fn aborted(&self) -> DbTransactionResult<bool> {
         let (result_tx, result_rx) = oneshot::channel();
         let event = internal::DbTableEvent::IsAborted { result_tx };
         send_event_recv_response(&self.event_tx, event, result_rx).await
+    }
+
+    /// Opens a cursor by the specified `index`.
+    /// https://developer.mozilla.org/en-US/docs/Web/API/IDBObjectStore/openCursor
+    async fn open_cursor(&self, index: &str, filters: CursorFilters) -> DbTransactionResult<DbCursorEventTx> {
+        let (result_tx, result_rx) = oneshot::channel();
+        let event = internal::DbTableEvent::OpenCursor {
+            index: index.to_owned(),
+            filters,
+            result_tx,
+        };
+        let cursor_event_tx = send_event_recv_response(&self.event_tx, event, result_rx).await?;
+        Ok(cursor_event_tx)
     }
 
     fn deserialize_items(items: Vec<(ItemId, Json)>) -> DbTransactionResult<Vec<(ItemId, Table)>> {
@@ -726,7 +730,11 @@ async fn table_event_loop(mut rx: mpsc::UnboundedReceiver<internal::DbTableEvent
             internal::DbTableEvent::IsAborted { result_tx } => {
                 result_tx.send(Ok(table.aborted())).ok();
             },
-            internal::DbTableEvent::OpenCursor { index, result_tx } => {
+            internal::DbTableEvent::OpenCursor {
+                index,
+                filters,
+                result_tx,
+            } => {
                 open_cursor(&table, index, result_tx);
             },
         }
@@ -761,6 +769,7 @@ impl MultiIndex {
 fn open_cursor(
     table: &IdbObjectStoreImpl,
     index: String,
+    filters: CursorFilters,
     result_tx: oneshot::Sender<DbTransactionResult<DbCursorEventTx>>,
 ) {
     let cursor_builder = match table.cursor_builder(&index) {
@@ -843,6 +852,7 @@ mod internal {
         },
         OpenCursor {
             index: String,
+            filters: CursorFilters,
             result_tx: oneshot::Sender<DbTransactionResult<DbCursorEventTx>>,
         },
     }
