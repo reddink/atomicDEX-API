@@ -4,8 +4,8 @@ use chain::Transaction as UtxoTx;
 use common::log::error;
 use keys::hash::H256;
 use serialization::serialize_list;
-use spv_validation::helpers_validation::SPVError;
 use spv_validation::spv_proof::{SPVProof, TRY_SPV_PROOF_INTERVAL};
+use spv_validation::validation::SPVError;
 
 #[async_trait]
 pub trait SimplePaymentVerification {

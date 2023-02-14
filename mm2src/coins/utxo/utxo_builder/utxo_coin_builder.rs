@@ -33,8 +33,8 @@ use primitives::hash::H160;
 use rand::seq::SliceRandom;
 use serde_json::{self as json, Value as Json};
 use spv_validation::conf::SPVConf;
-use spv_validation::helpers_validation::SPVError;
 use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
+use spv_validation::validation::SPVError;
 use std::sync::{Arc, Mutex, Weak};
 
 cfg_native! {

@@ -1,4 +1,4 @@
-use crate::helpers_validation::{merkle_prove, validate_vin, validate_vout, SPVError};
+use crate::validation::{merkle_prove, validate_vin, validate_vout, SPVError};
 use chain::BlockHeader;
 use primitives::hash::H256;
 

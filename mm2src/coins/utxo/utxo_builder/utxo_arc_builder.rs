@@ -18,8 +18,8 @@ use script::Builder;
 use serde_json::Value as Json;
 use serialization::Reader;
 use spv_validation::conf::SPVConf;
-use spv_validation::helpers_validation::validate_headers;
 use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
+use spv_validation::validation::validate_headers;
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 

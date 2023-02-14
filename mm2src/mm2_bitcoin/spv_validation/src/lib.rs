@@ -13,7 +13,8 @@ extern crate test_helpers;
 pub mod conf;
 
 /// `helpers_validation` Override function modules from bitcoin_spv and adapt for our mm2_bitcoin library
-pub mod helpers_validation;
+pub mod helpers;
+pub use helpers::validation;
 
 /// `spv_proof` Contains spv proof validation logic and data structure.
 pub mod spv_proof;

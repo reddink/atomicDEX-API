@@ -1,4 +1,4 @@
-use crate::helpers_validation::SPVError;
+use super::SPVError;
 use crate::work::{DifficultyAlgorithm, RETARGETING_INTERVAL};
 use chain::{BlockHeader, BlockHeaderBits};
 use primitives::hash::H256;
