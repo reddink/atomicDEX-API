@@ -60,33 +60,37 @@ pub enum CoinVariant {
     /// Needed to deserialize `RICK` block headers correctly as it's genesis header is `version 1` while all other
     /// block headers are `version 4`.
     RICK,
+    /// Same reason as RICK.
+    MORTY,
 }
 
 impl CoinVariant {
     pub fn is_btc(&self) -> bool { matches!(self, CoinVariant::BTC) }
-
-    pub fn is_qtum(&self) -> bool { matches!(self, CoinVariant::Qtum) }
-
-    pub fn is_lbc(&self) -> bool { matches!(self, CoinVariant::LBC) }
-
-    pub fn is_rick(&self) -> bool { matches!(self, CoinVariant::RICK) }
-
     pub fn is_btc_or_ppc(&self) -> bool { matches!(self, CoinVariant::BTC | CoinVariant::PPC) }
+    pub fn is_qtum(&self) -> bool { matches!(self, CoinVariant::Qtum) }
+    pub fn is_lbc(&self) -> bool { matches!(self, CoinVariant::LBC) }
+    pub fn is_morty_or_rick(&self) -> bool { matches!(self, CoinVariant::RICK | CoinVariant::MORTY) }
 }
 
 impl From<&str> for CoinVariant {
     fn from(ticker: &str) -> Self {
+        let match_variant = |ticker: &str, with| {
+            ticker == with || ticker.contains(&format!("{with}-")) || ticker.contains(&format!("{with}_"))
+        };
+
         match ticker {
             // "BTC", "BTC-segwit", "tBTC", "tBTC-segwit", etc..
-            t if t == "BTC" || t.contains("BTC-") || t.contains("BTC_") => CoinVariant::BTC,
+            t if match_variant(t, "BTC") => CoinVariant::BTC,
             // "QTUM", "QTUM-segwit", "tQTUM", "tQTUM-segwit", etc..
-            t if t == "QTUM" || t.contains("QTUM-") || t.contains("QTUM_") => CoinVariant::Qtum,
+            t if match_variant(t, "QTUM") => CoinVariant::Qtum,
             // "LBC", "LBC-segwit", etc..
-            t if t == "LBC" || t.contains("LBC-") || t.contains("LBC_") => CoinVariant::LBC,
+            t if match_variant(t, "LBC") => CoinVariant::LBC,
             // "PPC", "PPC-segwit", etc..
-            t if t == "PPC" || t.contains("PPC-") || t.contains("PPC_") => CoinVariant::PPC,
+            t if match_variant(t, "PPC") => CoinVariant::PPC,
             // "RICK"
-            t if t == "RICK" || t.contains("RICK-") || t.contains("RICK_") => CoinVariant::RICK,
+            t if match_variant(t, "RICK") => CoinVariant::RICK,
+            // "MORTY
+            t if match_variant(t, "MORTY") => CoinVariant::MORTY,
             _ => CoinVariant::Standard,
         }
     }
