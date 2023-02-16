@@ -66,31 +66,31 @@ pub enum CoinVariant {
 
 impl CoinVariant {
     pub fn is_btc(&self) -> bool { matches!(self, CoinVariant::BTC) }
-    pub fn is_btc_or_ppc(&self) -> bool { matches!(self, CoinVariant::BTC | CoinVariant::PPC) }
     pub fn is_qtum(&self) -> bool { matches!(self, CoinVariant::Qtum) }
     pub fn is_lbc(&self) -> bool { matches!(self, CoinVariant::LBC) }
-    pub fn is_morty_or_rick(&self) -> bool { matches!(self, CoinVariant::RICK | CoinVariant::MORTY) }
+    pub fn is_ppc(&self) -> bool { matches!(self, CoinVariant::PPC) }
+    pub fn is_kmd_assetchain(&self) -> bool { matches!(self, CoinVariant::RICK | CoinVariant::MORTY) }
+}
+
+fn ticker_matches(ticker: &str, with: &str) -> bool {
+    ticker == with || ticker.contains(&format!("{with}-")) || ticker.contains(&format!("{with}_"))
 }
 
 impl From<&str> for CoinVariant {
     fn from(ticker: &str) -> Self {
-        let match_variant = |ticker: &str, with| {
-            ticker == with || ticker.contains(&format!("{with}-")) || ticker.contains(&format!("{with}_"))
-        };
-
         match ticker {
             // "BTC", "BTC-segwit", "tBTC", "tBTC-segwit", etc..
-            t if match_variant(t, "BTC") => CoinVariant::BTC,
+            t if ticker_matches(t, "BTC") => CoinVariant::BTC,
             // "QTUM", "QTUM-segwit", "tQTUM", "tQTUM-segwit", etc..
-            t if match_variant(t, "QTUM") => CoinVariant::Qtum,
+            t if ticker_matches(t, "QTUM") => CoinVariant::Qtum,
             // "LBC", "LBC-segwit", etc..
-            t if match_variant(t, "LBC") => CoinVariant::LBC,
+            t if ticker_matches(t, "LBC") => CoinVariant::LBC,
             // "PPC", "PPC-segwit", etc..
-            t if match_variant(t, "PPC") => CoinVariant::PPC,
+            t if ticker_matches(t, "PPC") => CoinVariant::PPC,
             // "RICK"
-            t if match_variant(t, "RICK") => CoinVariant::RICK,
+            t if ticker_matches(t, "RICK") => CoinVariant::RICK,
             // "MORTY
-            t if match_variant(t, "MORTY") => CoinVariant::MORTY,
+            t if ticker_matches(t, "MORTY") => CoinVariant::MORTY,
             _ => CoinVariant::Standard,
         }
     }
