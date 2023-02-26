@@ -5,8 +5,9 @@
 
 [package]
 name = "mm2_main"
-version = "0.1.0"
-edition = "2018"
+version = "1.0.0-beta"
+edition = "2021"
+authors = ["James Lee", "Artem Pikulin", "Artem Grinblat", "Omar S.", "Onur Ozkan", "Alina Sharon", "Caglar Kaya", "Cipi", "Sergey Boiko", "Samuel Onoja", "Roman Sztergbaum", "Kadan Stadelmann <ca333@komodoplatform.com>"]
 
 [lib]
 doctest = false
