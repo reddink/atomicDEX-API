@@ -20,7 +20,7 @@ jobs:
     - run: rustup default nightly-2022-02-01
     - run: rustup component add rustfmt-preview
     - name: Build
-      run: cargo build --v
+      run: cargo build -vv
     - name: Run tests
-      run: cargo test --v
+      run: cargo test -vv
 
