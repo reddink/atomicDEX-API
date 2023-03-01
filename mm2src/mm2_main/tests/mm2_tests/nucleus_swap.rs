@@ -3,8 +3,8 @@ use common::executor::Timer;
 use common::{block_on, log};
 use mm2_number::BigDecimal;
 use mm2_test_helpers::for_tests::{check_my_swap_status, check_recent_swaps, check_stats_swap_status, enable_eth_coin,
-                                  enable_tendermint, iris_nimda_testnet_conf, iris_testnet_conf, rick_conf, tbnb_conf,
-                                  usdc_ibc_iris_testnet_conf, MarketMakerIt, MAKER_ERROR_EVENTS, MAKER_SUCCESS_EVENTS,
+                                  enable_tendermint, nucleus_iris_ibc_testnet_conf, nucleus_testnet_conf, rick_conf,
+                                  tbnb_conf, MarketMakerIt, MAKER_ERROR_EVENTS, MAKER_SUCCESS_EVENTS,
                                   RICK_ELECTRUM_ADDRS, TAKER_ERROR_EVENTS, TAKER_SUCCESS_EVENTS};
 use mm2_test_helpers::structs::OrderbookResponse;
 use serde_json::{json, Value as Json};
@@ -17,30 +17,27 @@ const TBNB_URLS: &[&str] = &["https://data-seed-prebsc-1-s3.binance.org:8545/"];
 const TBNB_SWAP_CONTRACT: &str = "0xB1Ad803ea4F57401639c123000C75F5B66E4D123";
 
 #[test]
-#[ignore]
-// TODO https://github.com/KomodoPlatform/atomicDEX-API/issues/1569
 fn start_swap_operation() {
     let pairs = [
-        ("USDC-IBC-IRIS", "IRIS-NIMDA"),
-        ("IRIS-NIMDA", "RICK"),
-        ("USDC-IBC-IRIS", "tBNB"),
+        ("NUCLEUS-TEST", "IRIS-IBC-NUCLEUS-TEST"),
+        ("IRIS-IBC-NUCLEUS-TEST", "RICK"),
+        ("NUCLEUS-TEST", "tBNB"),
     ];
-    block_on(trade_base_rel_iris(&pairs, 1, 2, 0.01));
+    block_on(trade_base_rel_nucleus(&pairs, 1, 2, 0.008));
 }
 
-pub async fn trade_base_rel_iris(
+pub async fn trade_base_rel_nucleus(
     pairs: &[(&'static str, &'static str)],
     maker_price: i32,
     taker_price: i32,
     volume: f64,
 ) {
-    let bob_passphrase = String::from("iris test seed");
-    let alice_passphrase = String::from("iris test2 seed");
+    let bob_passphrase = String::from("nucleus test seed");
+    let alice_passphrase = String::from("nucleus test2 seed");
 
     let coins = json!([
-        usdc_ibc_iris_testnet_conf(),
-        iris_nimda_testnet_conf(),
-        iris_testnet_conf(),
+        nucleus_testnet_conf(),
+        nucleus_iris_ibc_testnet_conf(),
         rick_conf(),
         tbnb_conf(),
     ]);
@@ -90,9 +87,9 @@ pub async fn trade_base_rel_iris(
     dbg!(
         enable_tendermint(
             &mm_bob,
-            "IRIS-TEST",
-            &["IRIS-NIMDA", "USDC-IBC-IRIS"],
-            &["http://34.80.202.172:26657"],
+            "NUCLEUS-TEST",
+            &["IRIS-IBC-NUCLEUS-TEST"],
+            &["http://65.109.231.159:26657"],
             false
         )
         .await
@@ -102,9 +99,9 @@ pub async fn trade_base_rel_iris(
     dbg!(
         enable_tendermint(
             &mm_alice,
-            "IRIS-TEST",
-            &["IRIS-NIMDA", "USDC-IBC-IRIS"],
-            &["http://34.80.202.172:26657"],
+            "NUCLEUS-TEST",
+            &["IRIS-IBC-NUCLEUS-TEST"],
+            &["http://65.109.231.159:26657"],
             false
         )
         .await

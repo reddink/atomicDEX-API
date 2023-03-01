@@ -1,6 +1,6 @@
-use super::iris::htlc::{IrisHtlc, MsgClaimHtlc, MsgCreateHtlc, HTLC_STATE_COMPLETED, HTLC_STATE_OPEN,
-                        HTLC_STATE_REFUNDED};
-use super::iris::htlc_proto::{CreateHtlcProtoRep, QueryHtlcRequestProto, QueryHtlcResponseProto};
+use super::nucleus::htlc::{IrisHtlc, MsgClaimHtlc, MsgCreateHtlc, HTLC_STATE_COMPLETED, HTLC_STATE_OPEN,
+                           HTLC_STATE_REFUNDED};
+use super::nucleus::htlc_proto::{CreateHtlcProtoRep, QueryHtlcRequestProto, QueryHtlcResponseProto};
 use super::rpc::*;
 use crate::coin_errors::{MyAddressError, ValidatePaymentError};
 use crate::utxo::sat_from_big_decimal;
@@ -73,7 +73,7 @@ const ABCI_SIMULATE_TX_PATH: &str = "/cosmos.tx.v1beta1.Service/Simulate";
 const ABCI_QUERY_ACCOUNT_PATH: &str = "/cosmos.auth.v1beta1.Query/Account";
 const ABCI_QUERY_BALANCE_PATH: &str = "/cosmos.bank.v1beta1.Query/Balance";
 const ABCI_GET_TX_PATH: &str = "/cosmos.tx.v1beta1.Service/GetTx";
-const ABCI_QUERY_HTLC_PATH: &str = "/irismod.htlc.Query/HTLC";
+const ABCI_QUERY_HTLC_PATH: &str = "/nucleus.htlc.Query/HTLC";
 const ABCI_GET_TXS_EVENT_PATH: &str = "/cosmos.tx.v1beta1.Service/GetTxsEvent";
 
 pub(crate) const MIN_TX_SATOSHIS: i64 = 1;
@@ -82,13 +82,13 @@ pub(crate) const MIN_TX_SATOSHIS: i64 = 1;
 const ABCI_REQUEST_HEIGHT: Option<Height> = None;
 const ABCI_REQUEST_PROVE: bool = false;
 
-/// 0.25 is good average gas price on atom and iris
+/// 0.25 is good average gas price
 const DEFAULT_GAS_PRICE: f64 = 0.25;
 pub(super) const TIMEOUT_HEIGHT_DELTA: u64 = 100;
-pub const GAS_LIMIT_DEFAULT: u64 = 100_000;
+pub const GAS_LIMIT_DEFAULT: u64 = 125_000;
 pub(crate) const TX_DEFAULT_MEMO: &str = "";
 
-// https://github.com/irisnet/irismod/blob/5016c1be6fdbcffc319943f33713f4a057622f0a/modules/htlc/types/validation.go#L19-L22
+// https://github.com/KomodoPlatform/nucleus/blob/05b261200311af692c9f5cad0b24eb317cb3fe09/x/htlc/types/validation.go#L19-L22
 const MAX_TIME_LOCK: i64 = 34560;
 const MIN_TIME_LOCK: i64 = 50;
 
@@ -214,7 +214,6 @@ pub struct TendermintCoinImpl {
     pub(super) denom: Denom,
     chain_id: ChainId,
     gas_price: Option<f64>,
-    pub(super) sequence_lock: AsyncMutex<()>,
     pub(crate) tokens_info: PaMutex<HashMap<String, ActivatedTokenInfo>>,
     /// This spawner is used to spawn coin's related futures that should be aborted on coin deactivation
     /// or on [`MmArc::stop`].
@@ -265,6 +264,7 @@ pub enum TendermintCoinRpcError {
     InvalidResponse(String),
     PerformError(String),
     RpcClientError(String),
+    InternalError(String),
 }
 
 impl From<DecodeError> for TendermintCoinRpcError {
@@ -282,6 +282,7 @@ impl From<TendermintCoinRpcError> for BalanceError {
             TendermintCoinRpcError::Prost(e) => BalanceError::InvalidResponse(e.to_string()),
             TendermintCoinRpcError::PerformError(e) => BalanceError::Transport(e),
             TendermintCoinRpcError::RpcClientError(e) => BalanceError::Transport(e),
+            TendermintCoinRpcError::InternalError(e) => BalanceError::Internal(e),
         }
     }
 }
@@ -293,6 +294,7 @@ impl From<TendermintCoinRpcError> for ValidatePaymentError {
             TendermintCoinRpcError::Prost(e) => ValidatePaymentError::InvalidRpcResponse(e.to_string()),
             TendermintCoinRpcError::PerformError(e) => ValidatePaymentError::Transport(e),
             TendermintCoinRpcError::RpcClientError(e) => ValidatePaymentError::Transport(e),
+            TendermintCoinRpcError::InternalError(e) => ValidatePaymentError::InternalError(e),
         }
     }
 }
@@ -498,7 +500,6 @@ impl TendermintCoin {
             chain_id,
             gas_price: protocol_info.gas_price,
             avg_blocktime: conf.avg_blocktime,
-            sequence_lock: AsyncMutex::new(()),
             tokens_info: PaMutex::new(HashMap::new()),
             abortable_system,
             history_sync_state: Mutex::new(history_sync_state),
@@ -567,9 +568,8 @@ impl TendermintCoin {
         sign_doc.sign(&signkey)?.to_bytes()
     }
 
-    /// This is converted from irismod and cosmos-sdk source codes written in golang.
     /// Refs:
-    ///  - Main algorithm: https://github.com/irisnet/irismod/blob/main/modules/htlc/types/htlc.go#L157
+    ///  - Main algorithm: https://github.com/KomodoPlatform/nucleus/blob/05b261200311af692c9f5cad0b24eb317cb3fe09/x/htlc/types/htlc.go#L157
     ///  - Coins string building https://github.com/cosmos/cosmos-sdk/blob/main/types/coin.go#L210-L225
     fn calculate_htlc_id(
         &self,
@@ -596,23 +596,88 @@ impl TendermintCoin {
         sha256(&htlc_id).to_string().to_uppercase()
     }
 
+    pub(super) async fn seq_safe_send_raw_tx_bytes(
+        &self,
+        tx_payload: Any,
+        fee: Fee,
+        timeout_height: u64,
+        memo: String,
+    ) -> Result<(String, Raw), TransactionErr> {
+        let (tx_id, tx_raw) = loop {
+            let tx_raw = try_tx_s!(self.any_to_signed_raw_tx(
+                try_tx_s!(self.my_account_info().await),
+                tx_payload.clone(),
+                fee.clone(),
+                timeout_height,
+                memo.clone(),
+            ));
+
+            match self.send_raw_tx_bytes(&try_tx_s!(tx_raw.to_bytes())).compat().await {
+                Ok(tx_id) => break (tx_id, tx_raw),
+                Err(e) => {
+                    if e.contains("Wrong account sequence catched") {
+                        debug!("Got wrong account sequence, trying again.");
+                        continue;
+                    }
+
+                    return Err(crate::TransactionErr::Plain(ERRL!("{}", e)));
+                },
+            };
+        };
+
+        Ok((tx_id, tx_raw))
+    }
+
     #[allow(deprecated)]
     pub(super) async fn calculate_fee(
         &self,
-        base_denom: Denom,
-        tx_bytes: Vec<u8>,
+        msg: Any,
+        timeout_height: u64,
+        memo: String,
     ) -> MmResult<Fee, TendermintCoinRpcError> {
         let path = AbciPath::from_str(ABCI_SIMULATE_TX_PATH).expect("valid path");
-        let request = SimulateRequest { tx_bytes, tx: None };
-        let request = AbciRequest::new(
-            Some(path),
-            request.encode_to_vec(),
-            ABCI_REQUEST_HEIGHT,
-            ABCI_REQUEST_PROVE,
-        );
 
-        let raw_response = self.rpc_client().await?.perform(request).await?;
-        let response = SimulateResponse::decode(raw_response.response.value.as_slice())?;
+        let (response, raw_response) = loop {
+            let account_info = self.my_account_info().await?;
+            let tx_bytes = self
+                .gen_simulated_tx(account_info, msg.clone(), timeout_height, memo.clone())
+                .map_to_mm(|e| TendermintCoinRpcError::InternalError(format!("{}", e)))?;
+
+            let request = SimulateRequest { tx_bytes, tx: None };
+            let request = AbciRequest::new(
+                Some(path.clone()),
+                request.encode_to_vec().clone(),
+                ABCI_REQUEST_HEIGHT,
+                ABCI_REQUEST_PROVE,
+            );
+
+            let raw_response = self.rpc_client().await?.perform(request).await?;
+
+            if raw_response
+                .response
+                .log
+                .to_string()
+                .contains("incorrect account sequence")
+            {
+                debug!("Got wrong account sequence, trying again.");
+                continue;
+            }
+
+            match raw_response.response.code {
+                cosmrs::tendermint::abci::Code::Ok => {},
+                cosmrs::tendermint::abci::Code::Err(_) => {
+                    return MmError::err(TendermintCoinRpcError::InvalidResponse(format!(
+                        "Could not read gas_info. Invalid Response: {}",
+                        raw_response.response.log
+                    )));
+                },
+            };
+
+            break (
+                SimulateResponse::decode(raw_response.response.value.as_slice())?,
+                raw_response,
+            );
+        };
 
         let gas = response.gas_info.as_ref().ok_or_else(|| {
             TendermintCoinRpcError::InvalidResponse(format!(
@@ -624,7 +689,7 @@ impl TendermintCoin {
         let amount = ((gas.gas_used as f64 * 1.5) * self.gas_price()).ceil();
 
         let fee_amount = Coin {
-            denom: base_denom,
+            denom: self.platform_denom().parse().expect("Platform denom parse can't fail"),
             amount: (amount as u64).into(),
         };
 
@@ -632,18 +697,54 @@ impl TendermintCoin {
     }
 
     #[allow(deprecated)]
-    pub(super) async fn calculate_fee_amount_as_u64(&self, tx_bytes: Vec<u8>) -> MmResult<u64, TendermintCoinRpcError> {
+    pub(super) async fn calculate_fee_amount_as_u64(
+        &self,
+        msg: Any,
+        timeout_height: u64,
+        memo: String,
+    ) -> MmResult<u64, TendermintCoinRpcError> {
         let path = AbciPath::from_str(ABCI_SIMULATE_TX_PATH).expect("valid path");
-        let request = SimulateRequest { tx_bytes, tx: None };
-        let request = AbciRequest::new(
-            Some(path),
-            request.encode_to_vec(),
-            ABCI_REQUEST_HEIGHT,
-            ABCI_REQUEST_PROVE,
-        );
 
-        let raw_response = self.rpc_client().await?.perform(request).await?;
-        let response = SimulateResponse::decode(raw_response.response.value.as_slice())?;
+        let (response, raw_response) = loop {
+            let account_info = self.my_account_info().await?;
+            let tx_bytes = self
+                .gen_simulated_tx(account_info, msg.clone(), timeout_height, memo.clone())
+                .map_to_mm(|e| TendermintCoinRpcError::InternalError(format!("{}", e)))?;
+            let request = SimulateRequest { tx_bytes, tx: None };
+            let request = AbciRequest::new(
+                Some(path.clone()),
+                request.encode_to_vec(),
+                ABCI_REQUEST_HEIGHT,
+                ABCI_REQUEST_PROVE,
+            );
+
+            let raw_response = self.rpc_client().await?.perform(request).await?;
+
+            if raw_response
+                .response
+                .log
+                .to_string()
+                .contains("incorrect account sequence")
+            {
+                debug!("Got wrong account sequence, trying again.");
+                continue;
+            }
+
+            match raw_response.response.code {
+                cosmrs::tendermint::abci::Code::Ok => {},
+                cosmrs::tendermint::abci::Code::Err(_) => {
+                    return MmError::err(TendermintCoinRpcError::InvalidResponse(format!(
+                        "Could not read gas_info. Invalid Response: {}",
+                        raw_response.response.log
+                    )));
+                },
+            };
+
+            break (
+                SimulateResponse::decode(raw_response.response.value.as_slice())?,
+                raw_response,
+            );
+        };
 
         let gas = response.gas_info.as_ref().ok_or_else(|| {
             TendermintCoinRpcError::InvalidResponse(format!(
@@ -868,29 +969,27 @@ impl TendermintCoin {
 
             let create_htlc_tx = try_tx_s!(coin.gen_create_htlc_tx(denom, &to, amount, &secret_hash, time_lock as u64));
 
-            let _sequence_lock = coin.sequence_lock.lock().await;
             let current_block = try_tx_s!(coin.current_block().compat().await);
             let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
-            let account_info = try_tx_s!(coin.my_account_info().await);
 
-            let simulated_tx = try_tx_s!(coin.gen_simulated_tx(
-                account_info.clone(),
-                create_htlc_tx.msg_payload.clone(),
-                timeout_height,
-                TX_DEFAULT_MEMO.into(),
-            ));
+            let fee = try_tx_s!(
+                coin.calculate_fee(
+                    create_htlc_tx.msg_payload.clone(),
+                    timeout_height,
+                    TX_DEFAULT_MEMO.to_owned()
+                )
+                .await
+            );
 
-            let fee = try_tx_s!(coin.calculate_fee(coin.denom.clone(), simulated_tx).await);
-
-            let tx_raw = try_tx_s!(coin.any_to_signed_raw_tx(
-                account_info.clone(),
-                create_htlc_tx.msg_payload.clone(),
-                fee,
-                timeout_height,
-                TX_DEFAULT_MEMO.into(),
-            ));
-
-            let _tx_id = try_tx_s!(coin.send_raw_tx_bytes(&try_tx_s!(tx_raw.to_bytes())).compat().await);
+            let (_tx_id, tx_raw) = try_tx_s!(
+                coin.seq_safe_send_raw_tx_bytes(
+                    create_htlc_tx.msg_payload.clone(),
+                    fee.clone(),
+                    timeout_height,
+                    TX_DEFAULT_MEMO.into(),
+                )
+                .await
+            );
 
             Ok(TransactionEnum::CosmosTransaction(CosmosTransaction {
                 data: tx_raw.into(),
@@ -927,30 +1026,18 @@ impl TendermintCoin {
 
         let coin = self.clone();
         let fut = async move {
-            let _sequence_lock = coin.sequence_lock.lock().await;
-            let account_info = try_tx_s!(coin.my_account_info().await);
-
             let current_block = try_tx_s!(coin.current_block().compat().await.map_to_mm(WithdrawError::Transport));
             let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
 
-            let simulated_tx = try_tx_s!(coin.gen_simulated_tx(
-                account_info.clone(),
-                tx_payload.clone(),
-                timeout_height,
-                TX_DEFAULT_MEMO.into(),
-            ));
+            let fee = try_tx_s!(
+                coin.calculate_fee(tx_payload.clone(), timeout_height, TX_DEFAULT_MEMO.to_owned())
+                    .await
+            );
 
-            let fee = try_tx_s!(coin.calculate_fee(coin.denom.clone(), simulated_tx).await);
-
-            let tx_raw = try_tx_s!(coin
-                .any_to_signed_raw_tx(account_info, tx_payload, fee, timeout_height, memo)
-                .map_to_mm(|e| WithdrawError::InternalError(e.to_string())));
-
-            let tx_bytes = try_tx_s!(tx_raw
-                .to_bytes()
-                .map_to_mm(|e| WithdrawError::InternalError(e.to_string())));
-
-            let _tx_id = try_tx_s!(coin.send_raw_tx_bytes(&tx_bytes).compat().await);
+            let (_tx_id, tx_raw) = try_tx_s!(
+                coin.seq_safe_send_raw_tx_bytes(tx_payload.clone(), fee.clone(), timeout_height, memo.clone())
+                    .await
+            );
 
             Ok(TransactionEnum::CosmosTransaction(CosmosTransaction {
                 data: tx_raw.into(),
@@ -1156,23 +1243,15 @@ impl TendermintCoin {
         })?;
 
         let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
-        let account_info = self.my_account_info().await?;
 
-        let simulated_tx = self
-            .gen_simulated_tx(
-                account_info.clone(),
+        let fee_uamount = self
+            .calculate_fee_amount_as_u64(
                 create_htlc_tx.msg_payload.clone(),
                 timeout_height,
-                TX_DEFAULT_MEMO.into(),
+                TX_DEFAULT_MEMO.to_owned(),
             )
-            .map_err(|e| {
-                MmError::new(TradePreimageError::InternalError(format!(
-                    "Tx simulation failed. {:?}",
-                    e
-                )))
-            })?;
+            .await?;
 
-        let fee_uamount = self.calculate_fee_amount_as_u64(simulated_tx).await?;
         let fee_amount = big_decimal_from_sat_unsigned(fee_uamount, self.decimals);
 
         Ok(TradeFee {
@@ -1201,7 +1280,6 @@ impl TendermintCoin {
         })?;
 
         let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
-        let account_info = self.my_account_info().await?;
 
         let msg_send = MsgSend {
             from_address: self.account_id.clone(),
@@ -1214,16 +1292,10 @@ impl TendermintCoin {
         .to_any()
         .map_err(|e| MmError::new(TradePreimageError::InternalError(e.to_string())))?;
 
-        let simulated_tx = self
-            .gen_simulated_tx(account_info.clone(), msg_send, timeout_height, TX_DEFAULT_MEMO.into())
-            .map_err(|e| {
-                MmError::new(TradePreimageError::InternalError(format!(
-                    "Tx simulation failed. {:?}",
-                    e
-                )))
-            })?;
+        let fee_uamount = self
+            .calculate_fee_amount_as_u64(msg_send.clone(), timeout_height, TX_DEFAULT_MEMO.to_owned())
+            .await?;
 
-        let fee_uamount = self.calculate_fee_amount_as_u64(simulated_tx).await?;
         let fee_amount = big_decimal_from_sat_unsigned(fee_uamount, decimals);
 
         Ok(TradeFee {
@@ -1470,17 +1542,14 @@ impl MmCoin for TendermintCoin {
                 .await
                 .map_to_mm(WithdrawError::Transport)?;
 
-            let _sequence_lock = coin.sequence_lock.lock().await;
-            let account_info = coin.my_account_info().await?;
-
             let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
 
-            let simulated_tx = coin
-                .gen_simulated_tx(account_info.clone(), msg_send.clone(), timeout_height, memo.clone())
-                .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
             // >> END TX SIMULATION FOR FEE CALCULATION
 
-            let fee_amount_u64 = coin.calculate_fee_amount_as_u64(simulated_tx).await?;
+            let fee_amount_u64 = coin
+                .calculate_fee_amount_as_u64(msg_send.clone(), timeout_height, memo.clone())
+                .await?;
+
             let fee_amount_dec = big_decimal_from_sat_unsigned(fee_amount_u64, coin.decimals());
 
             let fee_amount = Coin {
@@ -1533,7 +1602,13 @@ impl MmCoin for TendermintCoin {
             .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
 
             let tx_raw = coin
-                .any_to_signed_raw_tx(account_info, msg_send, fee, timeout_height, memo.clone())
+                .any_to_signed_raw_tx(
+                    coin.my_account_info().await?,
+                    msg_send,
+                    fee,
+                    timeout_height,
+                    memo.clone(),
+                )
                 .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
 
             let tx_bytes = tx_raw
@@ -1748,6 +1823,25 @@ impl MarketCoinOps for TendermintCoin {
                     .broadcast_tx_commit(tx_bytes.into())
                     .await
             );
+
+            if broadcast_res
+                .check_tx
+                .log
+                .to_string()
+                .contains("incorrect account sequence")
+                || broadcast_res
+                    .deliver_tx
+                    .log
+                    .to_string()
+                    .contains("incorrect account sequence")
+            {
+                return ERR!(
+                    "Wrong account sequence catched. check_tx log: {}, deliver_tx log: {}",
+                    broadcast_res.check_tx.log,
+                    broadcast_res.deliver_tx.log
+                );
+            }
+
             if !broadcast_res.check_tx.code.is_ok() {
                 return ERR!("Tx check failed {:?}", broadcast_res.check_tx);
             }
@@ -1755,6 +1849,7 @@ impl MarketCoinOps for TendermintCoin {
             if !broadcast_res.deliver_tx.code.is_ok() {
                 return ERR!("Tx deliver failed {:?}", broadcast_res.deliver_tx);
             }
+
             Ok(broadcast_res.hash.to_string())
         };
         Box::new(fut.boxed().compat())
@@ -1935,30 +2030,27 @@ impl SwapOps for TendermintCoin {
         let coin = self.clone();
 
         let fut = async move {
-            let _sequence_lock = coin.sequence_lock.lock().await;
             let current_block = try_tx_s!(coin.current_block().compat().await);
             let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
 
-            let account_info = try_tx_s!(coin.my_account_info().await);
+            let fee = try_tx_s!(
+                coin.calculate_fee(
+                    claim_htlc_tx.msg_payload.clone(),
+                    timeout_height,
+                    TX_DEFAULT_MEMO.to_owned()
+                )
+                .await
+            );
 
-            let simulated_tx = try_tx_s!(coin.gen_simulated_tx(
-                account_info.clone(),
-                claim_htlc_tx.msg_payload.clone(),
-                timeout_height,
-                TX_DEFAULT_MEMO.into(),
-            ));
-
-            let fee = try_tx_s!(coin.calculate_fee(coin.denom.clone(), simulated_tx).await);
-
-            let tx_raw = try_tx_s!(coin.any_to_signed_raw_tx(
-                account_info,
-                claim_htlc_tx.msg_payload,
-                fee,
-                timeout_height,
-                TX_DEFAULT_MEMO.into(),
-            ));
-
-            let tx_id = try_tx_s!(coin.send_raw_tx_bytes(&try_tx_s!(tx_raw.to_bytes())).compat().await);
+            let (_tx_id, tx_raw) = try_tx_s!(
+                coin.seq_safe_send_raw_tx_bytes(
+                    claim_htlc_tx.msg_payload.clone(),
+                    fee.clone(),
+                    timeout_height,
+                    TX_DEFAULT_MEMO.into(),
+                )
+                .await
+            );
 
             Ok(TransactionEnum::CosmosTransaction(CosmosTransaction {
                 data: tx_raw.into(),
@@ -1993,30 +2085,27 @@ impl SwapOps for TendermintCoin {
         let coin = self.clone();
 
         let fut = async move {
-            let _sequence_lock = coin.sequence_lock.lock().await;
             let current_block = try_tx_s!(coin.current_block().compat().await);
             let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
 
-            let account_info = try_tx_s!(coin.my_account_info().await);
+            let fee = try_tx_s!(
+                coin.calculate_fee(
+                    claim_htlc_tx.msg_payload.clone(),
+                    timeout_height,
+                    TX_DEFAULT_MEMO.into(),
+                )
+                .await
+            );
 
-            let simulated_tx = try_tx_s!(coin.gen_simulated_tx(
-                account_info.clone(),
-                claim_htlc_tx.msg_payload.clone(),
-                timeout_height,
-                TX_DEFAULT_MEMO.into(),
-            ));
-
-            let fee = try_tx_s!(coin.calculate_fee(coin.denom.clone(), simulated_tx).await);
-
-            let tx_raw = try_tx_s!(coin.any_to_signed_raw_tx(
-                account_info,
-                claim_htlc_tx.msg_payload,
-                fee,
-                timeout_height,
-                TX_DEFAULT_MEMO.into(),
-            ));
-
-            let tx_id = try_tx_s!(coin.send_raw_tx_bytes(&try_tx_s!(tx_raw.to_bytes())).compat().await);
+            let (tx_id, tx_raw) = try_tx_s!(
+                coin.seq_safe_send_raw_tx_bytes(
+                    claim_htlc_tx.msg_payload.clone(),
+                    fee.clone(),
+                    timeout_height,
+                    TX_DEFAULT_MEMO.into(),
+                )
+                .await
+            );
 
             Ok(TransactionEnum::CosmosTransaction(CosmosTransaction {
                 data: tx_raw.into(),
@@ -2028,13 +2117,13 @@ impl SwapOps for TendermintCoin {
 
     fn send_taker_refunds_payment(&self, taker_refunds_payment_args: SendTakerRefundsPaymentArgs) -> TransactionFut {
         Box::new(futures01::future::err(TransactionErr::Plain(
-            "Doesn't need transaction broadcast to refund IRIS HTLC".into(),
+            "Doesn't need transaction broadcast to refund NUCLEUS HTLC".into(),
         )))
     }
 
     fn send_maker_refunds_payment(&self, maker_refunds_payment_args: SendMakerRefundsPaymentArgs) -> TransactionFut {
         Box::new(futures01::future::err(TransactionErr::Plain(
-            "Doesn't need transaction broadcast to refund IRIS HTLC".into(),
+            "Doesn't need transaction broadcast to refund NUCLEUS HTLC".into(),
         )))
     }
 
@@ -2088,7 +2177,7 @@ impl SwapOps for TendermintCoin {
     async fn extract_secret(&self, secret_hash: &[u8], spend_tx: &[u8]) -> Result<Vec<u8>, String> {
         let tx = try_s!(cosmrs::Tx::from_bytes(spend_tx));
         let msg = try_s!(tx.body.messages.first().ok_or("Tx body couldn't be read."));
-        let htlc_proto: super::iris::htlc_proto::ClaimHtlcProtoRep =
+        let htlc_proto: super::nucleus::htlc_proto::ClaimHtlcProtoRep =
             try_s!(prost::Message::decode(msg.value.as_slice()));
         let htlc = try_s!(MsgClaimHtlc::try_from(htlc_proto));
 
@@ -2280,59 +2369,52 @@ pub mod tendermint_coin_tests {
     use rand::{thread_rng, Rng};
     use std::mem::discriminant;
 
-    pub const IRIS_TESTNET_HTLC_PAIR1_SEED: &str = "iris test seed";
-    // pub const IRIS_TESTNET_HTLC_PAIR1_PUB_KEY: &str = &[
-    //     2, 35, 133, 39, 114, 92, 150, 175, 252, 203, 124, 85, 243, 144, 11, 52, 91, 128, 236, 82, 104, 212, 131, 40,
-    //     79, 22, 40, 7, 119, 93, 50, 179, 43,
+    pub const NUCLEUS_TESTNET_HTLC_PAIR1_SEED: &str = "nucleus test seed";
+    // pub const NUCLEUS_TESTNET_HTLC_PAIR1_PUB_KEY: &str = &[
+    //     2, 54, 169, 209, 120, 195, 201, 227, 35, 36, 104, 233, 18, 242, 87, 12, 203, 19, 222, 106, 77, 188, 66, 10,
+    //     216, 201, 127, 154, 161, 224, 138, 108, 159,
     // ];
-    // const IRIS_TESTNET_HTLC_PAIR1_ADDRESS: &str = "iaa1e0rx87mdj79zejewuc4jg7ql9ud2286g2us8f2";
+    // const NUCLEUS_TESTNET_HTLC_PAIR1_ADDRESS: &str = "nuc1ynhzr9u44tpkyvz5pazjl5w0hw2kxx9mgjj8eg";
 
-    // const IRIS_TESTNET_HTLC_PAIR2_SEED: &str = "iris test2 seed";
-    const IRIS_TESTNET_HTLC_PAIR2_PUB_KEY: &[u8] = &[
-        2, 90, 55, 151, 92, 7, 154, 117, 67, 96, 63, 202, 178, 78, 37, 101, 164, 173, 238, 60, 249, 175, 137, 52, 105,
-        14, 16, 50, 130, 250, 64, 37, 17,
+    const NUCLEUS_TESTNET_HTLC_PAIR2_SEED: &str = "nucleus test2 seed";
+    const NUCLEUS_TESTNET_HTLC_PAIR2_PUB_KEY: &[u8] = &[
+        3, 16, 118, 255, 186, 248, 145, 42, 246, 172, 71, 8, 105, 185, 7, 200, 68, 16, 255, 225, 79, 80, 218, 44, 15,
+        60, 87, 22, 155, 118, 83, 215, 167,
     ];
-    const IRIS_TESTNET_HTLC_PAIR2_ADDRESS: &str = "iaa1erfnkjsmalkwtvj44qnfr2drfzdt4n9ldh0kjv";
+    const NUCLEUS_TESTNET_HTLC_PAIR2_ADDRESS: &str = "nuc18m7wazddd997ku4466jyjnwx3a7ykz0ygm8qkk";
 
-    pub const IRIS_TESTNET_RPC_URL: &str = "http://34.80.202.172:26657";
+    pub const NUCLEUS_TESTNET_RPC_URL: &str = "http://65.109.231.159:26657";
 
     const TAKER_PAYMENT_SPEND_SEARCH_INTERVAL: f64 = 1.;
     const AVG_BLOCKTIME: u8 = 5;
 
     const SUCCEED_TX_HASH_SAMPLES: &[&str] = &[
-        // https://nyancat.iobscan.io/#/tx?txHash=A010FC0AA33FC6D597A8635F9D127C0A7B892FAAC72489F4DADD90048CFE9279
-        "A010FC0AA33FC6D597A8635F9D127C0A7B892FAAC72489F4DADD90048CFE9279",
-        // https://nyancat.iobscan.io/#/tx?txHash=54FD77054AE311C484CC2EADD4621428BB23D14A9BAAC128B0E7B47422F86EC8
-        "54FD77054AE311C484CC2EADD4621428BB23D14A9BAAC128B0E7B47422F86EC8",
-        // https://nyancat.iobscan.io/#/tx?txHash=7C00FAE7F70C36A316A4736025B08A6EAA2A0CC7919A2C4FC4CD14D9FFD166F9
-        "7C00FAE7F70C36A316A4736025B08A6EAA2A0CC7919A2C4FC4CD14D9FFD166F9",
+        "F538A459DF8D14CD6A36355D0E4698EE4E33D5715F243E1E90B7D87418452B63",
+        "78EB2D51FEC14646EBCADA78ED2D50928BBAF23341B8A99DB357905F3D575CE7",
+        "72D1A893ED23D8F7ACA179835EE889BFE1D5FA6DCA019AB4347CA7B40B23F4D2",
     ];
 
     const FAILED_TX_HASH_SAMPLES: &[&str] = &[
-        // https://nyancat.iobscan.io/#/tx?txHash=57EE62B2DF7E311C98C24AE2A53EB0FF2C16D289CECE0826CA1FF1108C91B3F9
-        "57EE62B2DF7E311C98C24AE2A53EB0FF2C16D289CECE0826CA1FF1108C91B3F9",
-        // https://nyancat.iobscan.io/#/tx?txHash=F3181D69C580318DFD54282C656AC81113BC600BCFBAAA480E6D8A6469EE8786
-        "F3181D69C580318DFD54282C656AC81113BC600BCFBAAA480E6D8A6469EE8786",
-        // https://nyancat.iobscan.io/#/tx?txHash=FE6F9F395DA94A14FCFC04E0E8C496197077D5F4968DA5528D9064C464ADF522
-        "FE6F9F395DA94A14FCFC04E0E8C496197077D5F4968DA5528D9064C464ADF522",
+        "B1AE312FC66D7F53D865DAAA84236075AC83BDF3E149A39308B21B089F813F79",
+        "39E9639E3A031986A77D68B61730B33E0F43A31204AFAAE40365B2F84E9ECEA8",
     ];
 
-    fn get_iris_usdc_ibc_protocol() -> TendermintProtocolInfo {
+    fn get_nucleus_iris_ibc_protocol() -> TendermintProtocolInfo {
         TendermintProtocolInfo {
             decimals: 6,
-            denom: String::from("ibc/5C465997B4F582F602CD64E12031C6A6E18CAF1E6EDC9B5D808822DC0B5F850C"),
-            account_prefix: String::from("iaa"),
-            chain_id: String::from("nyancat-9"),
+            denom: String::from("ibc/26409F42099DCF2B110B7B007F029AB7D71A33E642A2DE19A02CB43D0F54312D"),
+            account_prefix: String::from("nuc"),
+            chain_id: String::from("nucleus-testnet-1"),
             gas_price: None,
         }
     }
 
-    fn get_iris_protocol() -> TendermintProtocolInfo {
+    fn get_nucleus_protocol() -> TendermintProtocolInfo {
         TendermintProtocolInfo {
             decimals: 6,
-            denom: String::from("unyan"),
-            account_prefix: String::from("iaa"),
-            chain_id: String::from("nyancat-9"),
+            denom: String::from("unucl"),
+            account_prefix: String::from("nuc"),
+            chain_id: String::from("nucleus-testnet-1"),
             gas_price: None,
         }
     }
@@ -2349,9 +2431,9 @@ pub mod tendermint_coin_tests {
 
     #[test]
     fn test_htlc_create_and_claim() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let rpc_urls = vec![NUCLEUS_TESTNET_RPC_URL.to_string()];
 
-        let protocol_conf = get_iris_usdc_ibc_protocol();
+        let protocol_conf = get_nucleus_iris_ibc_protocol();
 
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
@@ -2360,12 +2442,12 @@ pub mod tendermint_coin_tests {
             derivation_path: None,
         };
 
-        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let key_pair = key_pair_from_seed(NUCLEUS_TESTNET_HTLC_PAIR1_SEED).unwrap();
         let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
 
         let coin = block_on(TendermintCoin::init(
             &ctx,
-            "USDC-IBC".to_string(),
+            "IRIS-IBC-NUCLEUS-TEST".to_string(),
             conf,
             protocol_conf,
             rpc_urls,
@@ -2375,8 +2457,7 @@ pub mod tendermint_coin_tests {
         .unwrap();
 
         // << BEGIN HTLC CREATION
-        let base_denom: Denom = "unyan".parse().unwrap();
-        let to: AccountId = IRIS_TESTNET_HTLC_PAIR2_ADDRESS.parse().unwrap();
+        let to: AccountId = NUCLEUS_TESTNET_HTLC_PAIR2_ADDRESS.parse().unwrap();
         const UAMOUNT: u64 = 1;
         let amount: cosmrs::Decimal = UAMOUNT.into();
         let amount_dec = big_decimal_from_sat_unsigned(UAMOUNT, coin.decimals);
@@ -2391,33 +2472,22 @@ pub mod tendermint_coin_tests {
         let current_block = block_on(async { current_block_fut.await.unwrap() });
         let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
 
-        let account_info_fut = coin.my_account_info();
-        let account_info = block_on(async { account_info_fut.await.unwrap() });
-
-        let simulated_tx = coin
-            .gen_simulated_tx(
-                account_info.clone(),
+        let fee = block_on(async {
+            coin.calculate_fee(
                 create_htlc_tx.msg_payload.clone(),
                 timeout_height,
-                TX_DEFAULT_MEMO.into(),
+                TX_DEFAULT_MEMO.to_owned(),
             )
-            .unwrap();
-
-        let fee = block_on(async { coin.calculate_fee(base_denom.clone(), simulated_tx).await.unwrap() });
-
-        let raw_tx = block_on(async {
-            coin.any_to_signed_raw_tx(
-                account_info.clone(),
-                create_htlc_tx.msg_payload.clone(),
-                fee,
-                timeout_height,
-                TX_DEFAULT_MEMO.into(),
-            )
+            .await
             .unwrap()
         });
-        let tx_bytes = raw_tx.to_bytes().unwrap();
 
-        let send_tx_fut = coin.send_raw_tx_bytes(&tx_bytes).compat();
+        let send_tx_fut = coin.seq_safe_send_raw_tx_bytes(
+            create_htlc_tx.msg_payload.clone(),
+            fee,
+            timeout_height,
+            TX_DEFAULT_MEMO.into(),
+        );
         block_on(async {
             send_tx_fut.await.unwrap();
         });
@@ -2426,7 +2496,7 @@ pub mod tendermint_coin_tests {
         let htlc_spent = block_on(
             coin.check_if_my_payment_sent(CheckIfMyPaymentSentArgs {
                 time_lock: 0,
-                other_pub: IRIS_TESTNET_HTLC_PAIR2_PUB_KEY,
+                other_pub: NUCLEUS_TESTNET_HTLC_PAIR2_PUB_KEY,
                 secret_hash: sha256(&sec).as_slice(),
                 search_from_block: current_block,
                 swap_contract_address: &None,
@@ -2446,44 +2516,30 @@ pub mod tendermint_coin_tests {
         let current_block = common::block_on(async { current_block_fut.await.unwrap() });
         let timeout_height = current_block + TIMEOUT_HEIGHT_DELTA;
 
-        let account_info_fut = coin.my_account_info();
-        let account_info = block_on(async { account_info_fut.await.unwrap() });
-
-        let simulated_tx = coin
-            .gen_simulated_tx(
-                account_info.clone(),
+        let fee = block_on(async {
+            coin.calculate_fee(
                 claim_htlc_tx.msg_payload.clone(),
                 timeout_height,
-                TX_DEFAULT_MEMO.into(),
+                TX_DEFAULT_MEMO.to_owned(),
             )
-            .unwrap();
-
-        let fee = block_on(async { coin.calculate_fee(base_denom.clone(), simulated_tx).await.unwrap() });
-
-        let raw_tx = coin
-            .any_to_signed_raw_tx(
-                account_info,
-                claim_htlc_tx.msg_payload,
-                fee,
-                timeout_height,
-                TX_DEFAULT_MEMO.into(),
-            )
-            .unwrap();
-
-        let tx_bytes = raw_tx.to_bytes().unwrap();
-        let send_tx_fut = coin.send_raw_tx_bytes(&tx_bytes).compat();
-        block_on(async {
-            send_tx_fut.await.unwrap();
+            .await
+            .unwrap()
         });
-        println!("Claim HTLC tx hash {}", hex::encode_upper(sha256(&tx_bytes).as_slice()));
+
+        let send_tx_fut =
+            coin.seq_safe_send_raw_tx_bytes(claim_htlc_tx.msg_payload, fee, timeout_height, TX_DEFAULT_MEMO.into());
+
+        let (tx_id, _tx_raw) = block_on(async { send_tx_fut.await.unwrap() });
+
+        println!("Claim HTLC tx hash {}", tx_id);
         // >> END HTLC CLAIMING
     }
 
     #[test]
     fn try_query_claim_htlc_txs_and_get_secret() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let rpc_urls = vec![NUCLEUS_TESTNET_RPC_URL.to_string()];
 
-        let protocol_conf = get_iris_usdc_ibc_protocol();
+        let protocol_conf = get_nucleus_iris_ibc_protocol();
 
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
@@ -2492,12 +2548,12 @@ pub mod tendermint_coin_tests {
             derivation_path: None,
         };
 
-        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let key_pair = key_pair_from_seed(NUCLEUS_TESTNET_HTLC_PAIR1_SEED).unwrap();
         let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
 
         let coin = block_on(TendermintCoin::init(
             &ctx,
-            "USDC-IBC".to_string(),
+            "IRIS-IBC-NUCLEUS-TEST".to_string(),
             conf,
             protocol_conf,
             rpc_urls,
@@ -2506,7 +2562,7 @@ pub mod tendermint_coin_tests {
         ))
         .unwrap();
 
-        let events = "claim_htlc.id='2B925FC83A106CC81590B3DB108AC2AE496FFA912F368FE5E29BC1ED2B754F2C'";
+        let events = "claim_htlc.id='6AA08493AC28A7D9517C7C254CE78B35B3BD2628965717A2D811AD14B2FFE31D'";
         let request = GetTxsEventRequest {
             events: vec![events.into()],
             pagination: None,
@@ -2530,8 +2586,11 @@ pub mod tendermint_coin_tests {
         println!("{:?}", first_msg);
 
         let claim_htlc =
-            crate::tendermint::iris::htlc_proto::ClaimHtlcProtoRep::decode(first_msg.value.as_slice()).unwrap();
-        let expected_secret = [1; 32];
+            crate::tendermint::nucleus::htlc_proto::ClaimHtlcProtoRep::decode(first_msg.value.as_slice()).unwrap();
+        let expected_secret = [
+            155, 23, 164, 149, 46, 247, 165, 133, 58, 85, 169, 139, 79, 39, 11, 2, 212, 49, 54, 65, 114, 42, 228, 94,
+            230, 234, 188, 78, 166, 217, 88, 111,
+        ];
         let actual_secret = hex::decode(claim_htlc.secret).unwrap();
 
         assert_eq!(actual_secret, expected_secret);
@@ -2539,9 +2598,9 @@ pub mod tendermint_coin_tests {
 
     #[test]
     fn wait_for_tx_spend_test() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let rpc_urls = vec![NUCLEUS_TESTNET_RPC_URL.to_string()];
 
-        let protocol_conf = get_iris_usdc_ibc_protocol();
+        let protocol_conf = get_nucleus_iris_ibc_protocol();
 
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
@@ -2550,7 +2609,7 @@ pub mod tendermint_coin_tests {
             derivation_path: None,
         };
 
-        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let key_pair = key_pair_from_seed(NUCLEUS_TESTNET_HTLC_PAIR1_SEED).unwrap();
         let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
 
         let coin = block_on(TendermintCoin::init(
@@ -2564,8 +2623,8 @@ pub mod tendermint_coin_tests {
         ))
         .unwrap();
 
-        // https://nyancat.iobscan.io/#/tx?txHash=2DB382CE3D9953E4A94957B475B0E8A98F5B6DDB32D6BF0F6A765D949CF4A727
-        let create_tx_hash = "2DB382CE3D9953E4A94957B475B0E8A98F5B6DDB32D6BF0F6A765D949CF4A727";
+        // TODO: we don't have an explorer to ref tx link
+        let create_tx_hash = "F538A459DF8D14CD6A36355D0E4698EE4E33D5715F243E1E90B7D87418452B63";
 
         let request = GetTxRequest {
             hash: create_tx_hash.into(),
@@ -2588,7 +2647,7 @@ pub mod tendermint_coin_tests {
 
         let encoded_tx = tx.encode_to_vec();
 
-        let secret_hash = hex::decode("0C34C71EBA2A51738699F9F3D6DAFFB15BE576E8ED543203485791B5DA39D10D").unwrap();
+        let secret_hash = hex::decode("4b1c6719c9d4b95e0d9371c7aa13863ecb86b12cd919cf401b2b7f3da01e575a").unwrap();
         let spend_tx = block_on(
             coin.wait_for_htlc_tx_spend(
                 &encoded_tx,
@@ -2602,17 +2661,18 @@ pub mod tendermint_coin_tests {
         )
         .unwrap();
 
-        // https://nyancat.iobscan.io/#/tx?txHash=565C820C1F95556ADC251F16244AAD4E4274772F41BC13F958C9C2F89A14D137
-        let expected_spend_hash = "565C820C1F95556ADC251F16244AAD4E4274772F41BC13F958C9C2F89A14D137";
+        // TODO: we don't have an explorer to ref tx link
+        let expected_spend_hash = "C86E5964616400FCFEF39C7B3B059E6282DDF015F8AA33E8FC035CC739B2959E";
         let hash = spend_tx.tx_hash();
         assert_eq!(hex::encode_upper(&hash.0), expected_spend_hash);
     }
 
     #[test]
+    #[ignore]
     fn validate_taker_fee_test() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let rpc_urls = vec![NUCLEUS_TESTNET_RPC_URL.to_string()];
 
-        let protocol_conf = get_iris_protocol();
+        let protocol_conf = get_nucleus_protocol();
 
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
@@ -2621,12 +2681,12 @@ pub mod tendermint_coin_tests {
             derivation_path: None,
         };
 
-        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let key_pair = key_pair_from_seed(NUCLEUS_TESTNET_HTLC_PAIR1_SEED).unwrap();
         let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
 
         let coin = block_on(TendermintCoin::init(
             &ctx,
-            "IRIS-TEST".to_string(),
+            "NUCLEUS-TEST".to_string(),
             conf,
             protocol_conf,
             rpc_urls,
@@ -2636,8 +2696,8 @@ pub mod tendermint_coin_tests {
         .unwrap();
 
         // CreateHtlc tx, validation should fail because first message of dex fee tx must be MsgSend
-        // https://nyancat.iobscan.io/#/tx?txHash=2DB382CE3D9953E4A94957B475B0E8A98F5B6DDB32D6BF0F6A765D949CF4A727
-        let create_htlc_tx_hash = "2DB382CE3D9953E4A94957B475B0E8A98F5B6DDB32D6BF0F6A765D949CF4A727";
+        // TODO: we don't have an explorer to ref tx link
+        let create_htlc_tx_hash = "F767DE2F56F6CCAC78E3F0B5BFB92F572AE52DD76DA34A38693340FF2B2E15EC";
         let create_htlc_tx_bytes = block_on(coin.request_tx(create_htlc_tx_hash.into()))
             .unwrap()
             .encode_to_vec();
@@ -2661,8 +2721,8 @@ pub mod tendermint_coin_tests {
         assert!(validate_err.contains("failed to decode Protobuf message: MsgSend.amount"));
 
         // just a random transfer tx not related to AtomicDEX, should fail on recipient address check
-        // https://nyancat.iobscan.io/#/tx?txHash=65815814E7D74832D87956144C1E84801DC94FE9A509D207A0ABC3F17775E5DF
-        let random_transfer_tx_hash = "65815814E7D74832D87956144C1E84801DC94FE9A509D207A0ABC3F17775E5DF";
+        // TODO: we don't have an explorer to ref tx link
+        let random_transfer_tx_hash = "93BE1E3EDEAC2DA60361EA3DEED34C078C4F633BF5ABF924B3B3B7619F3E92AE";
         let random_transfer_tx_bytes = block_on(coin.request_tx(random_transfer_tx_hash.into()))
             .unwrap()
             .encode_to_vec();
@@ -2779,9 +2839,9 @@ pub mod tendermint_coin_tests {
 
     #[test]
     fn validate_payment_test() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let rpc_urls = vec![NUCLEUS_TESTNET_RPC_URL.to_string()];
 
-        let protocol_conf = get_iris_protocol();
+        let protocol_conf = get_nucleus_protocol();
 
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
@@ -2790,12 +2850,12 @@ pub mod tendermint_coin_tests {
             derivation_path: None,
         };
 
-        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let key_pair = key_pair_from_seed(NUCLEUS_TESTNET_HTLC_PAIR2_SEED).unwrap();
         let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
 
         let coin = block_on(TendermintCoin::init(
             &ctx,
-            "IRIS-TEST".to_string(),
+            "IRIS-IBC-NUCLEUS-TEST".to_string(),
             conf,
             protocol_conf,
             rpc_urls,
@@ -2805,8 +2865,8 @@ pub mod tendermint_coin_tests {
         .unwrap();
 
         // just a random transfer tx not related to AtomicDEX, should fail because the message is not CreateHtlc
-        // https://nyancat.iobscan.io/#/tx?txHash=65815814E7D74832D87956144C1E84801DC94FE9A509D207A0ABC3F17775E5DF
-        let random_transfer_tx_hash = "65815814E7D74832D87956144C1E84801DC94FE9A509D207A0ABC3F17775E5DF";
+        // TODO: we don't have an explorer to ref tx link
+        let random_transfer_tx_hash = "78EB2D51FEC14646EBCADA78ED2D50928BBAF23341B8A99DB357905F3D575CE7";
         let random_transfer_tx_bytes = block_on(coin.request_tx(random_transfer_tx_hash.into()))
             .unwrap()
             .encode_to_vec();
@@ -2830,27 +2890,33 @@ pub mod tendermint_coin_tests {
         };
 
         // The HTLC that was already claimed or refunded should not pass the validation
-        // https://nyancat.iobscan.io/#/tx?txHash=93CF377D470EB27BD6E2C5B95BFEFE99359F95B88C70D785B34D1D2C670201B9
-        let claimed_htlc_tx_hash = "93CF377D470EB27BD6E2C5B95BFEFE99359F95B88C70D785B34D1D2C670201B9";
+        // TODO: we don't have an explorer to ref tx link
+        let claimed_htlc_tx_hash = "F538A459DF8D14CD6A36355D0E4698EE4E33D5715F243E1E90B7D87418452B63";
         let claimed_htlc_tx_bytes = block_on(coin.request_tx(claimed_htlc_tx_hash.into()))
             .unwrap()
             .encode_to_vec();
 
         let input = ValidatePaymentInput {
             payment_tx: claimed_htlc_tx_bytes,
-            time_lock_duration: 20000,
+            time_lock_duration: 5000,
             time_lock: 1664984893,
-            other_pub: hex::decode("025a37975c079a7543603fcab24e2565a4adee3cf9af8934690e103282fa402511").unwrap(),
-            secret_hash: hex::decode("441d0237e93677d3458e1e5a2e69f61e3622813521bf048dd56290306acdd134").unwrap(),
-            amount: "0.01".parse().unwrap(),
+            other_pub: hex::decode("031076ffbaf8912af6ac470869b907c84410ffe14f50da2c0f3c57169b7653d7a7").unwrap(),
+            secret_hash: hex::decode("4b1c6719c9d4b95e0d9371c7aa13863ecb86b12cd919cf401b2b7f3da01e575a").unwrap(),
+            amount: "0.000001".parse().unwrap(),
             swap_contract_address: None,
             try_spv_proof_until: 0,
             confirmations: 0,
             unique_swap_data: Vec::new(),
         };
         let validate_err = block_on(
-            coin.validate_payment_for_denom(input, "nim".parse().unwrap(), 6)
-                .compat(),
+            coin.validate_payment_for_denom(
+                input,
+                "ibc/26409F42099DCF2B110B7B007F029AB7D71A33E642A2DE19A02CB43D0F54312D"
+                    .parse()
+                    .unwrap(),
+                6,
+            )
+            .compat(),
         )
         .unwrap_err();
         match validate_err.into_inner() {
@@ -2861,9 +2927,9 @@ pub mod tendermint_coin_tests {
 
     #[test]
     fn test_search_for_swap_tx_spend_spent() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let rpc_urls = vec![NUCLEUS_TESTNET_RPC_URL.to_string()];
 
-        let protocol_conf = get_iris_protocol();
+        let protocol_conf = get_nucleus_protocol();
 
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
@@ -2872,12 +2938,12 @@ pub mod tendermint_coin_tests {
             derivation_path: None,
         };
 
-        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let key_pair = key_pair_from_seed(NUCLEUS_TESTNET_HTLC_PAIR1_SEED).unwrap();
         let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
 
         let coin = block_on(TendermintCoin::init(
             &ctx,
-            "IRIS-TEST".to_string(),
+            "NUCLEUS-TEST".to_string(),
             conf,
             protocol_conf,
             rpc_urls,
@@ -2886,8 +2952,8 @@ pub mod tendermint_coin_tests {
         ))
         .unwrap();
 
-        // https://nyancat.iobscan.io/#/tx?txHash=2DB382CE3D9953E4A94957B475B0E8A98F5B6DDB32D6BF0F6A765D949CF4A727
-        let create_tx_hash = "2DB382CE3D9953E4A94957B475B0E8A98F5B6DDB32D6BF0F6A765D949CF4A727";
+        // TODO: we don't have an explorer to ref tx link
+        let create_tx_hash = "35FEDDA2B7B749B551524C47455ED39AE12D772A618F44A49B2849F0ED24F82A";
 
         let request = GetTxRequest {
             hash: create_tx_hash.into(),
@@ -2910,7 +2976,7 @@ pub mod tendermint_coin_tests {
 
         let encoded_tx = tx.encode_to_vec();
 
-        let secret_hash = hex::decode("0C34C71EBA2A51738699F9F3D6DAFFB15BE576E8ED543203485791B5DA39D10D").unwrap();
+        let secret_hash = hex::decode("6598e4099f55fbd368f4b4af55bedf45afe20e2da48ae835c7209394e8086158").unwrap();
         let input = SearchForSwapTxSpendInput {
             time_lock: 0,
             other_pub: &[],
@@ -2926,17 +2992,17 @@ pub mod tendermint_coin_tests {
             unexpected => panic!("Unexpected search_for_swap_tx_spend_my result {:?}", unexpected),
         };
 
-        // https://nyancat.iobscan.io/#/tx?txHash=565C820C1F95556ADC251F16244AAD4E4274772F41BC13F958C9C2F89A14D137
-        let expected_spend_hash = "565C820C1F95556ADC251F16244AAD4E4274772F41BC13F958C9C2F89A14D137";
+        // TODO: we don't have an explorer to ref tx link
+        let expected_spend_hash = "72D1A893ED23D8F7ACA179835EE889BFE1D5FA6DCA019AB4347CA7B40B23F4D2";
         let hash = spend_tx.tx_hash();
         assert_eq!(hex::encode_upper(&hash.0), expected_spend_hash);
     }
 
     #[test]
     fn test_search_for_swap_tx_spend_refunded() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let rpc_urls = vec![NUCLEUS_TESTNET_RPC_URL.to_string()];
 
-        let protocol_conf = get_iris_protocol();
+        let protocol_conf = get_nucleus_protocol();
 
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
@@ -2945,12 +3011,12 @@ pub mod tendermint_coin_tests {
             derivation_path: None,
         };
 
-        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let key_pair = key_pair_from_seed(NUCLEUS_TESTNET_HTLC_PAIR2_SEED).unwrap();
         let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
 
         let coin = block_on(TendermintCoin::init(
             &ctx,
-            "IRIS-TEST".to_string(),
+            "IRIS-IBC-NUCLEUS-TEST".to_string(),
             conf,
             protocol_conf,
             rpc_urls,
@@ -2959,8 +3025,8 @@ pub mod tendermint_coin_tests {
         ))
         .unwrap();
 
-        // https://nyancat.iobscan.io/#/tx?txHash=BD1A76F43E8E2C7A1104EE363D63455CD50C76F2BFE93B703235F0A973061297
-        let create_tx_hash = "BD1A76F43E8E2C7A1104EE363D63455CD50C76F2BFE93B703235F0A973061297";
+        // TODO: we don't have an explorer to ref tx link
+        let create_tx_hash = "F767DE2F56F6CCAC78E3F0B5BFB92F572AE52DD76DA34A38693340FF2B2E15EC";
 
         let request = GetTxRequest {
             hash: create_tx_hash.into(),
@@ -2983,7 +3049,7 @@ pub mod tendermint_coin_tests {
 
         let encoded_tx = tx.encode_to_vec();
 
-        let secret_hash = hex::decode("cb11cacffdfc82060aa4a9a1bb9cc094c4141b170994f7642cd54d7e7af6743e").unwrap();
+        let secret_hash = hex::decode("5615ec6640e74fd61c41cfead332263d832be82c695a2a67e6296e5588079690").unwrap();
         let input = SearchForSwapTxSpendInput {
             time_lock: 0,
             other_pub: &[],
@@ -3005,8 +3071,8 @@ pub mod tendermint_coin_tests {
 
     #[test]
     fn test_get_tx_status_code_or_none() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
-        let protocol_conf = get_iris_usdc_ibc_protocol();
+        let rpc_urls = vec![NUCLEUS_TESTNET_RPC_URL.to_string()];
+        let protocol_conf = get_nucleus_iris_ibc_protocol();
 
         let conf = TendermintConf {
             avg_blocktime: AVG_BLOCKTIME,
@@ -3014,7 +3080,7 @@ pub mod tendermint_coin_tests {
         };
 
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
-        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let key_pair = key_pair_from_seed(NUCLEUS_TESTNET_HTLC_PAIR1_SEED).unwrap();
         let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
 
         let coin = common::block_on(TendermintCoin::init(
@@ -3057,8 +3123,8 @@ pub mod tendermint_coin_tests {
     fn test_wait_for_confirmations() {
         const CHECK_INTERVAL: u64 = 2;
 
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
-        let protocol_conf = get_iris_usdc_ibc_protocol();
+        let rpc_urls = vec![NUCLEUS_TESTNET_RPC_URL.to_string()];
+        let protocol_conf = get_nucleus_iris_ibc_protocol();
 
         let conf = TendermintConf {
             avg_blocktime: AVG_BLOCKTIME,
@@ -3066,7 +3132,7 @@ pub mod tendermint_coin_tests {
         };
 
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
-        let key_pair = key_pair_from_seed(IRIS_TESTNET_HTLC_PAIR1_SEED).unwrap();
+        let key_pair = key_pair_from_seed(NUCLEUS_TESTNET_HTLC_PAIR1_SEED).unwrap();
         let priv_key_policy = PrivKeyBuildPolicy::IguanaPrivKey(key_pair.private().secret);
 
         let coin = common::block_on(TendermintCoin::init(

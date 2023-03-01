@@ -2,7 +2,7 @@
 // Useful resources
 // https://docs.cosmos.network/
 
-mod iris;
+mod nucleus;
 mod rpc;
 mod tendermint_coin;
 mod tendermint_token;
@@ -25,6 +25,6 @@ pub(crate) const TENDERMINT_COIN_PROTOCOL_TYPE: &str = "TENDERMINT";
 pub(crate) const TENDERMINT_ASSET_PROTOCOL_TYPE: &str = "TENDERMINTTOKEN";
 
 pub(crate) mod type_urls {
-    pub(crate) const CREATE_HTLC_TYPE_URL: &str = "/irismod.htlc.MsgCreateHTLC";
-    pub(crate) const CLAIM_HTLC_TYPE_URL: &str = "/irismod.htlc.MsgClaimHTLC";
+    pub(crate) const CREATE_HTLC_TYPE_URL: &str = "/nucleus.htlc.MsgCreateHTLC";
+    pub(crate) const CLAIM_HTLC_TYPE_URL: &str = "/nucleus.htlc.MsgClaimHTLC";
 }

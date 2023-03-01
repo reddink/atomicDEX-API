@@ -657,6 +657,37 @@ pub fn eth_jst_conf(contract_address: &str) -> Json {
     })
 }
 
+pub fn nucleus_testnet_conf() -> Json {
+    json!({
+        "coin": "NUCLEUS-TEST",
+        "avg_blocktime": 5,
+        "derivation_path": "m/44'/566'",
+        "protocol":{
+            "type":"TENDERMINT",
+            "protocol_data": {
+                "decimals": 6,
+                "denom": "unucl",
+                "account_prefix": "nuc",
+                "chain_id": "nucleus-testnet-1",
+            },
+        }
+    })
+}
+
+pub fn nucleus_iris_ibc_testnet_conf() -> Json {
+    json!({
+        "coin":"IRIS-IBC-NUCLEUS-TEST",
+        "protocol":{
+            "type":"TENDERMINTTOKEN",
+            "protocol_data": {
+                "platform": "NUCLEUS-TEST",
+                "decimals": 6,
+                "denom": "ibc/26409F42099DCF2B110B7B007F029AB7D71A33E642A2DE19A02CB43D0F54312D",
+            },
+        }
+    })
+}
+
 pub fn iris_testnet_conf() -> Json {
     json!({
         "coin": "IRIS-TEST",

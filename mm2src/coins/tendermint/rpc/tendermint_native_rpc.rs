@@ -419,6 +419,7 @@ mod sealed {
             R: SimpleRequest,
         {
             let request = self.build_request(request)?;
+            debug!("Outgoing request {:?}", request);
             let response = self
                 .inner
                 .request(request)
