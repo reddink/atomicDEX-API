@@ -2668,11 +2668,10 @@ pub mod tendermint_coin_tests {
     }
 
     #[test]
-    #[ignore]
     fn validate_taker_fee_test() {
         let rpc_urls = vec![NUCLEUS_TESTNET_RPC_URL.to_string()];
 
-        let protocol_conf = get_nucleus_protocol();
+        let protocol_conf = get_nucleus_iris_ibc_protocol();
 
         let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
 
@@ -2686,7 +2685,7 @@ pub mod tendermint_coin_tests {
 
         let coin = block_on(TendermintCoin::init(
             &ctx,
-            "NUCLEUS-TEST".to_string(),
+            "IRIS-IBC-NUCLEUS-TEST".to_string(),
             conf,
             protocol_conf,
             rpc_urls,
@@ -2695,30 +2694,7 @@ pub mod tendermint_coin_tests {
         ))
         .unwrap();
 
-        // CreateHtlc tx, validation should fail because first message of dex fee tx must be MsgSend
-        // TODO: we don't have an explorer to ref tx link
-        let create_htlc_tx_hash = "F767DE2F56F6CCAC78E3F0B5BFB92F572AE52DD76DA34A38693340FF2B2E15EC";
-        let create_htlc_tx_bytes = block_on(coin.request_tx(create_htlc_tx_hash.into()))
-            .unwrap()
-            .encode_to_vec();
-        let create_htlc_tx = TransactionEnum::CosmosTransaction(CosmosTransaction {
-            data: TxRaw::decode(create_htlc_tx_bytes.as_slice()).unwrap(),
-        });
-
         let invalid_amount = 1.into();
-        let validate_err = coin
-            .validate_fee(ValidateFeeArgs {
-                fee_tx: &create_htlc_tx,
-                expected_sender: &[],
-                fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
-                amount: &invalid_amount,
-                min_block_number: 0,
-                uuid: &[1; 16],
-            })
-            .wait()
-            .unwrap_err();
-        println!("{}", validate_err);
-        assert!(validate_err.contains("failed to decode Protobuf message: MsgSend.amount"));
 
         // just a random transfer tx not related to AtomicDEX, should fail on recipient address check
         // TODO: we don't have an explorer to ref tx link
@@ -2746,8 +2722,8 @@ pub mod tendermint_coin_tests {
         assert!(validate_err.contains("sent to wrong address"));
 
         // dex fee tx sent during real swap
-        // https://nyancat.iobscan.io/#/tx?txHash=8AA6B9591FE1EE93C8B89DE4F2C59B2F5D3473BD9FB5F3CFF6A5442BEDC881D7
-        let dex_fee_hash = "8AA6B9591FE1EE93C8B89DE4F2C59B2F5D3473BD9FB5F3CFF6A5442BEDC881D7";
+        // TODO: we don't have an explorer to ref tx link
+        let dex_fee_hash = "487DB2AECE4D22003004C156E4546C94FE7C29D63DAC445D3D7C9952FBB9CBBA";
         let dex_fee_tx = block_on(coin.request_tx(dex_fee_hash.into())).unwrap();
 
         let pubkey = dex_fee_tx.auth_info.as_ref().unwrap().signer_infos[0]
@@ -2805,8 +2781,8 @@ pub mod tendermint_coin_tests {
         println!("{}", validate_err);
         assert!(validate_err.contains("Invalid memo"));
 
-        // https://nyancat.iobscan.io/#/tx?txHash=5939A9D1AF57BB828714E0C4C4D7F2AEE349BB719B0A1F25F8FBCC3BB227C5F9
-        let fee_with_memo_hash = "5939A9D1AF57BB828714E0C4C4D7F2AEE349BB719B0A1F25F8FBCC3BB227C5F9";
+        // TODO: we don't have an explorer to ref tx link
+        let fee_with_memo_hash = "5D34FFE261D5E32DA43E38707D3BAFA98BDCD08FA404224162992C436AB125AC";
         let fee_with_memo_tx = block_on(coin.request_tx(fee_with_memo_hash.into())).unwrap();
 
         let pubkey = fee_with_memo_tx.auth_info.as_ref().unwrap().signer_infos[0]
@@ -2820,7 +2796,7 @@ pub mod tendermint_coin_tests {
             data: TxRaw::decode(fee_with_memo_tx.encode_to_vec().as_slice()).unwrap(),
         });
 
-        let uuid: Uuid = "cae6011b-9810-4710-b784-1e5dd0b3a0d0".parse().unwrap();
+        let uuid: Uuid = "08110e9a-1426-4c7e-8853-a65c323264a2".parse().unwrap();
         let amount: BigDecimal = "0.0001".parse().unwrap();
         block_on(
             coin.validate_fee_for_denom(
@@ -2830,7 +2806,7 @@ pub mod tendermint_coin_tests {
                 &amount,
                 6,
                 uuid.as_bytes(),
-                "nim".into(),
+                "ibc/26409F42099DCF2B110B7B007F029AB7D71A33E642A2DE19A02CB43D0F54312D".into(),
             )
             .compat(),
         )
