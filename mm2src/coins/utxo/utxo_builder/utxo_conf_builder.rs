@@ -8,9 +8,9 @@ use derive_more::Display;
 pub use keys::{Address, AddressFormat as UtxoAddressFormat, AddressHashEnum, KeyPair, Private, Public, Secret,
                Type as ScriptType};
 use mm2_err_handle::prelude::*;
+use mm2_spv::conf::SPVConf;
 use script::SignatureVersion;
 use serde_json::{self as json, Value as Json};
-use spv_validation::conf::SPVConf;
 use std::num::NonZeroU64;
 use std::sync::atomic::AtomicBool;
 

@@ -173,7 +173,7 @@ pub(crate) mod tests {
     use serde::Deserialize;
     use std::collections::HashMap;
 
-    const BLOCK_HEADERS_STR: &str = include_str!("./for_tests/workTestVectors.json");
+    const BLOCK_HEADERS_STR: &str = include_str!("for_tests/workTestVectors.json");
 
     #[derive(Deserialize)]
     struct TestRawHeader {

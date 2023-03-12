@@ -31,14 +31,14 @@ use keys::hash::H256;
 use keys::{Address, Type as ScriptType};
 use mm2_err_handle::prelude::*;
 use mm2_number::{BigDecimal, BigInt, MmNumber};
+use mm2_spv::helpers_validation::SPVError;
+use mm2_spv::storage::BlockHeaderStorageOps;
 #[cfg(test)] use mocktopus::macros::*;
 use rpc::v1::types::{Bytes as BytesJson, Transaction as RpcTransaction, H256 as H256Json};
 use serde_json::{self as json, Value as Json};
 use serialization::{deserialize, serialize, serialize_with_flags, CoinVariant, CompactInteger, Reader,
                     SERIALIZE_TRANSACTION_WITNESS};
 use sha2::{Digest, Sha256};
-use spv_validation::helpers_validation::SPVError;
-use spv_validation::storage::BlockHeaderStorageOps;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::convert::TryInto;

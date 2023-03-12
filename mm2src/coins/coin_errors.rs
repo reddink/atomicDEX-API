@@ -2,7 +2,7 @@ use crate::{eth::Web3RpcError, my_tx_history_v2::MyTxHistoryErrorV2, utxo::rpc_c
             NumConversError, TxHistoryError, UnexpectedDerivationMethod, WithdrawError};
 use futures01::Future;
 use mm2_err_handle::prelude::MmError;
-use spv_validation::helpers_validation::SPVError;
+use mm2_spv::helpers_validation::SPVError;
 
 pub type ValidatePaymentFut<T> = Box<dyn Future<Item = T, Error = MmError<ValidatePaymentError>> + Send>;
 

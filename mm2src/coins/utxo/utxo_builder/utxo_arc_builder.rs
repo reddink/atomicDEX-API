@@ -13,13 +13,13 @@ use common::log::{error, info, warn};
 use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
+use mm2_spv::conf::SPVConf;
+use mm2_spv::helpers_validation::validate_headers;
+use mm2_spv::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 #[cfg(test)] use mocktopus::macros::*;
 use script::Builder;
 use serde_json::Value as Json;
 use serialization::Reader;
-use spv_validation::conf::SPVConf;
-use spv_validation::helpers_validation::validate_headers;
-use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 
