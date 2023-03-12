@@ -16,7 +16,7 @@ pub mod conf;
 pub mod helpers_validation;
 
 /// `spv_proof` Contains spv proof validation logic and data structure.
-pub mod spv_proof;
+pub mod proof;
 
 /// `storage` Contains traits that can be implemented to provide the storage needed for spv validation.
 pub mod storage;

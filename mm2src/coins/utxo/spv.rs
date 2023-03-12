@@ -4,7 +4,7 @@ use chain::Transaction as UtxoTx;
 use common::log::error;
 use keys::hash::H256;
 use mm2_spv::helpers_validation::SPVError;
-use mm2_spv::spv_proof::{SPVProof, TRY_SPV_PROOF_INTERVAL};
+use mm2_spv::proof::{SPVProof, TRY_SPV_PROOF_INTERVAL};
 use serialization::serialize_list;
 
 #[async_trait]

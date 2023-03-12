@@ -49,7 +49,7 @@ impl SPVProof {
 
 #[cfg(test)]
 mod spv_proof_tests {
-    use crate::spv_proof::SPVProof;
+    use crate::proof::SPVProof;
     use chain::{BlockHeader, Transaction};
     use hex::FromHex;
     use primitives::hash::H256;

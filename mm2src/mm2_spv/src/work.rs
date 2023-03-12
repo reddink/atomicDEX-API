@@ -43,6 +43,8 @@ pub enum DifficultyAlgorithm {
     BitcoinMainnet,
     #[serde(rename = "Bitcoin Testnet")]
     BitcoinTestnet,
+    #[serde(rename = "Litecoin")]
+    Litecoin,
 }
 
 pub async fn next_block_bits(
@@ -57,6 +59,7 @@ pub async fn next_block_bits(
         DifficultyAlgorithm::BitcoinTestnet => {
             btc_testnet_next_block_bits(coin, current_block_timestamp, last_block_header, storage).await
         },
+        DifficultyAlgorithm::Litecoin => todo!(),
     }
 }
 

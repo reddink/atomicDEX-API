@@ -20,7 +20,7 @@ use futures::future::join_all;
 use keys::hash::H256;
 use lightning::chain::{chaininterface::{BroadcasterInterface, ConfirmationTarget, FeeEstimator},
                        Confirm, Filter, WatchedOutput};
-use mm2_spv::spv_proof::TRY_SPV_PROOF_INTERVAL;
+use mm2_spv::proof::TRY_SPV_PROOF_INTERVAL;
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
 use std::convert::TryInto;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering, Ordering};
