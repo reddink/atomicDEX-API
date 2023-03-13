@@ -59,7 +59,10 @@ impl From<PaymentError> for SendPaymentError {
 #[serde(tag = "type")]
 pub enum Payment {
     #[serde(rename = "invoice")]
-    Invoice { invoice: Invoice },
+    Invoice {
+        invoice: Invoice,
+        override_description: Option<String>,
+    },
     #[serde(rename = "keysend")]
     Keysend {
         // The recieving node pubkey (node ID)
@@ -70,6 +73,8 @@ pub enum Payment {
         // It's can be assumed that 6 blocks = 1 hour. We can claim the payment amount back after this cltv expires.
         // Minmum value allowed is MIN_FINAL_CLTV_EXPIRY which is currently 24 for rust-lightning.
         expiry: u32,
+        // Description for the sender only
+        description: Option<String>,
     },
 }
 
@@ -99,12 +104,20 @@ pub async fn send_payment(ctx: MmArc, req: SendPaymentReq) -> SendPaymentResult<
             ));
     }
     let payment_info = match req.payment {
-        Payment::Invoice { invoice } => ln_coin.pay_invoice(invoice, None).await?,
+        Payment::Invoice {
+            invoice,
+            override_description,
+        } => ln_coin.pay_invoice(invoice, None, override_description).await?,
         Payment::Keysend {
             destination,
             amount_in_msat,
             expiry,
-        } => ln_coin.keysend(destination.into(), amount_in_msat, expiry).await?,
+            description,
+        } => {
+            ln_coin
+                .keysend(destination.into(), amount_in_msat, expiry, description)
+                .await?
+        },
     };
 
     Ok(SendPaymentResponse {

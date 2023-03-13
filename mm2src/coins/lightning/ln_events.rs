@@ -367,7 +367,7 @@ impl LightningEventHandler {
                     let payment_info = PaymentInfo::new(
                         payment_hash,
                         PaymentType::InboundPayment,
-                        "Swap Payment".into(),
+                        SWAP_PAYMENT_DESCRIPTION.into(),
                         amt_msat,
                     )
                     .with_status(HTLCStatus::Claimable);

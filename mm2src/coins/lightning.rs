@@ -81,6 +81,7 @@ use uuid::Uuid;
 
 const WAIT_FOR_REFUND_INTERVAL: f64 = 60.;
 pub const DEFAULT_INVOICE_EXPIRY: u32 = 3600;
+pub(crate) const SWAP_PAYMENT_DESCRIPTION: &str = "Swap Payment";
 
 pub type InvoicePayer<E> = payment::InvoicePayer<Arc<ChannelManager>, Router, Arc<LogState>, E>;
 
@@ -194,6 +195,7 @@ impl LightningCoin {
         &self,
         invoice: Invoice,
         max_total_cltv_expiry_delta: Option<u32>,
+        override_description: Option<String>,
     ) -> Result<PaymentInfo, MmError<PaymentError>> {
         let payment_hash = PaymentHash((invoice.payment_hash()).into_inner());
         // check if the invoice was already paid
@@ -209,9 +211,10 @@ impl LightningCoin {
         let payment_type = PaymentType::OutboundPayment {
             destination: *invoice.payee_pub_key().unwrap_or(&invoice.recover_payee_pub_key()),
         };
-        let description = match invoice.description() {
-            InvoiceDescription::Direct(d) => d.to_string(),
-            InvoiceDescription::Hash(h) => hex::encode(h.0.into_inner()),
+        let description = match (override_description, invoice.description()) {
+            (Some(description), _) => description,
+            (None, InvoiceDescription::Direct(d)) => d.to_string(),
+            (None, InvoiceDescription::Hash(h)) => hex::encode(h.0.into_inner()),
         };
         let amt_msat = invoice.amount_milli_satoshis().map(|a| a as i64);
 
@@ -242,6 +245,7 @@ impl LightningCoin {
         destination: PublicKey,
         amount_msat: u64,
         final_cltv_expiry_delta: u32,
+        description: Option<String>,
     ) -> Result<PaymentInfo, MmError<PaymentError>> {
         if final_cltv_expiry_delta < MIN_FINAL_CLTV_EXPIRY {
             return MmError::err(PaymentError::CLTVExpiry(final_cltv_expiry_delta, MIN_FINAL_CLTV_EXPIRY));
@@ -259,7 +263,12 @@ impl LightningCoin {
 
         let payment_hash = PaymentHash(Sha256::hash(&payment_preimage.0).into_inner());
         let payment_type = PaymentType::OutboundPayment { destination };
-        let payment_info = PaymentInfo::new(payment_hash, payment_type, "".into(), Some(amount_msat as i64));
+        let payment_info = PaymentInfo::new(
+            payment_hash,
+            payment_type,
+            description.unwrap_or_default(),
+            Some(amount_msat as i64),
+        );
         self.db.add_payment_to_db(&payment_info).await?;
 
         Ok(payment_info)
@@ -623,7 +632,10 @@ impl SwapOps for LightningCoin {
         let coin = self.clone();
         let fut = async move {
             // No need for max_total_cltv_expiry_delta for lightning maker payment since the maker is the side that reveals the secret/preimage
-            let payment = try_tx_s!(coin.pay_invoice(invoice, None).await);
+            let payment = try_tx_s!(
+                coin.pay_invoice(invoice, None, Some(SWAP_PAYMENT_DESCRIPTION.into()))
+                    .await
+            );
             Ok(payment.payment_hash.into())
         };
         Box::new(fut.boxed().compat())
@@ -641,7 +653,14 @@ impl SwapOps for LightningCoin {
         let coin = self.clone();
         let fut = async move {
             // Todo: The path/s used is already logged when PaymentPathSuccessful/PaymentPathFailed events are fired, it might be better to save it to the DB and retrieve it with the payment info.
-            let payment = try_tx_s!(coin.pay_invoice(invoice, Some(max_total_cltv_expiry_delta)).await);
+            let payment = try_tx_s!(
+                coin.pay_invoice(
+                    invoice,
+                    Some(max_total_cltv_expiry_delta),
+                    Some(SWAP_PAYMENT_DESCRIPTION.into())
+                )
+                .await
+            );
             Ok(payment.payment_hash.into())
         };
         Box::new(fut.boxed().compat())
