@@ -1,6 +1,4 @@
 pub mod btc;
-mod ltc;
-
 pub use btc::*;
 
 use crate::conf::SPVBlockHeader;
@@ -11,15 +9,8 @@ use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use std::cmp;
 
-/// The lower bounds for retargeting timespan.
-const fn min_timespan(target_timespan_secs: u32, retarget_factor: u32) -> i64 {
-    (target_timespan_secs / retarget_factor) as i64
-}
-
-/// The lower bound for retargeting timespan.
-const fn max_timespan(target_timespan_secs: u32, retarget_factor: u32) -> i64 {
-    (target_timespan_secs * retarget_factor) as i64
-}
+/// The maximum value for bits corresponding to lowest difficulty of 1
+pub(crate) const LTC_MAX_BITS: u32 = 504365040;
 
 /// The Target number of blocks equals to 2 weeks or 2016 blocks (for btc).
 const fn retarget_interval(target_timespan_secs: u32, target_spacing_secs: u32) -> u32 {
@@ -54,6 +45,31 @@ pub enum DifficultyAlgorithm {
     Litecoin,
 }
 
+impl DifficultyAlgorithm {
+    pub(crate) fn max_bits(&self) -> u32 {
+        match self {
+            DifficultyAlgorithm::BitcoinMainnet | DifficultyAlgorithm::BitcoinTestnet => MAX_BITS_BTC,
+            DifficultyAlgorithm::Litecoin => LTC_MAX_BITS,
+        }
+    }
+
+    pub(crate) fn min_max_timespan(&self) -> (i64, i64) {
+        match self {
+            DifficultyAlgorithm::BitcoinMainnet | DifficultyAlgorithm::BitcoinTestnet => (MIN_TIMESPAN, MAX_TIMESPAN),
+            DifficultyAlgorithm::Litecoin => (MIN_TIMESPAN / 4, MAX_TIMESPAN / 4),
+        }
+    }
+
+    pub(crate) fn target_timespan_spacing_secs(&self) -> (u32, u32) {
+        match self {
+            DifficultyAlgorithm::BitcoinMainnet | DifficultyAlgorithm::BitcoinTestnet => {
+                (TARGET_TIMESPAN_SECONDS, TARGET_SPACING_SECONDS)
+            },
+            DifficultyAlgorithm::Litecoin => (TARGET_TIMESPAN_SECONDS / 4, TARGET_SPACING_SECONDS / 4),
+        }
+    }
+}
+
 pub async fn next_block_bits(
     coin: &str,
     current_block_timestamp: u32,
@@ -62,11 +78,12 @@ pub async fn next_block_bits(
     algorithm: &DifficultyAlgorithm,
 ) -> Result<BlockHeaderBits, NextBlockBitsError> {
     match algorithm {
-        DifficultyAlgorithm::BitcoinMainnet => btc_mainnet_next_block_bits(coin, last_block_header, storage).await,
-        DifficultyAlgorithm::BitcoinTestnet => {
-            btc_testnet_next_block_bits(coin, current_block_timestamp, last_block_header, storage).await
+        DifficultyAlgorithm::BitcoinMainnet | DifficultyAlgorithm::Litecoin => {
+            btc_mainnet_next_block_bits(coin, last_block_header, storage, algorithm).await
         },
-        DifficultyAlgorithm::Litecoin => todo!(),
+        DifficultyAlgorithm::BitcoinTestnet => {
+            btc_testnet_next_block_bits(coin, current_block_timestamp, last_block_header, storage, algorithm).await
+        },
     }
 }
 

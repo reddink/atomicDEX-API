@@ -1,6 +1,6 @@
 use crate::conf::{SPVBlockHeader, SPVConf};
 use crate::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
-use crate::work::{next_block_bits, NextBlockBitsError};
+use crate::work::{next_block_bits, DifficultyAlgorithm, NextBlockBitsError, RETARGETING_INTERVAL};
 use chain::{BlockHeader, RawHeaderError};
 use derive_more::Display;
 use primitives::hash::H256;
@@ -371,8 +371,22 @@ pub async fn validate_headers(
                 let next_block_bits =
                     next_block_bits(coin, header.time, previous_header.clone(), storage, algorithm).await?;
 
-                if !params.constant_difficulty && params.difficulty_check && current_block_bits != next_block_bits {
-                    return Err(SPVError::InsufficientWork);
+                let is_not_constant_difficulty = !params.constant_difficulty && params.difficulty_check;
+                match algorithm {
+                    DifficultyAlgorithm::BitcoinMainnet | DifficultyAlgorithm::BitcoinTestnet => {
+                        if is_not_constant_difficulty && current_block_bits != next_block_bits {
+                            return Err(SPVError::InsufficientWork);
+                        }
+                    },
+                    DifficultyAlgorithm::Litecoin => {
+                        // Litecoin has an offset of 1 for difficulty calculation.
+                        if (previous_height as u32 + 1) % RETARGETING_INTERVAL != 0
+                            && is_not_constant_difficulty
+                            && current_block_bits != next_block_bits
+                        {
+                            return Err(SPVError::InsufficientWork);
+                        }
+                    },
                 }
             }
         }

@@ -99,7 +99,7 @@ impl SPVConf {
         if let Some(params) = &self.validation_params {
             if let Some(algo) = &params.difficulty_algorithm {
                 match algo {
-                    DifficultyAlgorithm::BitcoinMainnet => {
+                    DifficultyAlgorithm::BitcoinMainnet | DifficultyAlgorithm::Litecoin => {
                         validate_btc_spv_header_height(coin, self.starting_block_header.height)?;
                         if let Some(max) = self.max_stored_block_headers {
                             validate_btc_max_stored_headers_value(max.into())?;
@@ -107,9 +107,6 @@ impl SPVConf {
                     },
                     DifficultyAlgorithm::BitcoinTestnet => {
                         return Err(SPVError::Internal("Bitcoin Testnet is not supported yet.".to_string()))
-                    },
-                    DifficultyAlgorithm::Litecoin => {
-                        return Err(SPVError::Internal("Litecoin is not supported yet.".to_string()))
                     },
                 }
             }
