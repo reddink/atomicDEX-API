@@ -1,5 +1,6 @@
 use crate::helpers_validation::SPVError;
-use crate::work::{DifficultyAlgorithm, RETARGETING_INTERVAL};
+use crate::work::btc::RETARGETING_INTERVAL;
+use crate::work::DifficultyAlgorithm;
 use chain::{BlockHeader, BlockHeaderBits};
 use primitives::hash::H256;
 use serde::de::Error;
