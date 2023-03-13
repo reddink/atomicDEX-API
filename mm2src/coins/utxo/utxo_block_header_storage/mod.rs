@@ -116,7 +116,7 @@ mod block_headers_storage_tests {
 
     cfg_wasm32! {
         use wasm_bindgen_test::*;
-        use spv_validation::work::MAX_BITS_BTC;
+        use mm2_spv::work::MAX_BITS_BTC;
 
         wasm_bindgen_test_configure!(run_in_browser);
     }

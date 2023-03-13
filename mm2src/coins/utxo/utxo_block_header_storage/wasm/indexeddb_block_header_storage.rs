@@ -6,10 +6,10 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_db::indexed_db::{BeBigUint, ConstructibleDb, DbIdentifier, DbInstance, DbLocked, IndexedDb, IndexedDbBuilder,
                          InitDbResult, MultiIndex, SharedDb};
 use mm2_err_handle::prelude::*;
+use mm2_spv::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 use num_traits::ToPrimitive;
 use primitives::hash::H256;
 use serialization::Reader;
-use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 use std::collections::HashMap;
 
 const DB_NAME: &str = "block_headers_cache";
