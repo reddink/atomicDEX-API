@@ -108,6 +108,7 @@ impl SPVConf {
                     DifficultyAlgorithm::BitcoinTestnet => {
                         return Err(SPVError::Internal("Bitcoin Testnet is not supported yet.".to_string()))
                     },
+                    DifficultyAlgorithm::Zcash => todo!(),
                 }
             }
         }

@@ -1,5 +1,8 @@
 pub mod btc;
+pub mod zcash;
+
 pub use btc::*;
+pub use zcash::*;
 
 use crate::conf::SPVBlockHeader;
 use crate::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
@@ -41,8 +44,8 @@ pub enum DifficultyAlgorithm {
     BitcoinMainnet,
     #[serde(rename = "Bitcoin Testnet")]
     BitcoinTestnet,
-    #[serde(rename = "Litecoin")]
     Litecoin,
+    Zcash,
 }
 
 impl DifficultyAlgorithm {
@@ -50,6 +53,7 @@ impl DifficultyAlgorithm {
         match self {
             DifficultyAlgorithm::BitcoinMainnet | DifficultyAlgorithm::BitcoinTestnet => MAX_BITS_BTC,
             DifficultyAlgorithm::Litecoin => LTC_MAX_BITS,
+            _ => todo!(),
         }
     }
 
@@ -57,6 +61,7 @@ impl DifficultyAlgorithm {
         match self {
             DifficultyAlgorithm::BitcoinMainnet | DifficultyAlgorithm::BitcoinTestnet => (MIN_TIMESPAN, MAX_TIMESPAN),
             DifficultyAlgorithm::Litecoin => (MIN_TIMESPAN / 4, MAX_TIMESPAN / 4),
+            _ => todo!(),
         }
     }
 
@@ -66,6 +71,7 @@ impl DifficultyAlgorithm {
                 (TARGET_TIMESPAN_SECONDS, TARGET_SPACING_SECONDS)
             },
             DifficultyAlgorithm::Litecoin => (TARGET_TIMESPAN_SECONDS / 4, TARGET_SPACING_SECONDS / 4),
+            _ => todo!(),
         }
     }
 }
@@ -84,6 +90,7 @@ pub async fn next_block_bits(
         DifficultyAlgorithm::BitcoinTestnet => {
             btc_testnet_next_block_bits(coin, current_block_timestamp, last_block_header, storage, algorithm).await
         },
+        _ => todo!(),
     }
 }
 
