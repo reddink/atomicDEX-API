@@ -403,7 +403,7 @@ fn compare_block_bits(
                 return Err(SPVError::InsufficientWork);
             }
         },
-        DifficultyAlgorithm::Litecoin => {
+        DifficultyAlgorithm::LitecoinMainnet => {
             // Litecoin has an offset of 1 for difficulty calculation.
             if (prev_height as u32 + 1) % RETARGETING_INTERVAL != 0
                 && should_check_difficulty
@@ -412,7 +412,6 @@ fn compare_block_bits(
                 return Err(SPVError::InsufficientWork);
             }
         },
-        DifficultyAlgorithm::Zcash => todo!(),
     }
 
     Ok(())
