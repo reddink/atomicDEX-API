@@ -27,6 +27,12 @@ pub enum BlockHeaderStorageError {
         coin: String,
         reason: String,
     },
+    #[display(fmt = "Unable to delete block headers > {from_height} from storage for {coin} - reason: {reason}")]
+    UnableFromDeleteHeaders {
+        from_height: u64,
+        coin: String,
+        reason: String,
+    },
     #[display(fmt = "Can't query from the storage - query: {} - reason: {}", query, reason)]
     QueryError {
         query: String,
@@ -118,9 +124,9 @@ pub trait BlockHeaderStorageOps: Send + Sync + 'static {
 
     async fn get_block_height_by_hash(&self, hash: H256) -> Result<Option<i64>, BlockHeaderStorageError>;
 
-    async fn get_block_headers_from_height(&self, height: u64) -> Result<Vec<BlockHeader>, BlockHeaderStorageError>;
-
     async fn remove_headers_up_to_height(&self, to_height: u64) -> Result<(), BlockHeaderStorageError>;
+
+    async fn remove_headers_from_height(&self, from_height: u64) -> Result<(), BlockHeaderStorageError>;
 
     async fn is_table_empty(&self) -> Result<(), BlockHeaderStorageError>;
 }

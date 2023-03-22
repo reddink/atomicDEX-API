@@ -332,6 +332,43 @@ impl BlockHeaderStorageOps for IDBBlockHeadersStorage {
         Ok(())
     }
 
+    async fn remove_headers_from_height(&self, from_height: u64) -> Result<(), BlockHeaderStorageError> {
+        let ticker = self.ticker.clone();
+        let locked_db = self
+            .lock_db()
+            .await
+            .map_err(|err| BlockHeaderStorageError::delete_err(&ticker, err.to_string(), to_height))?;
+        let db_transaction = locked_db
+            .get_inner()
+            .transaction()
+            .await
+            .map_err(|err| BlockHeaderStorageError::delete_err(&ticker, err.to_string(), to_height))?;
+        let block_headers_db = db_transaction
+            .table::<BlockHeaderStorageTable>()
+            .await
+            .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?;
+
+        let last_block_height = self.get_last_block_height().await?;
+        for height in (from_height + 1)..last_block_height.unwrap_default() {
+            let index_keys = MultiIndex::new(BlockHeaderStorageTable::TICKER_HEIGHT_INDEX)
+                .with_value(&ticker)
+                .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?
+                .with_value(&BeBigUint::from(height))
+                .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?;
+
+            block_headers_db
+                .delete_item_by_unique_multi_index(index_keys)
+                .await
+                .map_err(|err| BlockHeaderStorageError::UnableFromDeleteHeaders {
+                    from_height,
+                    coin: coin.to_string(),
+                    reason: err.to_string(),
+                })?;
+        }
+
+        Ok(())
+    }
+
     async fn is_table_empty(&self) -> Result<(), BlockHeaderStorageError> {
         let ticker = self.ticker.clone();
         let locked_db = self

@@ -14,7 +14,6 @@ use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 #[cfg(test)] use mocktopus::macros::*;
-use primitives::hash::H256;
 use script::Builder;
 use serde_json::Value as Json;
 use serialization::Reader;
@@ -364,7 +363,7 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
         };
 
         // Scan header for chain reorg
-        match scan_headers_for_chain_reorg(ticker, from_block_height, storage, &block_headers).await {
+        match scan_headers_for_chain_reorg(ticker, from_block_height, storage.inner.as_ref(), &block_headers).await {
             Ok(_) => (),
             Err(err) => {
                 error!("{err:?}!");
@@ -388,46 +387,56 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
 }
 
 // Check for a chain reorg given a block header and a list of headers
-// downloaded from an RPC node
+// downloaded from an RPC node and remove bad headers from storage
 pub async fn scan_headers_for_chain_reorg(
     coin: &str,
     last_block_height: u64,
-    storage: &BlockHeaderStorage,
+    storage: &dyn BlockHeaderStorageOps,
     rpc_headers: &[BlockHeader],
-) -> Result<(), BlockHeaderStorageError> {
-    let latest_header = storage.get_block_header(last_block_height).await?;
+) -> Result<String, String> {
+    let mut curr_height = last_block_height;
+    let mut curr_hash = storage
+        .get_block_header(curr_height)
+        .await
+        .map_err(|e| format!("Error getting block hash: {:?}", e))?
+        .ok_or_else(|| format!("Block hash not found for height {}", curr_height))?
+        .hash();
 
-    if let Some(latest_header) = latest_header {
-        let headers_to_check = rpc_headers.len();
-        let local_headers = storage.get_block_headers_from_height(headers_to_check as u64).await?;
-        let common_header = common_block_headers(&local_headers, rpc_headers).await;
-        if let Some(common_header) = common_header {
-            return if common_header == latest_header.previous_header_hash {
-                Ok(())
-            } else {
-                let height = storage.get_block_height_by_hash(common_header).await?;
-                Err(BlockHeaderStorageError::ChainReOrgDetected {
-                    coin: coin.to_string(),
-                    height: height.unwrap_or_default() as u64,
-                })?
-            };
-        }
-    };
+    for header in rpc_headers.iter().rev() {
+        if header.previous_header_hash != curr_hash {
+            log!("Chain reorg detected at height: {curr_height} -> hash:{curr_hash} -> coin: {coin}");
 
-    Ok(())
-}
+            while header.previous_header_hash != curr_hash {
+                storage
+                    .get_block_header(curr_height)
+                    .await
+                    .map_err(|e| format!("Error marking block as reorg: {:?}", e))?;
 
-// Find the common ancestor block header given two lists of headers
-async fn common_block_headers(headers1: &[BlockHeader], headers2: &[BlockHeader]) -> Option<H256> {
-    for header1 in headers1.iter().rev() {
-        for header2 in headers2.iter().rev() {
-            if header1.hash() == header2.hash() {
-                return Some(header1.hash());
+                curr_height -= 1;
+                curr_hash = storage
+                    .get_block_header(curr_height)
+                    .await
+                    .map_err(|e| format!("Error getting block hash: {:?}", e))?
+                    .ok_or_else(|| format!("Block hash not found for height {}", curr_height))?
+                    .hash();
             }
+
+            storage
+                .remove_headers_from_height(curr_height)
+                .await
+                .map_err(|err| err.to_string())?;
+
+            return Ok(format!(
+                "Chain reorg resolved at height {} with hash {}",
+                curr_height, curr_hash
+            ));
         }
+
+        curr_height += 1;
+        curr_hash = header.hash();
     }
 
-    None
+    Ok("No chain reorg detected".to_string())
 }
 
 #[derive(Display)]
