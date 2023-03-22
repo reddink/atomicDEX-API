@@ -358,6 +358,7 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
                 );
                 // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
                 sync_status_loop_handle.notify_on_permanent_error(error);
+                Timer::sleep(args.error_sleep).await;
                 break;
             },
         };
@@ -366,10 +367,9 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
         match scan_headers_for_chain_reorg(ticker, from_block_height, storage.inner.as_ref(), &block_headers).await {
             Ok(_) => (),
             Err(err) => {
-                error!("{err:?}!");
-                // Todo: remove bad headers from storage starting from the `height` at which re-org occured.
+                error!("{err}!");
                 sync_status_loop_handle.notify_on_temp_error(err);
-                continue;
+                break;
             },
         };
 
@@ -386,6 +386,14 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
     }
 }
 
+#[derive(Debug, Display)]
+pub enum ChainReorgError {
+    #[display(fmt = "Block header not found for height {} - reason: ", _0)]
+    BlockNotFound(u64, String),
+    #[display(fmt = "RemoveHeaderFromStorageErr: {}", _0)]
+    RemoveHeaderFromStorageErr(String),
+}
+
 // Check for a chain reorg given a block header and a list of headers
 // downloaded from an RPC node and remove bad headers from storage
 pub async fn scan_headers_for_chain_reorg(
@@ -393,13 +401,13 @@ pub async fn scan_headers_for_chain_reorg(
     last_block_height: u64,
     storage: &dyn BlockHeaderStorageOps,
     rpc_headers: &[BlockHeader],
-) -> Result<String, String> {
+) -> Result<String, ChainReorgError> {
     let mut curr_height = last_block_height;
     let mut curr_hash = storage
         .get_block_header(curr_height)
         .await
-        .map_err(|e| format!("Error getting block hash: {:?}", e))?
-        .ok_or_else(|| format!("Block hash not found for height {}", curr_height))?
+        .map_err(|e| ChainReorgError::BlockNotFound(curr_height, e.to_string()))?
+        .ok_or_else(|| ChainReorgError::BlockNotFound(curr_height, "no block header for height".to_string()))?
         .hash();
 
     for header in rpc_headers.iter().rev() {
@@ -407,24 +415,21 @@ pub async fn scan_headers_for_chain_reorg(
             log!("Chain reorg detected at height: {curr_height} -> hash:{curr_hash} -> coin: {coin}");
 
             while header.previous_header_hash != curr_hash {
-                storage
-                    .get_block_header(curr_height)
-                    .await
-                    .map_err(|e| format!("Error marking block as reorg: {:?}", e))?;
-
                 curr_height -= 1;
                 curr_hash = storage
                     .get_block_header(curr_height)
                     .await
-                    .map_err(|e| format!("Error getting block hash: {:?}", e))?
-                    .ok_or_else(|| format!("Block hash not found for height {}", curr_height))?
+                    .map_err(|e| ChainReorgError::BlockNotFound(curr_height, e.to_string()))?
+                    .ok_or_else(|| {
+                        ChainReorgError::BlockNotFound(curr_height, "no block header for height".to_string())
+                    })?
                     .hash();
             }
 
             storage
                 .remove_headers_from_storage(DeleteHeaderCondition::FromHeight(curr_height))
                 .await
-                .map_err(|err| err.to_string())?;
+                .map_err(|err| ChainReorgError::RemoveHeaderFromStorageErr(err.to_string()))?;
 
             return Ok(format!(
                 "Chain reorg resolved at height {} with hash {}",

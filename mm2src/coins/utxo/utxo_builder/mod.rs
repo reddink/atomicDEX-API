@@ -8,5 +8,5 @@ pub use utxo_coin_builder::{UtxoCoinBuildError, UtxoCoinBuildResult, UtxoCoinBui
                             UtxoFieldsWithIguanaSecretBuilder};
 pub use utxo_conf_builder::{UtxoConfBuilder, UtxoConfError, UtxoConfResult};
 
-#[cfg(test)]
+#[cfg(any(test, target_arch = "wasm32"))]
 pub(crate) use utxo_arc_builder::{block_header_utxo_loop, scan_headers_for_chain_reorg, BlockHeaderUtxoLoopExtraArgs};

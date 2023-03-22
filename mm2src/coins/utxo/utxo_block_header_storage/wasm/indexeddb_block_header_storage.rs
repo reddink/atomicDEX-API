@@ -305,7 +305,7 @@ impl BlockHeaderStorageOps for IDBBlockHeadersStorage {
         condition: DeleteHeaderCondition,
     ) -> Result<(), BlockHeaderStorageError> {
         let ticker = self.ticker.clone();
-        let height = condition.get_inner();
+        let height = condition.clone().get_inner();
         let locked_db = self
             .lock_db()
             .await

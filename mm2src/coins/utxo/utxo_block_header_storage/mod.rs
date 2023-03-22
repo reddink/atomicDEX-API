@@ -306,7 +306,6 @@ mod block_headers_storage_tests {
 
         // https://live.blockcypher.com/btc-testnet/block/00000000961a9d117feb57e516e17217207a849bf6cdfce529f31d9a96053530/
         let block_header: BlockHeader = "02000000ea01a61a2d7420a1b23875e40eb5eb4ca18b378902c8e6384514ad0000000000c0c5a1ae80582b3fe319d8543307fa67befc2a734b8eddb84b1780dfdf11fa2b20e71353ffff001d00805fe0".into();
-        println!("201595 {}", block_header.hash());
         headers.insert(201595, block_header);
 
         // https://live.blockcypher.com/btc-testnet/block/0000000000ad144538e6c80289378ba14cebb50ee47538b2a120742d1aa601ea/
@@ -332,7 +331,10 @@ mod block_headers_storage_tests {
         let check_reorg = scan_headers_for_chain_reorg(for_coin, 201595, storage.as_ref(), &rpc_headers)
             .await
             .unwrap();
-        assert!(check_reorg.contains("Chain reorg resolved at height 201594 with hash ea01a61a2d7420a1b23875e40eb5eb4ca18b378902c8e6384514ad0000000000"))
+        assert!(check_reorg.to_string().contains(
+            "Chain reorg resolved at height 201594 with hash \
+        ea01a61a2d7420a1b23875e40eb5eb4ca18b378902c8e6384514ad0000000000"
+        ))
     }
 }
 

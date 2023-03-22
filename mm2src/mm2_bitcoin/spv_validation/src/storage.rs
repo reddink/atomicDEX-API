@@ -48,11 +48,6 @@ pub enum BlockHeaderStorageError {
         coin: String,
         reason: String,
     },
-    #[display(fmt = "Chain reorganization has been detected for {} - height: {}", coin, height)]
-    ChainReOrgDetected {
-        coin: String,
-        height: u64,
-    },
     Internal(String),
 }
 
@@ -94,6 +89,7 @@ impl BlockHeaderStorageError {
     }
 }
 
+#[derive(Clone)]
 pub enum DeleteHeaderCondition {
     FromHeight(u64),
     ToHeight(u64),
