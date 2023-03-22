@@ -8,7 +8,7 @@ use db_common::{sqlite::rusqlite::Error as SqlError,
                 sqlite::CHECK_TABLE_EXISTS_SQL};
 use primitives::hash::H256;
 use serialization::Reader;
-use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
+use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps, DeleteHeaderCondition};
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::num::TryFromIntError;
@@ -310,22 +310,38 @@ impl BlockHeaderStorageOps for SqliteBlockHeadersStorage {
         })
     }
 
-    async fn remove_headers_up_to_height(&self, to_height: u64) -> Result<(), BlockHeaderStorageError> {
+    async fn remove_headers_from_storage(
+        &self,
+        condition: DeleteHeaderCondition,
+    ) -> Result<(), BlockHeaderStorageError> {
         let coin = self.ticker.clone();
         let selfi = self.clone();
-        let sql = remove_headers_up_to_height_sql(&coin, to_height)?;
+        let sql = match condition {
+            DeleteHeaderCondition::FromHeight(from_height) => remove_headers_from_height_sql(&coin, from_height)?,
+            DeleteHeaderCondition::ToHeight(to_height) => remove_headers_up_to_height_sql(&coin, to_height)?,
+        };
 
-        async_blocking(move || {
+        let res = async_blocking(move || {
             let conn = selfi.conn.lock().unwrap();
             conn.execute(&sql, NO_PARAMS)
-                .map_err(|e| BlockHeaderStorageError::UnableToDeleteHeaders {
+        })
+        .await;
+
+        match res {
+            Ok(_) => Ok(()),
+            Err(err) => Err(match condition {
+                DeleteHeaderCondition::FromHeight(from_height) => BlockHeaderStorageError::UnableFromDeleteHeaders {
+                    coin: coin.clone(),
+                    from_height,
+                    reason: err.to_string(),
+                },
+                DeleteHeaderCondition::ToHeight(to_height) => BlockHeaderStorageError::UnableToDeleteHeaders {
                     coin: coin.clone(),
                     to_height,
-                    reason: e.to_string(),
-                })?;
-            Ok(())
-        })
-        .await
+                    reason: err.to_string(),
+                },
+            }),
+        }
     }
 
     async fn is_table_empty(&self) -> Result<(), BlockHeaderStorageError> {
@@ -341,24 +357,6 @@ impl BlockHeaderStorageOps for SqliteBlockHeadersStorage {
             &self.ticker,
             "Table is not empty".to_string(),
         ))
-    }
-
-    async fn remove_headers_from_height(&self, from_height: u64) -> Result<(), BlockHeaderStorageError> {
-        let coin = self.ticker.clone();
-        let selfi = self.clone();
-        let sql = remove_headers_from_height_sql(&coin, from_height)?;
-
-        async_blocking(move || {
-            let conn = selfi.conn.lock().unwrap();
-            conn.execute(&sql, NO_PARAMS)
-                .map_err(|e| BlockHeaderStorageError::UnableFromDeleteHeaders {
-                    coin: coin.clone(),
-                    from_height,
-                    reason: e.to_string(),
-                })?;
-            Ok(())
-        })
-        .await
     }
 }
 

@@ -19,7 +19,7 @@ use serde_json::Value as Json;
 use serialization::Reader;
 use spv_validation::conf::SPVConf;
 use spv_validation::helpers_validation::validate_headers;
-use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
+use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps, DeleteHeaderCondition};
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 
@@ -422,7 +422,7 @@ pub async fn scan_headers_for_chain_reorg(
             }
 
             storage
-                .remove_headers_from_height(curr_height)
+                .remove_headers_from_storage(DeleteHeaderCondition::FromHeight(curr_height))
                 .await
                 .map_err(|err| err.to_string())?;
 
@@ -497,7 +497,9 @@ async fn remove_excessive_headers_from_storage(
     let max_allowed_headers = max_allowed_headers.get();
     if last_height_to_be_added > max_allowed_headers {
         return storage
-            .remove_headers_up_to_height(last_height_to_be_added - max_allowed_headers)
+            .remove_headers_from_storage(DeleteHeaderCondition::ToHeight(
+                last_height_to_be_added - max_allowed_headers,
+            ))
             .await;
     }
 

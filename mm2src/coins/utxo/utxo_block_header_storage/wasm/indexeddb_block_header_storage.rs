@@ -9,7 +9,7 @@ use mm2_err_handle::prelude::*;
 use num_traits::ToPrimitive;
 use primitives::hash::H256;
 use serialization::Reader;
-use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
+use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps, DeleteHeaderCondition};
 use std::collections::HashMap;
 
 const DB_NAME: &str = "block_headers_cache";
@@ -300,73 +300,61 @@ impl BlockHeaderStorageOps for IDBBlockHeadersStorage {
             .transpose()
     }
 
-    async fn remove_headers_up_to_height(&self, to_height: u64) -> Result<(), BlockHeaderStorageError> {
+    async fn remove_headers_from_storage(
+        &self,
+        condition: DeleteHeaderCondition,
+    ) -> Result<(), BlockHeaderStorageError> {
         let ticker = self.ticker.clone();
+        let height = condition.get_inner();
         let locked_db = self
             .lock_db()
             .await
-            .map_err(|err| BlockHeaderStorageError::delete_err(&ticker, err.to_string(), to_height))?;
+            .map_err(|err| BlockHeaderStorageError::delete_err(&ticker, err.to_string(), height))?;
         let db_transaction = locked_db
             .get_inner()
             .transaction()
             .await
-            .map_err(|err| BlockHeaderStorageError::delete_err(&ticker, err.to_string(), to_height))?;
+            .map_err(|err| BlockHeaderStorageError::delete_err(&ticker, err.to_string(), height))?;
         let block_headers_db = db_transaction
             .table::<BlockHeaderStorageTable>()
             .await
             .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?;
 
-        for height in 0..=to_height {
-            let index_keys = MultiIndex::new(BlockHeaderStorageTable::TICKER_HEIGHT_INDEX)
-                .with_value(&ticker)
-                .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?
-                .with_value(&BeBigUint::from(height))
-                .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?;
+        match condition {
+            DeleteHeaderCondition::FromHeight(from_height) => {
+                let last_block_height = self.get_last_block_height().await?;
+                for height in (from_height + 1)..last_block_height.unwrap_or_default() {
+                    let index_keys = MultiIndex::new(BlockHeaderStorageTable::TICKER_HEIGHT_INDEX)
+                        .with_value(&ticker)
+                        .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?
+                        .with_value(&BeBigUint::from(height))
+                        .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?;
 
-            block_headers_db
-                .delete_item_by_unique_multi_index(index_keys)
-                .await
-                .map_err(|err| BlockHeaderStorageError::delete_err(&ticker, err.to_string(), to_height))?;
+                    block_headers_db
+                        .delete_item_by_unique_multi_index(index_keys)
+                        .await
+                        .map_err(|err| BlockHeaderStorageError::delete_err(&ticker, err.to_string(), from_height))?;
+                }
+
+                Ok(())
+            },
+            DeleteHeaderCondition::ToHeight(to_height) => {
+                for height in 0..=to_height {
+                    let index_keys = MultiIndex::new(BlockHeaderStorageTable::TICKER_HEIGHT_INDEX)
+                        .with_value(&ticker)
+                        .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?
+                        .with_value(&BeBigUint::from(height))
+                        .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?;
+
+                    block_headers_db
+                        .delete_item_by_unique_multi_index(index_keys)
+                        .await
+                        .map_err(|err| BlockHeaderStorageError::delete_err(&ticker, err.to_string(), to_height))?;
+                }
+
+                Ok(())
+            },
         }
-
-        Ok(())
-    }
-
-    async fn remove_headers_from_height(&self, from_height: u64) -> Result<(), BlockHeaderStorageError> {
-        let ticker = self.ticker.clone();
-        let locked_db = self
-            .lock_db()
-            .await
-            .map_err(|err| BlockHeaderStorageError::delete_err(&ticker, err.to_string(), to_height))?;
-        let db_transaction = locked_db
-            .get_inner()
-            .transaction()
-            .await
-            .map_err(|err| BlockHeaderStorageError::delete_err(&ticker, err.to_string(), to_height))?;
-        let block_headers_db = db_transaction
-            .table::<BlockHeaderStorageTable>()
-            .await
-            .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?;
-
-        let last_block_height = self.get_last_block_height().await?;
-        for height in (from_height + 1)..last_block_height.unwrap_default() {
-            let index_keys = MultiIndex::new(BlockHeaderStorageTable::TICKER_HEIGHT_INDEX)
-                .with_value(&ticker)
-                .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?
-                .with_value(&BeBigUint::from(height))
-                .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?;
-
-            block_headers_db
-                .delete_item_by_unique_multi_index(index_keys)
-                .await
-                .map_err(|err| BlockHeaderStorageError::UnableFromDeleteHeaders {
-                    from_height,
-                    coin: coin.to_string(),
-                    reason: err.to_string(),
-                })?;
-        }
-
-        Ok(())
     }
 
     async fn is_table_empty(&self) -> Result<(), BlockHeaderStorageError> {

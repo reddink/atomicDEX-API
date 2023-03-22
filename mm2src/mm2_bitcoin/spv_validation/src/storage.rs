@@ -94,6 +94,20 @@ impl BlockHeaderStorageError {
     }
 }
 
+pub enum DeleteHeaderCondition {
+    FromHeight(u64),
+    ToHeight(u64),
+}
+
+impl DeleteHeaderCondition {
+    pub fn get_inner(self) -> u64 {
+        match self {
+            Self::FromHeight(h) => h,
+            Self::ToHeight(h) => h,
+        }
+    }
+}
+
 #[async_trait]
 pub trait BlockHeaderStorageOps: Send + Sync + 'static {
     /// Initializes collection/tables in storage for a specified coin
@@ -124,9 +138,10 @@ pub trait BlockHeaderStorageOps: Send + Sync + 'static {
 
     async fn get_block_height_by_hash(&self, hash: H256) -> Result<Option<i64>, BlockHeaderStorageError>;
 
-    async fn remove_headers_up_to_height(&self, to_height: u64) -> Result<(), BlockHeaderStorageError>;
-
-    async fn remove_headers_from_height(&self, from_height: u64) -> Result<(), BlockHeaderStorageError>;
+    async fn remove_headers_from_storage(
+        &self,
+        condition: DeleteHeaderCondition,
+    ) -> Result<(), BlockHeaderStorageError>;
 
     async fn is_table_empty(&self) -> Result<(), BlockHeaderStorageError>;
 }
