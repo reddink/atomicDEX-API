@@ -42,6 +42,11 @@ pub enum BlockHeaderStorageError {
         coin: String,
         reason: String,
     },
+    #[display(fmt = "Chain reorganization has been detected for {} - height: {}", coin, height)]
+    ChainReOrgDetected {
+        coin: String,
+        height: u64,
+    },
     Internal(String),
 }
 
@@ -112,6 +117,8 @@ pub trait BlockHeaderStorageOps: Send + Sync + 'static {
     ) -> Result<Option<BlockHeader>, BlockHeaderStorageError>;
 
     async fn get_block_height_by_hash(&self, hash: H256) -> Result<Option<i64>, BlockHeaderStorageError>;
+
+    async fn get_block_headers_from_height(&self, height: u64) -> Result<Vec<BlockHeader>, BlockHeaderStorageError>;
 
     async fn remove_headers_up_to_height(&self, to_height: u64) -> Result<(), BlockHeaderStorageError>;
 

@@ -7,13 +7,14 @@ use crate::utxo::{generate_and_send_tx, FeePolicy, GetUtxoListOps, UtxoArc, Utxo
                   UtxoWeak};
 use crate::{DerivationMethod, PrivKeyBuildPolicy, UtxoActivationParams};
 use async_trait::async_trait;
-use chain::TransactionOutput;
+use chain::{BlockHeader, TransactionOutput};
 use common::executor::{AbortSettings, SpawnAbortable, Timer};
 use common::log::{error, info, warn};
 use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 #[cfg(test)] use mocktopus::macros::*;
+use primitives::hash::H256;
 use script::Builder;
 use serde_json::Value as Json;
 use serialization::Reader;
@@ -362,6 +363,17 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
             },
         };
 
+        // Scan header for chain reorg
+        match scan_headers_for_chain_reorg(ticker, from_block_height, storage, &block_headers).await {
+            Ok(_) => (),
+            Err(err) => {
+                error!("{err:?}!");
+                // Todo: remove bad headers from storage starting from the `height` at which re-org occured.
+                sync_status_loop_handle.notify_on_temp_error(err);
+                continue;
+            },
+        };
+
         // Validate retrieved block headers.
         if let Err(err) = validate_headers(ticker, from_block_height, block_headers, storage, &spv_conf).await {
             error!("Error {err:?} on validating the latest headers for {ticker}!");
@@ -373,6 +385,49 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
         let sleep = args.success_sleep;
         ok_or_continue_after_sleep!(storage.add_block_headers_to_storage(block_registry).await, sleep);
     }
+}
+
+// Check for a chain reorg given a block header and a list of headers
+// downloaded from an RPC node
+pub async fn scan_headers_for_chain_reorg(
+    coin: &str,
+    last_block_height: u64,
+    storage: &BlockHeaderStorage,
+    rpc_headers: &[BlockHeader],
+) -> Result<(), BlockHeaderStorageError> {
+    let latest_header = storage.get_block_header(last_block_height).await?;
+
+    if let Some(latest_header) = latest_header {
+        let headers_to_check = rpc_headers.len();
+        let local_headers = storage.get_block_headers_from_height(headers_to_check as u64).await?;
+        let common_header = common_block_headers(&local_headers, rpc_headers).await;
+        if let Some(common_header) = common_header {
+            return if common_header == latest_header.previous_header_hash {
+                Ok(())
+            } else {
+                let height = storage.get_block_height_by_hash(common_header).await?;
+                Err(BlockHeaderStorageError::ChainReOrgDetected {
+                    coin: coin.to_string(),
+                    height: height.unwrap_or_default() as u64,
+                })?
+            };
+        }
+    };
+
+    Ok(())
+}
+
+// Find the common ancestor block header given two lists of headers
+async fn common_block_headers(headers1: &[BlockHeader], headers2: &[BlockHeader]) -> Option<H256> {
+    for header1 in headers1.iter().rev() {
+        for header2 in headers2.iter().rev() {
+            if header1.hash() == header2.hash() {
+                return Some(header1.hash());
+            }
+        }
+    }
+
+    None
 }
 
 #[derive(Display)]

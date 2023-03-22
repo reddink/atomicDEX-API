@@ -57,6 +57,15 @@ fn get_block_header_by_height(for_coin: &str) -> Result<String, BlockHeaderStora
     Ok(sql)
 }
 
+fn get_last_n_block_header_by_height(for_coin: &str, limit: u64) -> Result<String, BlockHeaderStorageError> {
+    let table_name = get_table_name_and_validate(for_coin)?;
+    let sql = format!(
+        "SELECT hex FROM {} ORDER by block_height DESC limit {};",
+        table_name, limit
+    );
+    Ok(sql)
+}
+
 fn get_last_block_height_sql(for_coin: &str) -> Result<String, BlockHeaderStorageError> {
     let table_name = get_table_name_and_validate(for_coin)?;
     let sql = format!(
@@ -301,6 +310,66 @@ impl BlockHeaderStorageOps for SqliteBlockHeadersStorage {
             coin,
             reason: e.to_string(),
         })
+    }
+
+    async fn get_block_headers_from_height(&self, height: u64) -> Result<Vec<BlockHeader>, BlockHeaderStorageError> {
+        let coin = self.ticker.clone();
+
+        let sql = get_last_n_block_header_by_height(&coin, height)?;
+        let selfi = self.clone();
+        let mut raw_headers = vec![];
+
+        let res = async_blocking(move || {
+            let conn = selfi.conn.lock().unwrap();
+            let mut statement = conn
+                .prepare(&sql)
+                .map_err(|e| BlockHeaderStorageError::GetFromStorageError {
+                    coin: coin.clone(),
+                    reason: e.to_string(),
+                })?;
+            let mut rows = statement
+                .query(NO_PARAMS)
+                .map_err(|e| BlockHeaderStorageError::GetFromStorageError {
+                    coin: coin.clone(),
+                    reason: e.to_string(),
+                })?;
+            while let Some(row) = rows.next().map_err(|e| BlockHeaderStorageError::GetFromStorageError {
+                coin: coin.clone(),
+                reason: e.to_string(),
+            })? {
+                raw_headers.push(row.get::<_, String>(0).map_err(|e| {
+                    BlockHeaderStorageError::GetFromStorageError {
+                        coin: coin.clone(),
+                        reason: e.to_string(),
+                    }
+                })?);
+            }
+
+            Ok(raw_headers)
+        })
+        .await?;
+
+        let mut block_headers = vec![];
+        let coin = self.ticker.clone();
+
+        for hex in res {
+            let serialized = &hex::decode(hex).map_err(|e| BlockHeaderStorageError::DecodeError {
+                coin: coin.clone(),
+                reason: e.clone().to_string(),
+            })?;
+            let mut reader = Reader::new_with_coin_variant(serialized, coin.as_str().into());
+            let header: BlockHeader =
+                reader
+                    .read()
+                    .map_err(|e: serialization::Error| BlockHeaderStorageError::DecodeError {
+                        coin: coin.clone(),
+                        reason: e.to_string(),
+                    })?;
+
+            block_headers.push(header);
+        }
+
+        Ok(block_headers)
     }
 
     async fn remove_headers_up_to_height(&self, to_height: u64) -> Result<(), BlockHeaderStorageError> {

@@ -101,6 +101,10 @@ impl BlockHeaderStorageOps for BlockHeaderStorage {
         self.inner.get_block_height_by_hash(hash).await
     }
 
+    async fn get_block_headers_from_height(&self, height: u64) -> Result<Vec<BlockHeader>, BlockHeaderStorageError> {
+        self.inner.get_block_headers_from_height(height).await
+    }
+
     async fn remove_headers_up_to_height(&self, to_height: u64) -> Result<(), BlockHeaderStorageError> {
         self.inner.remove_headers_up_to_height(to_height).await
     }
@@ -111,6 +115,7 @@ impl BlockHeaderStorageOps for BlockHeaderStorage {
 #[cfg(any(test, target_arch = "wasm32"))]
 mod block_headers_storage_tests {
     use super::*;
+    use crate::utxo::utxo_builder::scan_headers_for_chain_reorg;
     use chain::BlockHeaderBits;
     use mm2_test_helpers::for_tests::mm_ctx_with_custom_db;
 
@@ -265,6 +270,63 @@ mod block_headers_storage_tests {
         let last_block_height = storage.get_last_block_height().await.unwrap();
         assert_eq!(last_block_height.unwrap(), 201595);
     }
+
+    pub(crate) async fn test_get_block_headers_from_height_impl(for_coin: &str) {
+        let ctx = mm_ctx_with_custom_db();
+        let storage = BlockHeaderStorage::new_from_ctx(ctx, for_coin.to_string())
+            .unwrap()
+            .into_inner();
+        storage.init().await.unwrap();
+
+        let mut headers = HashMap::with_capacity(3);
+
+        // https://live.blockcypher.com/btc-testnet/block/00000000961a9d117feb57e516e17217207a849bf6cdfce529f31d9a96053530/
+        let block_header: BlockHeader = "02000000ea01a61a2d7420a1b23875e40eb5eb4ca18b378902c8e6384514ad0000000000c0c5a1ae80582b3fe319d8543307fa67befc2a734b8eddb84b1780dfdf11fa2b20e71353ffff001d00805fe0".into();
+        headers.insert(201595, block_header);
+
+        // https://live.blockcypher.com/btc-testnet/block/0000000000ad144538e6c80289378ba14cebb50ee47538b2a120742d1aa601ea/
+        let block_header: BlockHeader = "02000000cbed7fd98f1f06e85c47e13ff956533642056be45e7e6b532d4d768f00000000f2680982f333fcc9afa7f9a5e2a84dc54b7fe10605cd187362980b3aa882e9683be21353ab80011c813e1fc0".into();
+        headers.insert(201594, block_header);
+
+        // https://live.blockcypher.com/btc-testnet/block/0000000000ad144538e6c80289378ba14cebb50ee47538b2a120742d1aa601ea/
+        let block_header: BlockHeader = "020000001f38c8e30b30af912fbd4c3e781506713cfb43e73dff6250348e060000000000afa8f3eede276ccb4c4ee649ad9823fc181632f262848ca330733e7e7e541beb9be51353ffff001d00a63037".into();
+        headers.insert(201593, block_header);
+
+        storage.add_block_headers_to_storage(headers).await.unwrap();
+        assert!(!storage.is_table_empty().await.is_ok());
+
+        // Remove 2 headers from storage.
+        let heights = storage.get_block_headers_from_height(3).await.unwrap();
+        println!("{:?}", heights);
+    }
+
+    pub(crate) async fn test_check_chain_reorg_impl(for_coin: &str) {
+        let ctx = mm_ctx_with_custom_db();
+        let storage = BlockHeaderStorage::new_from_ctx(ctx, for_coin.to_string())
+            .unwrap()
+            .into_inner();
+        storage.init().await.unwrap();
+
+        let mut headers = HashMap::with_capacity(3);
+
+        // https://live.blockcypher.com/btc-testnet/block/00000000961a9d117feb57e516e17217207a849bf6cdfce529f31d9a96053530/
+        let block_header: BlockHeader = "02000000ea01a61a2d7420a1b23875e40eb5eb4ca18b378902c8e6384514ad0000000000c0c5a1ae80582b3fe319d8543307fa67befc2a734b8eddb84b1780dfdf11fa2b20e71353ffff001d00805fe0".into();
+        headers.insert(201595, block_header);
+
+        // https://live.blockcypher.com/btc-testnet/block/0000000000ad144538e6c80289378ba14cebb50ee47538b2a120742d1aa601ea/
+        let block_header: BlockHeader = "02000000cbed7fd98f1f06e85c47e13ff956533642056be45e7e6b532d4d768f00000000f2680982f333fcc9afa7f9a5e2a84dc54b7fe10605cd187362980b3aa882e9683be21353ab80011c813e1fc0".into();
+        headers.insert(201594, block_header);
+
+        // https://live.blockcypher.com/btc-testnet/block/0000000000ad144538e6c80289378ba14cebb50ee47538b2a120742d1aa601ea/
+        let block_header: BlockHeader = "020000001f38c8e30b30af912fbd4c3e781506713cfb43e73dff6250348e060000000000afa8f3eede276ccb4c4ee649ad9823fc181632f262848ca330733e7e7e541beb9be51353ffff001d00a63037".into();
+        headers.insert(201593, block_header);
+
+        storage.add_block_headers_to_storage(headers).await.unwrap();
+        assert!(!storage.is_table_empty().await.is_ok());
+
+        // Remove 2 headers from storage.
+        //        let heights = scan_headers_for_chain_reorg(for_coin, 201593, storage).await;
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -308,6 +370,9 @@ mod native_tests {
 
     #[test]
     fn test_get_last_block_height() { block_on(test_get_last_block_height_impl(FOR_COIN_GET)) }
+
+    #[test]
+    fn get_block_headers_from_height_impl() { block_on(test_get_block_headers_from_height_impl(FOR_COIN_GET)) }
 
     #[test]
     fn test_remove_headers_up_to_height() { block_on(test_remove_headers_up_to_height_impl(FOR_COIN_GET)) }
