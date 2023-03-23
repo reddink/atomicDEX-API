@@ -164,7 +164,7 @@ async fn btc_testnet_next_block_bits(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::storage::{BlockHeaderStorageError, BlockHeaderStorageOps, DeleteHeaderCondition};
+    use crate::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
     use async_trait::async_trait;
     use chain::BlockHeader;
     use common::block_on;
@@ -246,7 +246,8 @@ pub(crate) mod tests {
 
         async fn remove_headers_from_storage(
             &self,
-            _condition: DeleteHeaderCondition,
+            _from_height: u64,
+            _to_height: u64,
         ) -> Result<(), BlockHeaderStorageError> {
             Ok(())
         }

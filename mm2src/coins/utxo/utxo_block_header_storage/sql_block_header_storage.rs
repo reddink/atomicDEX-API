@@ -8,7 +8,7 @@ use db_common::{sqlite::rusqlite::Error as SqlError,
                 sqlite::CHECK_TABLE_EXISTS_SQL};
 use primitives::hash::H256;
 use serialization::Reader;
-use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps, DeleteHeaderCondition};
+use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::num::TryFromIntError;
@@ -87,16 +87,13 @@ fn get_block_height_by_hash(for_coin: &str) -> Result<String, BlockHeaderStorage
     Ok(sql)
 }
 
-fn remove_headers_up_to_height_sql(for_coin: &str, to_height: u64) -> Result<String, BlockHeaderStorageError> {
+fn remove_headers_from_to_height_sql(
+    for_coin: &str,
+    from_height: &u64,
+    to_height: &u64,
+) -> Result<String, BlockHeaderStorageError> {
     let table_name = get_table_name_and_validate(for_coin)?;
-    let sql = format!("DELETE FROM {table_name} WHERE block_height <= {to_height};");
-
-    Ok(sql)
-}
-
-fn remove_headers_from_height_sql(for_coin: &str, from_height: u64) -> Result<String, BlockHeaderStorageError> {
-    let table_name = get_table_name_and_validate(for_coin)?;
-    let sql = format!("DELETE FROM {table_name} WHERE block_height > {from_height};");
+    let sql = format!("DELETE FROM {table_name} WHERE block_height >= {from_height} and block_height <= {to_height};");
 
     Ok(sql)
 }
@@ -312,36 +309,26 @@ impl BlockHeaderStorageOps for SqliteBlockHeadersStorage {
 
     async fn remove_headers_from_storage(
         &self,
-        condition: DeleteHeaderCondition,
+        from_height: u64,
+        to_height: u64,
     ) -> Result<(), BlockHeaderStorageError> {
         let coin = self.ticker.clone();
         let selfi = self.clone();
-        let sql = match condition {
-            DeleteHeaderCondition::FromHeight(from_height) => remove_headers_from_height_sql(&coin, from_height)?,
-            DeleteHeaderCondition::ToHeight(to_height) => remove_headers_up_to_height_sql(&coin, to_height)?,
-        };
+        let sql = remove_headers_from_to_height_sql(&coin, &from_height, &to_height)?;
 
-        let res = async_blocking(move || {
+        async_blocking(move || {
             let conn = selfi.conn.lock().unwrap();
             conn.execute(&sql, NO_PARAMS)
         })
-        .await;
+        .await
+        .map_err(|err| BlockHeaderStorageError::UnableToDeleteHeaders {
+            coin: coin.clone(),
+            from_height,
+            to_height,
+            reason: err.to_string(),
+        })?;
 
-        match res {
-            Ok(_) => Ok(()),
-            Err(err) => Err(match condition {
-                DeleteHeaderCondition::FromHeight(from_height) => BlockHeaderStorageError::UnableFromDeleteHeaders {
-                    coin: coin.clone(),
-                    from_height,
-                    reason: err.to_string(),
-                },
-                DeleteHeaderCondition::ToHeight(to_height) => BlockHeaderStorageError::UnableToDeleteHeaders {
-                    coin: coin.clone(),
-                    to_height,
-                    reason: err.to_string(),
-                },
-            }),
-        }
+        Ok(())
     }
 
     async fn is_table_empty(&self) -> Result<(), BlockHeaderStorageError> {

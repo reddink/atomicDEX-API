@@ -21,15 +21,15 @@ pub enum BlockHeaderStorageError {
         coin: String,
         reason: String,
     },
-    #[display(fmt = "Unable to delete block headers <= {to_height} from storage for {coin} - reason: {reason}")]
+    #[display(
+        fmt = "Unable to delete block headers from_height{from_height} to_height {to_height} from storage for \
+    {coin}\
+     - reason: \
+    {reason}"
+    )]
     UnableToDeleteHeaders {
-        to_height: u64,
-        coin: String,
-        reason: String,
-    },
-    #[display(fmt = "Unable to delete block headers > {from_height} from storage for {coin} - reason: {reason}")]
-    UnableFromDeleteHeaders {
         from_height: u64,
+        to_height: u64,
         coin: String,
         reason: String,
     },
@@ -80,26 +80,12 @@ impl BlockHeaderStorageError {
         }
     }
 
-    pub fn delete_err(ticker: &str, reason: String, to_height: u64) -> BlockHeaderStorageError {
+    pub fn delete_err(ticker: &str, reason: String, from_height: u64, to_height: u64) -> BlockHeaderStorageError {
         BlockHeaderStorageError::UnableToDeleteHeaders {
+            from_height,
             to_height,
             coin: ticker.to_string(),
             reason,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub enum DeleteHeaderCondition {
-    FromHeight(u64),
-    ToHeight(u64),
-}
-
-impl DeleteHeaderCondition {
-    pub fn get_inner(self) -> u64 {
-        match self {
-            Self::FromHeight(h) => h,
-            Self::ToHeight(h) => h,
         }
     }
 }
@@ -134,10 +120,7 @@ pub trait BlockHeaderStorageOps: Send + Sync + 'static {
 
     async fn get_block_height_by_hash(&self, hash: H256) -> Result<Option<i64>, BlockHeaderStorageError>;
 
-    async fn remove_headers_from_storage(
-        &self,
-        condition: DeleteHeaderCondition,
-    ) -> Result<(), BlockHeaderStorageError>;
+    async fn remove_headers_from_storage(&self, from: u64, to: u64) -> Result<(), BlockHeaderStorageError>;
 
     async fn is_table_empty(&self) -> Result<(), BlockHeaderStorageError>;
 }

@@ -12,7 +12,7 @@ use mm2_core::mm_ctx::MmArc;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 use mocktopus::macros::*;
 use primitives::hash::H256;
-use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps, DeleteHeaderCondition};
+use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
@@ -103,9 +103,10 @@ impl BlockHeaderStorageOps for BlockHeaderStorage {
 
     async fn remove_headers_from_storage(
         &self,
-        condition: DeleteHeaderCondition,
+        from_height: u64,
+        to_height: u64,
     ) -> Result<(), BlockHeaderStorageError> {
-        self.remove_headers_from_storage(condition).await
+        self.remove_headers_from_storage(from_height, to_height).await
     }
 
     async fn is_table_empty(&self) -> Result<(), BlockHeaderStorageError> { self.inner.is_table_empty().await }
@@ -242,6 +243,14 @@ mod block_headers_storage_tests {
         // test remove headers from height.
         let mut headers = HashMap::with_capacity(3);
 
+        // https://live.blockcypher.com/btc-testnet/block/00000000016a2f4a57ff9b9422ddc09adb753b689324899fcdc56172f55480f7/
+        let block_header: BlockHeader = "02000000f2a57f6b614df598ff8dff068292bd862c2bb0c12e4e380638db5700000000002349f389569e582d42cb51aa584f5a74f977c3cf86d2c2ac63b1bbde7fc95dc7f1e61353ab80011c8585405d".into();
+        headers.insert(201597, block_header);
+
+        // https://live.blockcypher.com/btc-testnet/block/000000000057db3806384e2ec1b02b2c86bd928206ff8dff98f54d616b7fa5f2/
+        let block_header: BlockHeader = "02000000303505969a1df329e5fccdf69b847a201772e116e557eb7f119d1a9600000000469267f52f43b8799e72f0726ba2e56432059a8ad02b84d4fff84b9476e95f7716e41353ab80011c168cb471".into();
+        headers.insert(201596, block_header);
+
         // https://live.blockcypher.com/btc-testnet/block/00000000961a9d117feb57e516e17217207a849bf6cdfce529f31d9a96053530/
         let block_header: BlockHeader = "02000000ea01a61a2d7420a1b23875e40eb5eb4ca18b378902c8e6384514ad0000000000c0c5a1ae80582b3fe319d8543307fa67befc2a734b8eddb84b1780dfdf11fa2b20e71353ffff001d00805fe0".into();
         headers.insert(201595, block_header);
@@ -257,40 +266,13 @@ mod block_headers_storage_tests {
         storage.add_block_headers_to_storage(headers).await.unwrap();
         assert!(!storage.is_table_empty().await.is_ok());
 
-        // Remove 2 headers from storage.
-        let _ = storage
-            .remove_headers_from_storage(DeleteHeaderCondition::FromHeight(201593))
-            .await
-            .unwrap();
+        // Remove 2 headers from storage.(201596 - 201597)
+        let _remove_from_height = storage.remove_headers_from_storage(201596, 201597).await.unwrap();
 
-        // get last block height should return 201593 since we already removed the most recent two.
-        let last_block_height = storage.get_last_block_height().await.unwrap();
-        assert_eq!(last_block_height.unwrap(), 201593);
+        // Remove 2 headers from storage.(201593 - 201594)
+        let _remove_to_height = storage.remove_headers_from_storage(201593, 201594).await;
 
-        // Test remove header to height.
-        let mut headers = HashMap::with_capacity(3);
-
-        // https://live.blockcypher.com/btc-testnet/block/00000000961a9d117feb57e516e17217207a849bf6cdfce529f31d9a96053530/
-        let block_header: BlockHeader = "02000000ea01a61a2d7420a1b23875e40eb5eb4ca18b378902c8e6384514ad0000000000c0c5a1ae80582b3fe319d8543307fa67befc2a734b8eddb84b1780dfdf11fa2b20e71353ffff001d00805fe0".into();
-        headers.insert(201595, block_header);
-
-        // https://live.blockcypher.com/btc-testnet/block/0000000000ad144538e6c80289378ba14cebb50ee47538b2a120742d1aa601ea/
-        let block_header: BlockHeader = "02000000cbed7fd98f1f06e85c47e13ff956533642056be45e7e6b532d4d768f00000000f2680982f333fcc9afa7f9a5e2a84dc54b7fe10605cd187362980b3aa882e9683be21353ab80011c813e1fc0".into();
-        headers.insert(201594, block_header);
-
-        // https://live.blockcypher.com/btc-testnet/block/0000000000ad144538e6c80289378ba14cebb50ee47538b2a120742d1aa601ea/
-        let block_header: BlockHeader = "020000001f38c8e30b30af912fbd4c3e781506713cfb43e73dff6250348e060000000000afa8f3eede276ccb4c4ee649ad9823fc181632f262848ca330733e7e7e541beb9be51353ffff001d00a63037".into();
-        headers.insert(201593, block_header);
-        storage.add_block_headers_to_storage(headers).await.unwrap();
-        assert!(!storage.is_table_empty().await.is_ok());
-
-        // Remove 2 headers from storage.
-        let _ = storage
-            .remove_headers_from_storage(DeleteHeaderCondition::ToHeight(201594))
-            .await
-            .unwrap();
-
-        // get last block height should return 201593 since we already removed the most recent two.
+        // get last block height should return 201595 since we already removed the first and last two.
         let last_block_height = storage.get_last_block_height().await.unwrap();
         assert_eq!(last_block_height.unwrap(), 201595);
     }
@@ -315,7 +297,6 @@ mod block_headers_storage_tests {
         storage.add_block_headers_to_storage(headers).await.unwrap();
 
         let mut rpc_headers = vec![];
-
         // height 201596
         // https://live.blockcypher.com/btc-testnet/block/00000000961a9d117feb57e516e17217207a849bf6cdfce529f31d9a96053530/
         let block_header: BlockHeader = "02000000303505969a1df329e5fccdf69b847a201772e116e557eb7f119d1a9600000000469267f52f43b8799e72f0726ba2e56432059a8ad02b84d4fff84b9476e95f7716e41353ab80011c168cb471".into();
@@ -326,15 +307,15 @@ mod block_headers_storage_tests {
         assert!(check_reorg.is_ok());
 
         // test for chain reorg
-        // let attempt to modify the previous block hash of this header(201596) to 201594.
+        // attempt to modify the previous block hash of this header(201596) to 201594.
         rpc_headers[0].previous_header_hash = block_header_201594_hash;
         let check_reorg = detect_and_resolve_chain_reorg(for_coin, 201595, storage.as_ref(), &rpc_headers)
             .await
             .unwrap();
         assert!(check_reorg.to_string().contains(
             "Chain reorg resolved at height 201594 with hash \
-        ea01a61a2d7420a1b23875e40eb5eb4ca18b378902c8e6384514ad0000000000"
-        ))
+                    ea01a61a2d7420a1b23875e40eb5eb4ca18b378902c8e6384514ad0000000000"
+        ));
     }
 }
 
@@ -387,52 +368,55 @@ mod native_tests {
     fn test_check_chain_reorg() { block_on(test_check_chain_reorg_impl(FOR_COIN_GET)) }
 }
 
-//#[cfg(target_arch = "wasm32")]
-//mod wasm_test {
-//    use super::*;
-//    use crate::utxo::utxo_block_header_storage::block_headers_storage_tests::*;
-//    use common::log::wasm_log::register_wasm_log;
-//    use mm2_test_helpers::for_tests::mm_ctx_with_custom_db;
-//    use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
-//
-//    wasm_bindgen_test_configure!(run_in_browser);
-//
-//    const FOR_COIN: &str = "tBTC";
-//
-//    #[wasm_bindgen_test]
-//    async fn test_storage_init() {
-//        let ctx = mm_ctx_with_custom_db();
-//        let storage = IDBBlockHeadersStorage::new(&ctx, "RICK".to_string());
-//
-//        register_wasm_log();
-//
-//        let initialized = storage.is_initialized_for().await.unwrap();
-//        assert!(initialized);
-//
-//        // repetitive init must not fail
-//        storage.init().await.unwrap();
-//
-//        let initialized = storage.is_initialized_for().await.unwrap();
-//        assert!(initialized);
-//    }
-//
-//    #[wasm_bindgen_test]
-//    async fn test_add_block_headers() { test_add_block_headers_impl(FOR_COIN).await }
-//
-//    #[wasm_bindgen_test]
-//    async fn test_test_get_block_header() { test_get_block_header_impl(FOR_COIN).await }
-//
-//    #[wasm_bindgen_test]
-//    async fn test_get_last_block_header_with_non_max_bits() {
-//        test_get_last_block_header_with_non_max_bits_impl(FOR_COIN).await
-//    }
-//
-//    #[wasm_bindgen_test]
-//    async fn test_get_last_block_height() { test_get_last_block_height_impl(FOR_COIN).await }
-//
-//    #[wasm_bindgen_test]
-//    async fn test_remove_headers_from_storage() { test_remove_headers_from_storage_impl(FOR_COIN).await }
-//
-//    #[wasm_bindgen_test]
-//    async fn test_check_chain_reorg() { test_check_chain_reorg_impl(FOR_COIN).await }
-//}
+#[cfg(target_arch = "wasm32")]
+mod wasm_test {
+    use super::*;
+    use crate::utxo::utxo_block_header_storage::block_headers_storage_tests::*;
+    use common::log::wasm_log::register_wasm_log;
+    use mm2_test_helpers::for_tests::mm_ctx_with_custom_db;
+    use wasm_bindgen_test::*;
+
+    wasm_bindgen_test_configure!(run_in_browser);
+
+    const FOR_COIN: &str = "tBTC";
+
+    #[wasm_bindgen_test]
+    async fn test_storage_init() {
+        let ctx = mm_ctx_with_custom_db();
+        let storage = IDBBlockHeadersStorage::new(&ctx, "RICK".to_string());
+
+        register_wasm_log();
+
+        let initialized = storage.is_initialized_for().await.unwrap();
+        assert!(initialized);
+
+        // repetitive init must not fail
+        storage.init().await.unwrap();
+
+        let initialized = storage.is_initialized_for().await.unwrap();
+        assert!(initialized);
+    }
+
+    #[wasm_bindgen_test]
+    async fn test_add_block_headers() { test_add_block_headers_impl(FOR_COIN).await }
+
+    #[wasm_bindgen_test]
+    async fn test_test_get_block_header() { test_get_block_header_impl(FOR_COIN).await }
+
+    #[wasm_bindgen_test]
+    async fn test_get_last_block_header_with_non_max_bits() {
+        test_get_last_block_header_with_non_max_bits_impl(FOR_COIN).await
+    }
+
+    #[wasm_bindgen_test]
+    async fn test_get_last_block_height() { test_get_last_block_height_impl(FOR_COIN).await }
+
+    #[wasm_bindgen_test]
+    async fn test_remove_headers_from_storage() { test_remove_headers_from_storage_impl(FOR_COIN).await }
+
+    #[wasm_bindgen_test]
+    async fn test_check_chain_reorg() {
+        wasm_bindgen_test_configure!(run_in_browser);
+        test_check_chain_reorg_impl(FOR_COIN).await
+    }
+}
