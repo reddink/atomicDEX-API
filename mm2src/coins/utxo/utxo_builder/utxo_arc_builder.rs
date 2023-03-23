@@ -364,7 +364,7 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
         };
 
         // Scan header for chain reorg
-        match scan_headers_for_chain_reorg(ticker, from_block_height, storage.inner.as_ref(), &block_headers).await {
+        match detect_and_resolve_chain_reorg(ticker, from_block_height, storage.inner.as_ref(), &block_headers).await {
             Ok(_) => (),
             Err(err) => {
                 error!("{err}!");
@@ -396,7 +396,7 @@ pub enum ChainReorgError {
 
 // Check for a chain reorg given a block header and a list of headers
 // downloaded from an RPC node and remove bad headers from storage
-pub async fn scan_headers_for_chain_reorg(
+pub async fn detect_and_resolve_chain_reorg(
     coin: &str,
     last_block_height: u64,
     storage: &dyn BlockHeaderStorageOps,

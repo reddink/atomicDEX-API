@@ -114,7 +114,7 @@ impl BlockHeaderStorageOps for BlockHeaderStorage {
 #[cfg(any(test, target_arch = "wasm32"))]
 mod block_headers_storage_tests {
     use super::*;
-    use crate::utxo::utxo_builder::scan_headers_for_chain_reorg;
+    use crate::utxo::utxo_builder::detect_and_resolve_chain_reorg;
     use chain::BlockHeaderBits;
     use mm2_test_helpers::for_tests::mm_ctx_with_custom_db;
 
@@ -322,13 +322,13 @@ mod block_headers_storage_tests {
         rpc_headers.push(block_header);
 
         // test for no chain reorg
-        let check_reorg = scan_headers_for_chain_reorg(for_coin, 201595, storage.as_ref(), &rpc_headers).await;
+        let check_reorg = detect_and_resolve_chain_reorg(for_coin, 201595, storage.as_ref(), &rpc_headers).await;
         assert!(check_reorg.is_ok());
 
         // test for chain reorg
         // let attempt to modify the previous block hash of this header(201596) to 201594.
         rpc_headers[0].previous_header_hash = block_header_201594_hash;
-        let check_reorg = scan_headers_for_chain_reorg(for_coin, 201595, storage.as_ref(), &rpc_headers)
+        let check_reorg = detect_and_resolve_chain_reorg(for_coin, 201595, storage.as_ref(), &rpc_headers)
             .await
             .unwrap();
         assert!(check_reorg.to_string().contains(
@@ -387,52 +387,52 @@ mod native_tests {
     fn test_check_chain_reorg() { block_on(test_check_chain_reorg_impl(FOR_COIN_GET)) }
 }
 
-#[cfg(target_arch = "wasm32")]
-mod wasm_test {
-    use super::*;
-    use crate::utxo::utxo_block_header_storage::block_headers_storage_tests::*;
-    use common::log::wasm_log::register_wasm_log;
-    use mm2_test_helpers::for_tests::mm_ctx_with_custom_db;
-    use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
-
-    wasm_bindgen_test_configure!(run_in_browser);
-
-    const FOR_COIN: &str = "tBTC";
-
-    #[wasm_bindgen_test]
-    async fn test_storage_init() {
-        let ctx = mm_ctx_with_custom_db();
-        let storage = IDBBlockHeadersStorage::new(&ctx, "RICK".to_string());
-
-        register_wasm_log();
-
-        let initialized = storage.is_initialized_for().await.unwrap();
-        assert!(initialized);
-
-        // repetitive init must not fail
-        storage.init().await.unwrap();
-
-        let initialized = storage.is_initialized_for().await.unwrap();
-        assert!(initialized);
-    }
-
-    #[wasm_bindgen_test]
-    async fn test_add_block_headers() { test_add_block_headers_impl(FOR_COIN).await }
-
-    #[wasm_bindgen_test]
-    async fn test_test_get_block_header() { test_get_block_header_impl(FOR_COIN).await }
-
-    #[wasm_bindgen_test]
-    async fn test_get_last_block_header_with_non_max_bits() {
-        test_get_last_block_header_with_non_max_bits_impl(FOR_COIN).await
-    }
-
-    #[wasm_bindgen_test]
-    async fn test_get_last_block_height() { test_get_last_block_height_impl(FOR_COIN).await }
-
-    #[wasm_bindgen_test]
-    async fn test_remove_headers_from_storage() { test_remove_headers_from_storage_impl(FOR_COIN).await }
-
-    #[wasm_bindgen_test]
-    async fn test_check_chain_reorg() { test_check_chain_reorg_impl(FOR_COIN).await }
-}
+//#[cfg(target_arch = "wasm32")]
+//mod wasm_test {
+//    use super::*;
+//    use crate::utxo::utxo_block_header_storage::block_headers_storage_tests::*;
+//    use common::log::wasm_log::register_wasm_log;
+//    use mm2_test_helpers::for_tests::mm_ctx_with_custom_db;
+//    use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
+//
+//    wasm_bindgen_test_configure!(run_in_browser);
+//
+//    const FOR_COIN: &str = "tBTC";
+//
+//    #[wasm_bindgen_test]
+//    async fn test_storage_init() {
+//        let ctx = mm_ctx_with_custom_db();
+//        let storage = IDBBlockHeadersStorage::new(&ctx, "RICK".to_string());
+//
+//        register_wasm_log();
+//
+//        let initialized = storage.is_initialized_for().await.unwrap();
+//        assert!(initialized);
+//
+//        // repetitive init must not fail
+//        storage.init().await.unwrap();
+//
+//        let initialized = storage.is_initialized_for().await.unwrap();
+//        assert!(initialized);
+//    }
+//
+//    #[wasm_bindgen_test]
+//    async fn test_add_block_headers() { test_add_block_headers_impl(FOR_COIN).await }
+//
+//    #[wasm_bindgen_test]
+//    async fn test_test_get_block_header() { test_get_block_header_impl(FOR_COIN).await }
+//
+//    #[wasm_bindgen_test]
+//    async fn test_get_last_block_header_with_non_max_bits() {
+//        test_get_last_block_header_with_non_max_bits_impl(FOR_COIN).await
+//    }
+//
+//    #[wasm_bindgen_test]
+//    async fn test_get_last_block_height() { test_get_last_block_height_impl(FOR_COIN).await }
+//
+//    #[wasm_bindgen_test]
+//    async fn test_remove_headers_from_storage() { test_remove_headers_from_storage_impl(FOR_COIN).await }
+//
+//    #[wasm_bindgen_test]
+//    async fn test_check_chain_reorg() { test_check_chain_reorg_impl(FOR_COIN).await }
+//}

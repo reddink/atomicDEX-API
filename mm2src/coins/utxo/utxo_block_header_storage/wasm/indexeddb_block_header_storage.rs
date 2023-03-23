@@ -322,19 +322,22 @@ impl BlockHeaderStorageOps for IDBBlockHeadersStorage {
 
         match condition {
             DeleteHeaderCondition::FromHeight(from_height) => {
-                let last_block_height = self.get_last_block_height().await?;
-                for height in (from_height + 1)..last_block_height.unwrap_or_default() {
-                    let index_keys = MultiIndex::new(BlockHeaderStorageTable::TICKER_HEIGHT_INDEX)
-                        .with_value(&ticker)
-                        .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?
-                        .with_value(&BeBigUint::from(height))
-                        .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?;
+                if let Some(last_block_height) = self.get_last_block_height().await? {
+                    for height in (from_height + 1)..last_block_height {
+                        let index_keys = MultiIndex::new(BlockHeaderStorageTable::TICKER_HEIGHT_INDEX)
+                            .with_value(&ticker)
+                            .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?
+                            .with_value(&BeBigUint::from(height))
+                            .map_err(|err| BlockHeaderStorageError::table_err(&ticker, err.to_string()))?;
 
-                    block_headers_db
-                        .delete_item_by_unique_multi_index(index_keys)
-                        .await
-                        .map_err(|err| BlockHeaderStorageError::delete_err(&ticker, err.to_string(), from_height))?;
-                }
+                        block_headers_db
+                            .delete_item_by_unique_multi_index(index_keys)
+                            .await
+                            .map_err(|err| {
+                                BlockHeaderStorageError::delete_err(&ticker, err.to_string(), from_height)
+                            })?;
+                    }
+                };
 
                 Ok(())
             },
