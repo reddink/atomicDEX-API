@@ -106,7 +106,7 @@ impl BlockHeaderStorageOps for BlockHeaderStorage {
         from_height: u64,
         to_height: u64,
     ) -> Result<(), BlockHeaderStorageError> {
-        self.remove_headers_from_storage(from_height, to_height).await
+        self.inner.remove_headers_from_storage(from_height, to_height).await
     }
 
     async fn is_table_empty(&self) -> Result<(), BlockHeaderStorageError> { self.inner.is_table_empty().await }

@@ -322,7 +322,6 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
         }
 
         sync_status_loop_handle.notify_blocks_headers_sync_status(from_block_height + 1, to_block_height);
-        println!("1 {from_block_height} {to_block_height}");
 
         let mut fetch_blocker_headers_attempts = FETCH_BLOCK_HEADERS_ATTEMPTS;
         let (block_registry, block_headers) = match client
@@ -366,13 +365,12 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
         };
 
         // Scan header for chain reorg
-        match detect_and_resolve_chain_reorg(ticker, from_block_height, storage.inner.as_ref(), &block_headers).await {
-            Ok(_) => (),
-            Err(err) => {
-                error!("{err}!");
-                sync_status_loop_handle.notify_on_temp_error(err);
-                break;
-            },
+        if let Err(err) =
+            detect_and_resolve_chain_reorg(ticker, from_block_height, storage.inner.as_ref(), &block_headers).await
+        {
+            error!("{err}!");
+            sync_status_loop_handle.notify_on_temp_error(err);
+            break;
         };
 
         // Validate retrieved block headers.
@@ -413,12 +411,10 @@ pub async fn detect_and_resolve_chain_reorg(
         .hash();
 
     for header in rpc_headers.iter() {
-        println!("{}, curr_hash {curr_hash}", header.previous_header_hash);
         if header.previous_header_hash != curr_hash {
             log!("Chain reorg detected at height: {curr_height} -> hash:{curr_hash} -> coin: {coin}");
 
             while header.previous_header_hash != curr_hash {
-                println!("hey");
                 curr_height -= 1;
                 curr_hash = storage
                     .get_block_header(curr_height)
@@ -505,7 +501,6 @@ async fn remove_excessive_headers_from_storage(
 ) -> Result<(), BlockHeaderStorageError> {
     let max_allowed_headers = max_allowed_headers.get();
     if last_height_to_be_added > max_allowed_headers {
-        println!("hi {last_height_to_be_added} max_allowed_headers{max_allowed_headers}");
         return storage
             .remove_headers_from_storage(1, last_height_to_be_added - max_allowed_headers)
             .await;
