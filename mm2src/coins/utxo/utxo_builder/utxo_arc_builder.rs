@@ -14,6 +14,7 @@ use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 #[cfg(test)] use mocktopus::macros::*;
+use primitives::hash::H256;
 use script::Builder;
 use serde_json::Value as Json;
 use serialization::Reader;
@@ -364,13 +365,22 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
             },
         };
 
-        // Scan header for chain reorg
-        if let Err(err) =
-            detect_and_resolve_chain_reorg(ticker, from_block_height, storage.inner.as_ref(), &block_headers).await
-        {
-            error!("{err}!");
-            sync_status_loop_handle.notify_on_temp_error(err);
-            break;
+        // Detect and resolve header for chain reorg
+        match detect_and_resolve_chain_reorg(ticker, from_block_height, storage.inner.as_ref(), &block_headers).await {
+            Ok(res) => {
+                if let Some(chain) = res {
+                    log!(
+                        "Chain reorg resolved at height {} with hash {:?}",
+                        chain.height,
+                        chain.hash
+                    );
+                }
+            },
+            Err(err) => {
+                error!("{err}!");
+                sync_status_loop_handle.notify_on_temp_error(err);
+                break;
+            },
         };
 
         // Validate retrieved block headers.
@@ -386,8 +396,13 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
     }
 }
 
+pub(crate) struct ChainReorgHeader {
+    pub(crate) height: u64,
+    pub(crate) hash: H256,
+}
+
 #[derive(Debug, Display)]
-pub enum ChainReorgError {
+pub(crate) enum ChainReorgError {
     #[display(fmt = "Block header not found for height {} - reason: ", _0)]
     BlockNotFound(u64, String),
     #[display(fmt = "RemoveHeaderFromStorageErr: {}", _0)]
@@ -396,12 +411,12 @@ pub enum ChainReorgError {
 
 // Check for a chain reorg given a block header and a list of headers
 // downloaded from an RPC node and remove bad headers from storage
-pub async fn detect_and_resolve_chain_reorg(
+pub(crate) async fn detect_and_resolve_chain_reorg(
     coin: &str,
     last_block_height: u64,
     storage: &dyn BlockHeaderStorageOps,
     rpc_headers: &[BlockHeader],
-) -> Result<String, ChainReorgError> {
+) -> Result<Option<ChainReorgHeader>, ChainReorgError> {
     let mut curr_height = last_block_height;
     let mut curr_hash = storage
         .get_block_header(curr_height)
@@ -443,17 +458,17 @@ pub async fn detect_and_resolve_chain_reorg(
                 .await
                 .map_err(|err| ChainReorgError::RemoveHeaderFromStorageErr(err.to_string()))?;
 
-            return Ok(format!(
-                "Chain reorg resolved at height {} with hash {}",
-                curr_height, curr_hash
-            ));
+            return Ok(Some(ChainReorgHeader {
+                height: curr_height,
+                hash: curr_hash,
+            }));
         }
 
         curr_height += 1;
         curr_hash = header.hash();
     }
 
-    Ok("No chain reorg detected".to_string())
+    Ok(None)
 }
 
 #[derive(Display)]

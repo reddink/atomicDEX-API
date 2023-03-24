@@ -311,11 +311,12 @@ mod block_headers_storage_tests {
         rpc_headers[0].previous_header_hash = block_header_201594_hash;
         let check_reorg = detect_and_resolve_chain_reorg(for_coin, 201595, storage.as_ref(), &rpc_headers)
             .await
+            .unwrap()
             .unwrap();
-        assert!(check_reorg.to_string().contains(
-            "Chain reorg resolved at height 201594 with hash \
-                    ea01a61a2d7420a1b23875e40eb5eb4ca18b378902c8e6384514ad0000000000"
-        ));
+        let expected_reorg_height = 201594;
+        let expected_reorg_hash: H256 = "ea01a61a2d7420a1b23875e40eb5eb4ca18b378902c8e6384514ad0000000000".into();
+        assert_eq!(expected_reorg_height, check_reorg.height);
+        assert_eq!(expected_reorg_hash, check_reorg.hash);
     }
 }
 
