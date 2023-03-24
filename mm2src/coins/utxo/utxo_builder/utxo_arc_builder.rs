@@ -416,14 +416,26 @@ pub async fn detect_and_resolve_chain_reorg(
 
             while header.previous_header_hash != curr_hash {
                 curr_height -= 1;
-                curr_hash = storage
+                match storage
                     .get_block_header(curr_height)
                     .await
-                    .map_err(|e| ChainReorgError::BlockNotFound(curr_height, e.to_string()))?
-                    .ok_or_else(|| {
-                        ChainReorgError::BlockNotFound(curr_height, "no block header for height".to_string())
-                    })?
-                    .hash();
+                    .map_err(|e| ChainReorgError::BlockNotFound(curr_height, e.to_string()))
+                {
+                    Ok(res) => {
+                        let res = res.ok_or_else(|| {
+                            ChainReorgError::BlockNotFound(curr_height, "no block header for height".to_string())
+                        })?;
+                        curr_hash = res.hash()
+                    },
+                    Err(err) => {
+                        // handle case for empty headers in storage.
+                        if storage.is_table_empty().await.is_ok() {
+                            break;
+                        };
+
+                        return Err(err);
+                    },
+                }
             }
 
             storage
