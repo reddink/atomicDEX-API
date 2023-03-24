@@ -132,6 +132,7 @@ pub struct OpenChannelResponse {
     node_address: NodeAddress,
 }
 
+// Todo: Need a method to calculate fees before opening the channel
 /// Opens a channel on the lightning network.
 pub async fn open_channel(ctx: MmArc, req: OpenChannelRequest) -> OpenChannelResult<OpenChannelResponse> {
     let ln_coin = match lp_coinfind_or_err(&ctx, &req.coin).await? {

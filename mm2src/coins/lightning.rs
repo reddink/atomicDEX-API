@@ -200,11 +200,11 @@ impl LightningCoin {
         let payment_hash = PaymentHash((invoice.payment_hash()).into_inner());
         // check if the invoice was already paid
         if let Some(info) = self.db.get_payment_from_db(payment_hash).await? {
-            // If payment is still pending pay_invoice_with_max_total_cltv_expiry_delta/pay_invoice will return an error later
-            if info.status == HTLCStatus::Succeeded {
+            if info.status != HTLCStatus::Failed {
                 return MmError::err(PaymentError::Invoice(format!(
-                    "Invoice with payment hash {} is already paid!",
-                    hex::encode(payment_hash.0)
+                    "Already sent an invoice payment with hash: {}, state: {}!",
+                    hex::encode(payment_hash.0),
+                    info.status
                 )));
             }
         }

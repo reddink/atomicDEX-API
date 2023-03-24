@@ -349,6 +349,16 @@ impl LightningEventHandler {
             PaymentPurpose::InvoicePayment { payment_preimage, .. } => match payment_preimage {
                 Some(preimage) => {
                     let fut = async move {
+                        if let Ok(Some(info)) = db.get_payment_from_db(payment_hash).await.error_log_passthrough() {
+                            if matches!(info.status, HTLCStatus::Claimable | HTLCStatus::Succeeded) {
+                                error!(
+                                    "Duplicate payment for invoice payment: {}, first payment state is {}!",
+                                    hex::encode(payment_hash.0),
+                                    info.status
+                                );
+                                return;
+                            };
+                        }
                         db.update_payment_to_claimable_in_db(payment_hash, preimage)
                             .await
                             .error_log_with_msg("Unable to update claimable payment info in DB!");
@@ -358,6 +368,7 @@ impl LightningEventHandler {
                     preimage
                 },
                 // This is a swap related payment since we don't have the preimage yet
+                // No need to check if payment is duplicate here, but if this is used for another purpose other than swaps, a check needs to be added.
                 None => {
                     let amt_msat = Some(
                         claimable_amount
