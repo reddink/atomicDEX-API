@@ -43,9 +43,6 @@ use futures::future::join_all;
 use futures::TryFutureExt;
 use mm2_core::mm_ctx::MmCtxBuilder;
 use mm2_number::bigdecimal::{BigDecimal, Signed};
-use mm2_spv::conf::{BlockHeaderValidationParams, SPVBlockHeader};
-use mm2_spv::storage::BlockHeaderStorageOps;
-use mm2_spv::work::DifficultyAlgorithm;
 use mm2_test_helpers::for_tests::{mm_ctx_with_custom_db, MORTY_ELECTRUM_ADDRS, RICK_ELECTRUM_ADDRS};
 use mocktopus::mocking::*;
 use rpc::v1::types::H256 as H256Json;
@@ -54,6 +51,9 @@ use serialization::{deserialize, CoinVariant};
 use std::iter;
 use std::mem::discriminant;
 use std::num::NonZeroUsize;
+use utxo_spv::conf::{BlockHeaderValidationParams, SPVBlockHeader};
+use utxo_spv::storage::BlockHeaderStorageOps;
+use utxo_spv::work::DifficultyAlgorithm;
 
 #[cfg(not(target_arch = "wasm32"))]
 const TAKER_PAYMENT_SPEND_SEARCH_INTERVAL: f64 = 1.;

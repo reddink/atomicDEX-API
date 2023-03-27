@@ -6,13 +6,13 @@ use db_common::{sqlite::rusqlite::Error as SqlError,
                 sqlite::string_from_row,
                 sqlite::validate_table_name,
                 sqlite::CHECK_TABLE_EXISTS_SQL};
-use mm2_spv::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 use primitives::hash::H256;
 use serialization::Reader;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::num::TryFromIntError;
 use std::sync::{Arc, Mutex};
+use utxo_spv::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 
 pub(crate) fn block_headers_cache_table(ticker: &str) -> String { ticker.to_owned() + "_block_headers_cache" }
 

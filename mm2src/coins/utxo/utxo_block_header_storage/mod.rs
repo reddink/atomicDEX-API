@@ -9,12 +9,12 @@ pub use wasm::IDBBlockHeadersStorage;
 use async_trait::async_trait;
 use chain::BlockHeader;
 use mm2_core::mm_ctx::MmArc;
-use mm2_spv::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 #[cfg(all(test, not(target_arch = "wasm32")))]
 use mocktopus::macros::*;
 use primitives::hash::H256;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
+use utxo_spv::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 
 pub struct BlockHeaderStorage {
     pub inner: Box<dyn BlockHeaderStorageOps>,
@@ -116,13 +116,13 @@ mod block_headers_storage_tests {
 
     cfg_wasm32! {
         use wasm_bindgen_test::*;
-        use mm2_spv::work::MAX_BITS_BTC;
+        use utxo_spv::work::MAX_BITS_BTC;
 
         wasm_bindgen_test_configure!(run_in_browser);
     }
 
     cfg_native! {
-        use mm2_spv::work::MAX_BITS_BTC;
+        use utxo_spv::work::MAX_BITS_BTC;
 
     }
 

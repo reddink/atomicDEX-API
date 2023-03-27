@@ -13,15 +13,15 @@ use common::log::{error, info, warn};
 use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-use mm2_spv::conf::SPVConf;
-use mm2_spv::helpers_validation::validate_headers;
-use mm2_spv::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 #[cfg(test)] use mocktopus::macros::*;
 use script::Builder;
 use serde_json::Value as Json;
 use serialization::Reader;
 use std::collections::HashMap;
 use std::num::NonZeroU64;
+use utxo_spv::conf::SPVConf;
+use utxo_spv::helpers_validation::validate_headers;
+use utxo_spv::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 
 const FETCH_BLOCK_HEADERS_ATTEMPTS: u64 = 3;
 const CHUNK_SIZE_REDUCER_VALUE: u64 = 100;

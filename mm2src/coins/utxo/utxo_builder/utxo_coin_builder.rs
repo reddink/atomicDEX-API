@@ -29,13 +29,13 @@ pub use keys::{Address, AddressFormat as UtxoAddressFormat, AddressHashEnum, Key
                Type as ScriptType};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-use mm2_spv::conf::SPVConf;
-use mm2_spv::helpers_validation::SPVError;
-use mm2_spv::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 use primitives::hash::H160;
 use rand::seq::SliceRandom;
 use serde_json::{self as json, Value as Json};
 use std::sync::{Arc, Mutex, Weak};
+use utxo_spv::conf::SPVConf;
+use utxo_spv::helpers_validation::SPVError;
+use utxo_spv::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 
 cfg_native! {
     use crate::utxo::coin_daemon_data_dir;

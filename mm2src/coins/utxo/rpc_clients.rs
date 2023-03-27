@@ -31,8 +31,6 @@ use keys::hash::H256;
 use keys::{Address, Type as ScriptType};
 use mm2_err_handle::prelude::*;
 use mm2_number::{BigDecimal, BigInt, MmNumber};
-use mm2_spv::helpers_validation::SPVError;
-use mm2_spv::storage::BlockHeaderStorageOps;
 #[cfg(test)] use mocktopus::macros::*;
 use rpc::v1::types::{Bytes as BytesJson, Transaction as RpcTransaction, H256 as H256Json};
 use serde_json::{self as json, Value as Json};
@@ -50,6 +48,8 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::Arc;
 use std::time::Duration;
+use utxo_spv::helpers_validation::SPVError;
+use utxo_spv::storage::BlockHeaderStorageOps;
 
 cfg_native! {
     use futures::future::Either;

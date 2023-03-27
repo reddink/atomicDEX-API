@@ -1082,7 +1082,6 @@ dependencies = [
  "mm2_metrics",
  "mm2_net",
  "mm2_number",
- "mm2_spv",
  "mm2_test_helpers",
  "mocktopus",
  "num-traits",
@@ -1123,6 +1122,7 @@ dependencies = [
  "tonic",
  "tonic-build",
  "utxo_signer",
+ "utxo_spv",
  "uuid 1.2.2",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4391,7 +4391,6 @@ dependencies = [
  "mm2_net",
  "mm2_number",
  "mm2_rpc",
- "mm2_spv",
  "mm2_test_helpers",
  "mocktopus",
  "num-traits",
@@ -4419,6 +4418,7 @@ dependencies = [
  "tokio",
  "trie-db",
  "trie-root 0.16.0",
+ "utxo_spv",
  "uuid 1.2.2",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4527,26 +4527,6 @@ dependencies = [
  "ser_error_derive",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "mm2_spv"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chain",
- "common",
- "derive_more",
- "keys",
- "lazy_static",
- "primitives",
- "ripemd160",
- "rustc-hex",
- "serde",
- "serde_json",
- "serialization",
- "sha2 0.9.9",
- "test_helpers",
 ]
 
 [[package]]
@@ -8606,6 +8586,26 @@ dependencies = [
  "rpc",
  "script",
  "serialization",
+]
+
+[[package]]
+name = "utxo_spv"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chain",
+ "common",
+ "derive_more",
+ "keys",
+ "lazy_static",
+ "primitives",
+ "ripemd160",
+ "rustc-hex",
+ "serde",
+ "serde_json",
+ "serialization",
+ "sha2 0.9.9",
+ "test_helpers",
 ]
 
 [[package]]
