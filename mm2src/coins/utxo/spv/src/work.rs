@@ -42,13 +42,14 @@ pub enum DifficultyAlgorithm {
     BitcoinMainnet,
     #[serde(rename = "Bitcoin Testnet")]
     BitcoinTestnet,
+    #[serde(rename = "Litecoin Mainnet")]
     LitecoinMainnet,
 }
 
 impl DifficultyAlgorithm {
     pub(crate) fn max_bits(&self) -> u32 {
         match self {
-            DifficultyAlgorithm::BitcoinMainnet | DifficultyAlgorithm::BitcoinTestnet => MAX_BITS_BTC,
+            DifficultyAlgorithm::BitcoinMainnet | DifficultyAlgorithm::BitcoinTestnet => BTC_MAX_BITS,
             DifficultyAlgorithm::LitecoinMainnet => LTC_MAX_BITS,
         }
     }
@@ -90,11 +91,12 @@ pub async fn next_block_bits(
 fn range_constrain(value: i64, min: i64, max: i64) -> i64 { cmp::min(cmp::max(value, min), max) }
 
 /// Returns constrained number of seconds since last retarget
-fn retarget_timespan(retarget_timestamp: u32, last_timestamp: u32, min_ts: i64, max_ts: i64) -> u32 {
+fn retarget_timespan(retarget_timestamp: u32, last_timestamp: u32, algorithm: &DifficultyAlgorithm) -> u32 {
     // subtract unsigned 32 bit numbers in signed 64 bit space in
     // order to prevent underflow before applying the range constraint.
+    let (min_timespan, max_timespan) = algorithm.min_max_timespan();
     let timespan = last_timestamp as i64 - retarget_timestamp as i64;
-    range_constrain(timespan, min_ts, max_ts) as u32
+    range_constrain(timespan, min_timespan, max_timespan) as u32
 }
 
 #[cfg(test)]

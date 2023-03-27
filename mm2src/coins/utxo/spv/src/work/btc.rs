@@ -17,7 +17,7 @@ pub(crate) const MIN_TIMESPAN: i64 = (TARGET_TIMESPAN_SECONDS / RETARGETING_FACT
 pub(crate) const MAX_TIMESPAN: i64 = (TARGET_TIMESPAN_SECONDS * RETARGETING_FACTOR) as i64;
 
 /// The maximum value for bits corresponding to lowest difficulty of 1
-pub const MAX_BITS_BTC: u32 = 486604799;
+pub const BTC_MAX_BITS: u32 = 486604799;
 
 pub(crate) async fn btc_retarget_bits(
     coin: &str,
@@ -44,12 +44,10 @@ pub(crate) async fn btc_retarget_bits(
     let retarget_timestamp = retarget_header.time;
     // timestamp of last block
     let last_timestamp = last_block_header.time;
-    let (min_timespan, max_timespan) = algorithm.min_max_timespan();
 
     let retarget: Compact = last_block_header.bits.into();
     let retarget: U256 = retarget.into();
-    let retarget_timespan: U256 =
-        retarget_timespan(retarget_timestamp, last_timestamp, min_timespan, max_timespan).into();
+    let retarget_timespan: U256 = retarget_timespan(retarget_timestamp, last_timestamp, algorithm).into();
     let retarget: U256 = retarget * retarget_timespan;
     let (target_timespan_seconds, _) = algorithm.target_timespan_spacing_secs();
     let retarget = retarget / target_timespan_seconds;
@@ -92,7 +90,7 @@ pub(crate) async fn btc_testnet_next_block_bits(
     storage: &dyn BlockHeaderStorageOps,
     algorithm: &DifficultyAlgorithm,
 ) -> Result<BlockHeaderBits, NextBlockBitsError> {
-    let max_bits = BlockHeaderBits::Compact(MAX_BITS_BTC.into());
+    let max_bits = BlockHeaderBits::Compact(BTC_MAX_BITS.into());
     if last_block_header.height == 0 {
         return Ok(max_bits);
     }
@@ -109,7 +107,7 @@ pub(crate) async fn btc_testnet_next_block_bits(
         Ok(last_block_bits.clone())
     } else {
         let last_non_max_bits = storage
-            .get_last_block_header_with_non_max_bits(MAX_BITS_BTC)
+            .get_last_block_header_with_non_max_bits(BTC_MAX_BITS)
             .await?
             .map(|header| header.bits)
             .unwrap_or(max_bits);
