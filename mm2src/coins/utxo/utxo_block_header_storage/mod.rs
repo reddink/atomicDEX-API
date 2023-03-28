@@ -270,7 +270,7 @@ mod block_headers_storage_tests {
         storage.remove_headers_from_storage(201596, 201597).await.unwrap();
 
         // Remove 2 headers from storage.(201593 - 201594)
-        storage.remove_headers_from_storage(201593, 201594).await;
+        storage.remove_headers_from_storage(201593, 201594).await.unwrap();
 
         // get last block height should return 201595 since we already removed the first and last two.
         let last_block_height = storage.get_last_block_height().await.unwrap();
