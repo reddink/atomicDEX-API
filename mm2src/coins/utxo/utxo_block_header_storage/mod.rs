@@ -142,7 +142,7 @@ mod block_headers_storage_tests {
         let block_header: BlockHeader = "0000002076d41d3e4b0bfd4c0d3b30aa69fdff3ed35d85829efd04000000000000000000b386498b583390959d9bac72346986e3015e83ac0b54bc7747a11a494ac35c94bb3ce65a53fb45177f7e311c".into();
         headers.insert(520481, block_header);
         storage.add_block_headers_to_storage(headers).await.unwrap();
-        assert!(!storage.is_table_empty().await.is_ok());
+        assert!(storage.is_table_empty().await.is_err());
     }
 
     pub(crate) async fn test_get_block_header_impl(for_coin: &str) {
@@ -157,7 +157,7 @@ mod block_headers_storage_tests {
         headers.insert(520481, block_header);
 
         storage.add_block_headers_to_storage(headers).await.unwrap();
-        assert!(!storage.is_table_empty().await.is_ok());
+        assert!(storage.is_table_empty().await.is_err());
 
         let hex = storage.get_block_header_raw(520481).await.unwrap().unwrap();
         assert_eq!(hex, "0000002076d41d3e4b0bfd4c0d3b30aa69fdff3ed35d85829efd04000000000000000000b386498b583390959d9bac72346986e3015e83ac0b54bc7747a11a494ac35c94bb3ce65a53fb45177f7e311c".to_string());
@@ -194,7 +194,7 @@ mod block_headers_storage_tests {
         headers.insert(201593, block_header);
 
         storage.add_block_headers_to_storage(headers).await.unwrap();
-        assert!(!storage.is_table_empty().await.is_ok());
+        assert!(storage.is_table_empty().await.is_err());
 
         let actual_block_header = storage
             .get_last_block_header_with_non_max_bits(MAX_BITS_BTC)
@@ -227,7 +227,7 @@ mod block_headers_storage_tests {
         headers.insert(201593, block_header);
 
         storage.add_block_headers_to_storage(headers).await.unwrap();
-        assert!(!storage.is_table_empty().await.is_ok());
+        assert!(storage.is_table_empty().await.is_err());
 
         let last_block_height = storage.get_last_block_height().await.unwrap();
         assert_eq!(last_block_height.unwrap(), 201595);
@@ -264,7 +264,7 @@ mod block_headers_storage_tests {
         headers.insert(201593, block_header);
 
         storage.add_block_headers_to_storage(headers).await.unwrap();
-        assert!(!storage.is_table_empty().await.is_ok());
+        assert!(storage.is_table_empty().await.is_err());
 
         // Remove 2 headers from storage.(201596 - 201597)
         let _remove_from_height = storage.remove_headers_from_storage(201596, 201597).await.unwrap();
