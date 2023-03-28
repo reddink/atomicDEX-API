@@ -116,13 +116,13 @@ mod block_headers_storage_tests {
 
     cfg_wasm32! {
         use wasm_bindgen_test::*;
-        use utxo_spv::work::MAX_BITS_BTC;
+        use utxo_spv::work::BTC_MAX_BITS;
 
         wasm_bindgen_test_configure!(run_in_browser);
     }
 
     cfg_native! {
-        use utxo_spv::work::MAX_BITS_BTC;
+        use utxo_spv::work::BTC_MAX_BITS;
 
     }
 
@@ -192,11 +192,11 @@ mod block_headers_storage_tests {
         assert!(!storage.is_table_empty().await.is_ok());
 
         let actual_block_header = storage
-            .get_last_block_header_with_non_max_bits(MAX_BITS_BTC)
+            .get_last_block_header_with_non_max_bits(BTC_MAX_BITS)
             .await
             .unwrap()
             .unwrap();
-        assert_ne!(actual_block_header.bits, BlockHeaderBits::Compact(MAX_BITS_BTC.into()));
+        assert_ne!(actual_block_header.bits, BlockHeaderBits::Compact(BTC_MAX_BITS.into()));
         assert_eq!(actual_block_header, expected_block_header);
     }
 
