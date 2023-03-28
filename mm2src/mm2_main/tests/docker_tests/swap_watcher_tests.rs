@@ -4,11 +4,12 @@ use crate::{generate_utxo_coin_with_privkey, generate_utxo_coin_with_random_priv
             SecretKey};
 use coins::coin_errors::ValidatePaymentError;
 use coins::utxo::{dhash160, UtxoCommonOps};
-use coins::{FoundSwapTxSpend, MarketCoinOps, MmCoin, MmCoinEnum, RefundPaymentArgs, SearchForSwapTxSpendInput,
-            SendPaymentArgs, SwapOps, WatcherOps, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput,
-            EARLY_CONFIRMATION_ERR_LOG, INSUFFICIENT_WATCHER_REWARD_ERR_LOG, INVALID_CONTRACT_ADDRESS_ERR_LOG,
-            INVALID_PAYMENT_STATE_ERR_LOG, INVALID_RECEIVER_ERR_LOG, INVALID_REFUND_TX_ERR_LOG,
-            INVALID_SCRIPT_ERR_LOG, INVALID_SENDER_ERR_LOG, INVALID_SWAP_ID_ERR_LOG, OLD_TRANSACTION_ERR_LOG};
+use coins::{ConfirmPaymentInput, FoundSwapTxSpend, MarketCoinOps, MmCoin, MmCoinEnum, RefundPaymentArgs,
+            SearchForSwapTxSpendInput, SendPaymentArgs, SwapOps, WatcherOps, WatcherValidatePaymentInput,
+            WatcherValidateTakerFeeInput, EARLY_CONFIRMATION_ERR_LOG, INSUFFICIENT_WATCHER_REWARD_ERR_LOG,
+            INVALID_CONTRACT_ADDRESS_ERR_LOG, INVALID_PAYMENT_STATE_ERR_LOG, INVALID_RECEIVER_ERR_LOG,
+            INVALID_REFUND_TX_ERR_LOG, INVALID_SCRIPT_ERR_LOG, INVALID_SENDER_ERR_LOG, INVALID_SWAP_ID_ERR_LOG,
+            OLD_TRANSACTION_ERR_LOG};
 use common::{block_on, now_ms, DEX_FEE_ADDR_RAW_PUBKEY};
 use crypto::privkey::key_pair_from_secret;
 use futures01::Future;
@@ -451,6 +452,7 @@ fn test_watcher_refunds_taker_payment_eth() {
 }
 
 #[test]
+#[ignore] // https://github.com/KomodoPlatform/atomicDEX-API/issues/1712
 fn test_watcher_validate_taker_fee_eth() {
     let timeout = (now_ms() / 1000) + 120; // timeout if test takes more than 120 seconds to run
     let lock_duration = get_payment_locktime();
@@ -470,10 +472,14 @@ fn test_watcher_validate_taker_fee_eth() {
         .wait()
         .unwrap();
 
-    taker_coin
-        .wait_for_confirmations(&taker_fee.tx_hex(), 1, false, timeout, 1)
-        .wait()
-        .unwrap();
+    let confirm_payment_input = ConfirmPaymentInput {
+        payment_tx: taker_fee.tx_hex(),
+        confirmations: 1,
+        requires_nota: false,
+        wait_until: timeout,
+        check_every: 1,
+    };
+    taker_coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
 
     let validate_taker_fee_res = taker_coin
         .watcher_validate_taker_fee(WatcherValidateTakerFeeInput {
@@ -574,10 +580,14 @@ fn test_watcher_validate_taker_fee_erc20() {
         .wait()
         .unwrap();
 
-    taker_coin
-        .wait_for_confirmations(&taker_fee.tx_hex(), 1, false, timeout, 1)
-        .wait()
-        .unwrap();
+    let confirm_payment_input = ConfirmPaymentInput {
+        payment_tx: taker_fee.tx_hex(),
+        confirmations: 1,
+        requires_nota: false,
+        wait_until: timeout,
+        check_every: 1,
+    };
+    taker_coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
 
     let validate_taker_fee_res = taker_coin
         .watcher_validate_taker_fee(WatcherValidateTakerFeeInput {
@@ -670,7 +680,8 @@ fn test_watcher_validate_taker_payment_eth() {
     let maker_pub = maker_keypair.public();
 
     let time_lock_duration = get_payment_locktime();
-    let time_lock = (now_ms() / 1000 + time_lock_duration) as u32;
+    let wait_for_confirmation_until = now_ms() / 1000 + time_lock_duration;
+    let time_lock = wait_for_confirmation_until as u32;
     let amount = BigDecimal::from_str("0.01").unwrap();
     let secret_hash = dhash160(&MakerSwap::generate_secret());
     let watcher_reward = Some(
@@ -700,14 +711,19 @@ fn test_watcher_validate_taker_payment_eth() {
             swap_unique_data: &[],
             payment_instructions: &None,
             watcher_reward,
+            wait_for_confirmation_until,
         })
         .wait()
         .unwrap();
 
-    taker_coin
-        .wait_for_confirmations(&taker_payment.tx_hex(), 1, false, timeout, 1)
-        .wait()
-        .unwrap();
+    let confirm_payment_input = ConfirmPaymentInput {
+        payment_tx: taker_payment.tx_hex(),
+        confirmations: 1,
+        requires_nota: false,
+        wait_until: timeout,
+        check_every: 1,
+    };
+    taker_coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
 
     let validate_taker_payment_res = taker_coin
         .watcher_validate_taker_payment(coins::WatcherValidatePaymentInput {
@@ -761,6 +777,7 @@ fn test_watcher_validate_taker_payment_eth() {
             swap_unique_data: &[],
             payment_instructions: &None,
             watcher_reward,
+            wait_for_confirmation_until,
         })
         .wait()
         .unwrap();
@@ -830,14 +847,19 @@ fn test_watcher_validate_taker_payment_eth() {
             swap_unique_data: &[],
             payment_instructions: &None,
             watcher_reward,
+            wait_for_confirmation_until,
         })
         .wait()
         .unwrap();
 
-    taker_coin
-        .wait_for_confirmations(&taker_payment_wrong_secret.tx_hex(), 1, false, timeout, 1)
-        .wait()
-        .unwrap();
+    let confirm_payment_input = ConfirmPaymentInput {
+        payment_tx: taker_payment_wrong_secret.tx_hex(),
+        confirmations: 1,
+        requires_nota: false,
+        wait_until: timeout,
+        check_every: 1,
+    };
+    taker_coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
 
     let error = taker_coin
         .watcher_validate_taker_payment(WatcherValidatePaymentInput {
@@ -932,7 +954,8 @@ fn test_watcher_validate_taker_payment_erc20() {
     let maker_pub = maker_keypair.public();
 
     let time_lock_duration = get_payment_locktime();
-    let time_lock = (now_ms() / 1000 + time_lock_duration) as u32;
+    let wait_for_confirmation_until = now_ms() / 1000 + time_lock_duration;
+    let time_lock = wait_for_confirmation_until as u32;
 
     let secret_hash = dhash160(&MakerSwap::generate_secret());
     let watcher_reward = Some(
@@ -961,14 +984,19 @@ fn test_watcher_validate_taker_payment_erc20() {
             swap_unique_data: &[],
             payment_instructions: &None,
             watcher_reward,
+            wait_for_confirmation_until,
         })
         .wait()
         .unwrap();
 
-    taker_coin
-        .wait_for_confirmations(&taker_payment.tx_hex(), 1, false, timeout, 1)
-        .wait()
-        .unwrap();
+    let confirm_payment_input = ConfirmPaymentInput {
+        payment_tx: taker_payment.tx_hex(),
+        confirmations: 1,
+        requires_nota: false,
+        wait_until: timeout,
+        check_every: 1,
+    };
+    taker_coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
 
     let validate_taker_payment_res = taker_coin
         .watcher_validate_taker_payment(WatcherValidatePaymentInput {
@@ -1022,6 +1050,7 @@ fn test_watcher_validate_taker_payment_erc20() {
             swap_unique_data: &[],
             payment_instructions: &None,
             watcher_reward,
+            wait_for_confirmation_until,
         })
         .wait()
         .unwrap();
@@ -1091,14 +1120,19 @@ fn test_watcher_validate_taker_payment_erc20() {
             swap_unique_data: &[],
             payment_instructions: &None,
             watcher_reward,
+            wait_for_confirmation_until,
         })
         .wait()
         .unwrap();
 
-    taker_coin
-        .wait_for_confirmations(&taker_payment_wrong_secret.tx_hex(), 1, false, timeout, 1)
-        .wait()
-        .unwrap();
+    let confirm_payment_input = ConfirmPaymentInput {
+        payment_tx: taker_payment_wrong_secret.tx_hex(),
+        confirmations: 1,
+        requires_nota: false,
+        wait_until: timeout,
+        check_every: 1,
+    };
+    taker_coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
 
     let error = taker_coin
         .watcher_validate_taker_payment(WatcherValidatePaymentInput {
@@ -1426,10 +1460,14 @@ fn test_watcher_validate_taker_fee_utxo() {
         .wait()
         .unwrap();
 
-    taker_coin
-        .wait_for_confirmations(&taker_fee.tx_hex(), 1, false, timeout, 1)
-        .wait()
-        .unwrap();
+    let confirm_payment_input = ConfirmPaymentInput {
+        payment_tx: taker_fee.tx_hex(),
+        confirmations: 1,
+        requires_nota: false,
+        wait_until: timeout,
+        check_every: 1,
+    };
+    taker_coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
 
     let validate_taker_fee_res = taker_coin
         .watcher_validate_taker_fee(WatcherValidateTakerFeeInput {
@@ -1530,7 +1568,8 @@ fn test_watcher_validate_taker_fee_utxo() {
 fn test_watcher_validate_taker_payment_utxo() {
     let timeout = (now_ms() / 1000) + 120; // timeout if test takes more than 120 seconds to run
     let time_lock_duration = get_payment_locktime();
-    let time_lock = (now_ms() / 1000 + time_lock_duration) as u32;
+    let wait_for_confirmation_until = now_ms() / 1000 + time_lock_duration;
+    let time_lock = wait_for_confirmation_until as u32;
 
     let (_ctx, taker_coin, _) = generate_utxo_coin_with_random_privkey("MYCOIN", 1000u64.into());
     let taker_pubkey = taker_coin.my_public_key().unwrap();
@@ -1551,14 +1590,19 @@ fn test_watcher_validate_taker_payment_utxo() {
             swap_unique_data: &[],
             payment_instructions: &None,
             watcher_reward: None,
+            wait_for_confirmation_until,
         })
         .wait()
         .unwrap();
 
-    taker_coin
-        .wait_for_confirmations(&taker_payment.tx_hex(), 1, false, timeout, 1)
-        .wait()
-        .unwrap();
+    let confirm_payment_input = ConfirmPaymentInput {
+        payment_tx: taker_payment.tx_hex(),
+        confirmations: 1,
+        requires_nota: false,
+        wait_until: timeout,
+        check_every: 1,
+    };
+    taker_coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
 
     let taker_payment_refund_preimage = taker_coin
         .create_taker_payment_refund_preimage(
@@ -1723,12 +1767,18 @@ fn test_send_taker_payment_refund_preimage_utxo() {
         swap_unique_data: &[],
         payment_instructions: &None,
         watcher_reward: None,
+        wait_for_confirmation_until: 0,
     };
     let tx = coin.send_taker_payment(taker_payment_args).wait().unwrap();
 
-    coin.wait_for_confirmations(&tx.tx_hex(), 1, false, timeout, 1)
-        .wait()
-        .unwrap();
+    let confirm_payment_input = ConfirmPaymentInput {
+        payment_tx: tx.tx_hex(),
+        confirmations: 1,
+        requires_nota: false,
+        wait_until: timeout,
+        check_every: 1,
+    };
+    coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
 
     let refund_tx = coin
         .create_taker_payment_refund_preimage(&tx.tx_hex(), time_lock, my_public_key, &[0; 20], &None, &[])
@@ -1748,9 +1798,14 @@ fn test_send_taker_payment_refund_preimage_utxo() {
         .wait()
         .unwrap();
 
-    coin.wait_for_confirmations(&refund_tx.tx_hex(), 1, false, timeout, 1)
-        .wait()
-        .unwrap();
+    let confirm_payment_input = ConfirmPaymentInput {
+        payment_tx: refund_tx.tx_hex(),
+        confirmations: 1,
+        requires_nota: false,
+        wait_until: timeout,
+        check_every: 1,
+    };
+    coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
 
     let search_input = SearchForSwapTxSpendInput {
         time_lock,

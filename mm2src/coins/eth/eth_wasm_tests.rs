@@ -11,7 +11,6 @@ wasm_bindgen_test_configure!(run_in_browser);
 fn pass() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let _coins_context = CoinsContext::from_ctx(&ctx).unwrap();
-    assert_eq!(1, 1);
 }
 
 #[wasm_bindgen_test]
@@ -60,6 +59,7 @@ async fn test_send() {
         swap_unique_data: &[],
         payment_instructions: &None,
         watcher_reward: None,
+        wait_for_confirmation_until: 0,
     };
     let tx = coin.send_maker_payment(maker_payment_args).compat().await;
     console::log_1(&format!("{:?}", tx).into());
