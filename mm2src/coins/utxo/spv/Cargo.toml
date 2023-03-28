@@ -1,7 +1,7 @@
 [package]
 name = "utxo_spv"
 version = "0.1.0"
-authors = ["Roman Sztergbaum <rmscastle@gmail.com>", "Samuel Onoja <samiodev@icloud.com"]
+authors = ["Roman Sztergbaum <rmscastle@gmail.com>", "Omar S.", "Samuel Onoja"]
 edition = "2018"
 
 [lib]
