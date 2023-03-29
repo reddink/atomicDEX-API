@@ -1,3 +1,4 @@
+mod channel_opening_fee;
 mod close_channel;
 mod connect_to_node;
 mod generate_invoice;
@@ -12,6 +13,7 @@ mod trusted_nodes;
 mod update_channel;
 
 pub mod channels {
+    pub use super::channel_opening_fee::*;
     pub use super::close_channel::*;
     pub use super::get_channel_details::*;
     pub use super::get_claimable_balances::*;

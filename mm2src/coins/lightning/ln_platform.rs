@@ -4,8 +4,10 @@ use crate::utxo::rpc_clients::{BestBlock as RpcBestBlock, BlockHashOrHeight, Con
                                ElectrumBlockHeader, ElectrumClient, ElectrumNonce, EstimateFeeMethod,
                                UtxoRpcClientEnum, UtxoRpcResult};
 use crate::utxo::spv::SimplePaymentVerification;
+use crate::utxo::utxo_common::UtxoTxBuilder;
 use crate::utxo::utxo_standard::UtxoStandardCoin;
-use crate::utxo::GetConfirmedTxError;
+use crate::utxo::{FeePolicy, GenerateTxError, GenerateTxResult, GetConfirmedTxError, GetUtxoListOps,
+                  UtxoTxGenerationOps};
 use crate::{CoinFutSpawner, MarketCoinOps, MmCoin};
 use bitcoin::blockdata::block::BlockHeader;
 use bitcoin::blockdata::script::Script;
@@ -13,14 +15,17 @@ use bitcoin::blockdata::transaction::Transaction;
 use bitcoin::consensus::encode::{deserialize, serialize_hex};
 use bitcoin::hash_types::{BlockHash, TxMerkleNode, Txid};
 use bitcoin_hashes::{sha256d, Hash};
+use chain::TransactionOutput;
 use common::executor::{abortable_queue::AbortableQueue, AbortableSystem, SpawnFuture, Timer};
 use common::log::{debug, error, info};
 use futures::compat::Future01CompatExt;
 use futures::future::join_all;
 use keys::hash::H256;
+use keys::AddressHashEnum;
 use lightning::chain::{chaininterface::{BroadcasterInterface, ConfirmationTarget, FeeEstimator},
                        Confirm, Filter, WatchedOutput};
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
+use script::Builder;
 use spv_validation::spv_proof::TRY_SPV_PROOF_INTERVAL;
 use std::convert::TryInto;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering, Ordering};
@@ -152,6 +157,13 @@ impl LatestFees {
     fn set_high_priority_fees(&self, fee: u64) { self.high_priority.store(fee, Ordering::Release); }
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(tag = "type", content = "value")]
+pub enum ChannelOpenAmount {
+    Exact(BigDecimal),
+    Max,
+}
+
 pub struct Platform {
     pub coin: UtxoStandardCoin,
     /// Main/testnet/signet/regtest Needed for lightning node to know which network to connect to
@@ -261,6 +273,45 @@ impl Platform {
         self.latest_fees.set_high_priority_fees(latest_high_priority_fees);
 
         Ok(())
+    }
+
+    pub(crate) async fn generate_funding_tx_preimage(&self, amount: ChannelOpenAmount) -> GenerateTxResult {
+        let platform_coin = self.coin.clone();
+
+        let my_address = platform_coin
+            .as_ref()
+            .derivation_method
+            .single_addr_or_err()
+            .map_err(|e| GenerateTxError::Internal(e.to_string()))?;
+        let (unspent, _) = self.coin.get_unspent_ordered_list(my_address).await?;
+
+        let decimals = platform_coin.as_ref().decimals;
+        let (value, fee_policy) = match amount {
+            ChannelOpenAmount::Max => (
+                unspent.iter().fold(0, |sum, unspent| sum + unspent.value),
+                FeePolicy::DeductFromOutput(0),
+            ),
+            ChannelOpenAmount::Exact(v) => {
+                let value = sat_from_big_decimal(&v, decimals)?;
+                (value, FeePolicy::SendExact)
+            },
+        };
+
+        // The actual script_pubkey will replace this before signing the transaction after receiving the required
+        // output script from the other node when the channel is accepted
+        let script_pubkey =
+            Builder::build_witness_script(&AddressHashEnum::WitnessScriptHash(Default::default())).to_bytes();
+        let outputs = vec![TransactionOutput { value, script_pubkey }];
+
+        let mut tx_builder = UtxoTxBuilder::new(&platform_coin)
+            .add_available_inputs(unspent)
+            .add_outputs(outputs)
+            .with_fee_policy(fee_policy);
+
+        let fee = platform_coin.get_tx_fee().await?;
+        tx_builder = tx_builder.with_fee(fee);
+
+        tx_builder.build().await
     }
 
     #[inline]

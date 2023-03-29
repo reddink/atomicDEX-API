@@ -327,6 +327,7 @@ async fn lightning_dispatcher(
     use coins::rpc_command::lightning::{channels, nodes, payments};
 
     match lightning_method {
+        "channels::channel_opening_fee" => handle_mmrpc(ctx, request, channels::channel_opening_fee).await,
         "channels::close_channel" => handle_mmrpc(ctx, request, channels::close_channel).await,
         "channels::get_channel_details" => handle_mmrpc(ctx, request, channels::get_channel_details).await,
         "channels::get_claimable_balances" => handle_mmrpc(ctx, request, channels::get_claimable_balances).await,
