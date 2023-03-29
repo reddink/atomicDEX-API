@@ -19,6 +19,13 @@
 //  marketmaker
 //
 
+// `mockable` implementation uses these
+#![allow(
+    clippy::forget_ref,
+    clippy::forget_copy,
+    clippy::swap_ptr_to_ref,
+    clippy::forget_non_drop
+)]
 #![allow(uncommon_codepoints)]
 #![feature(integer_atomics)]
 #![feature(async_closure)]
@@ -201,7 +208,10 @@ use coin_errors::{MyAddressError, ValidatePaymentError, ValidatePaymentFut};
 pub mod coins_tests;
 
 pub mod eth;
-use eth::{eth_coin_from_conf_and_request, get_eth_address, EthCoin, EthTxFeeDetails, GetEthAddressError, SignedEthTx};
+#[cfg(feature = "enable-nft-integration")]
+use eth::GetValidEthWithdrawAddError;
+use eth::{eth_coin_from_conf_and_request, get_eth_address, EthCoin, EthGasDetailsErr, EthTxFeeDetails,
+          GetEthAddressError, SignedEthTx};
 
 pub mod hd_confirm_address;
 pub mod hd_pubkey;
@@ -237,11 +247,26 @@ pub mod tx_history_storage;
 
 #[doc(hidden)]
 #[allow(unused_variables)]
-#[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+#[cfg(all(
+    feature = "enable-solana",
+    not(target_os = "ios"),
+    not(target_os = "android"),
+    not(target_arch = "wasm32")
+))]
 pub mod solana;
-#[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+#[cfg(all(
+    feature = "enable-solana",
+    not(target_os = "ios"),
+    not(target_os = "android"),
+    not(target_arch = "wasm32")
+))]
 pub use solana::spl::SplToken;
-#[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+#[cfg(all(
+    feature = "enable-solana",
+    not(target_os = "ios"),
+    not(target_os = "android"),
+    not(target_arch = "wasm32")
+))]
 pub use solana::{SolanaActivationParams, SolanaCoin, SolanaFeeDetails};
 
 pub mod utxo;
@@ -257,6 +282,8 @@ use utxo::UtxoActivationParams;
 use utxo::{BlockchainNetwork, GenerateTxError, UtxoFeeDetails, UtxoTx};
 
 #[cfg(feature = "enable-nft-integration")] pub mod nft;
+#[cfg(feature = "enable-nft-integration")]
+use nft::nft_errors::GetNftInfoError;
 
 #[cfg(not(target_arch = "wasm32"))] pub mod z_coin;
 #[cfg(not(target_arch = "wasm32"))] use z_coin::ZCoin;
@@ -405,7 +432,7 @@ pub enum TxHistoryError {
     InternalError(String),
 }
 
-#[derive(Clone, Debug, Display, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Display, PartialEq)]
 pub enum PrivKeyPolicyNotAllowed {
     #[display(fmt = "Hardware Wallet is not supported")]
     HardwareWalletNotSupported,
@@ -541,6 +568,15 @@ pub enum NegotiateSwapContractAddrErr {
 pub enum ValidateOtherPubKeyErr {
     #[display(fmt = "InvalidPubKey: {:?}", _0)]
     InvalidPubKey(String),
+}
+
+#[derive(Clone, Debug)]
+pub struct ConfirmPaymentInput {
+    pub payment_tx: Vec<u8>,
+    pub confirmations: u64,
+    pub requires_nota: bool,
+    pub wait_until: u64,
+    pub check_every: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -958,14 +994,7 @@ pub trait MarketCoinOps {
     /// Receives raw transaction bytes as input and returns tx hash in hexadecimal format
     fn send_raw_tx_bytes(&self, tx: &[u8]) -> Box<dyn Future<Item = String, Error = String> + Send>;
 
-    fn wait_for_confirmations(
-        &self,
-        tx: &[u8],
-        confirmations: u64,
-        requires_nota: bool,
-        wait_until: u64,
-        check_every: u64,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send>;
+    fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send>;
 
     fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionFut;
 
@@ -1152,7 +1181,12 @@ pub enum TxFeeDetails {
     Qrc20(Qrc20FeeDetails),
     Slp(SlpFeeDetails),
     Tendermint(TendermintFeeDetails),
-    #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+    #[cfg(all(
+        feature = "enable-solana",
+        not(target_os = "ios"),
+        not(target_os = "android"),
+        not(target_arch = "wasm32")
+    ))]
     Solana(SolanaFeeDetails),
 }
 
@@ -1168,7 +1202,12 @@ impl<'de> Deserialize<'de> for TxFeeDetails {
             Utxo(UtxoFeeDetails),
             Eth(EthTxFeeDetails),
             Qrc20(Qrc20FeeDetails),
-            #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+            #[cfg(all(
+                feature = "enable-solana",
+                not(target_os = "ios"),
+                not(target_os = "android"),
+                not(target_arch = "wasm32")
+            ))]
             Solana(SolanaFeeDetails),
             Tendermint(TendermintFeeDetails),
         }
@@ -1177,7 +1216,12 @@ impl<'de> Deserialize<'de> for TxFeeDetails {
             TxFeeDetailsUnTagged::Utxo(f) => Ok(TxFeeDetails::Utxo(f)),
             TxFeeDetailsUnTagged::Eth(f) => Ok(TxFeeDetails::Eth(f)),
             TxFeeDetailsUnTagged::Qrc20(f) => Ok(TxFeeDetails::Qrc20(f)),
-            #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+            #[cfg(all(
+                feature = "enable-solana",
+                not(target_os = "ios"),
+                not(target_os = "android"),
+                not(target_arch = "wasm32")
+            ))]
             TxFeeDetailsUnTagged::Solana(f) => Ok(TxFeeDetails::Solana(f)),
             TxFeeDetailsUnTagged::Tendermint(f) => Ok(TxFeeDetails::Tendermint(f)),
         }
@@ -1196,7 +1240,12 @@ impl From<Qrc20FeeDetails> for TxFeeDetails {
     fn from(qrc20_details: Qrc20FeeDetails) -> Self { TxFeeDetails::Qrc20(qrc20_details) }
 }
 
-#[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+#[cfg(all(
+    feature = "enable-solana",
+    not(target_os = "ios"),
+    not(target_os = "android"),
+    not(target_arch = "wasm32")
+))]
 impl From<SolanaFeeDetails> for TxFeeDetails {
     fn from(solana_details: SolanaFeeDetails) -> Self { TxFeeDetails::Solana(solana_details) }
 }
@@ -1735,7 +1784,7 @@ impl DelegationError {
     }
 }
 
-#[derive(Clone, Debug, Display, EnumFromStringify, EnumFromTrait, Serialize, SerializeErrorType, PartialEq)]
+#[derive(Clone, Debug, Display, EnumFromStringify, EnumFromTrait, PartialEq, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum WithdrawError {
     #[display(
@@ -1798,14 +1847,38 @@ pub enum WithdrawError {
     #[from_stringify("NumConversError", "UnexpectedDerivationMethod", "PrivKeyPolicyNotAllowed")]
     #[display(fmt = "Internal error: {}", _0)]
     InternalError(String),
+    #[cfg(feature = "enable-nft-integration")]
     #[display(fmt = "{} coin doesn't support NFT withdrawing", coin)]
     CoinDoesntSupportNftWithdraw { coin: String },
+    #[cfg(feature = "enable-nft-integration")]
     #[display(fmt = "My address {} and from address {} mismatch", my_address, from)]
     AddressMismatchError { my_address: String, from: String },
+    #[cfg(feature = "enable-nft-integration")]
     #[display(fmt = "Contract type {} doesnt support 'withdraw_nft' yet", _0)]
     ContractTypeDoesntSupportNftWithdrawing(String),
     #[display(fmt = "Action not allowed for coin: {}", _0)]
     ActionNotAllowed(String),
+    #[cfg(feature = "enable-nft-integration")]
+    GetNftInfoError(GetNftInfoError),
+    #[cfg(feature = "enable-nft-integration")]
+    #[display(
+        fmt = "Not enough NFTs amount with token_address: {} and token_id {}. Available {}, required {}",
+        token_address,
+        token_id,
+        available,
+        required
+    )]
+    NotEnoughNftsAmount {
+        token_address: String,
+        token_id: String,
+        available: BigDecimal,
+        required: BigDecimal,
+    },
+}
+
+#[cfg(feature = "enable-nft-integration")]
+impl From<GetNftInfoError> for WithdrawError {
+    fn from(e: GetNftInfoError) -> Self { WithdrawError::GetNftInfoError(e) }
 }
 
 impl HttpStatusCode for WithdrawError {
@@ -1825,14 +1898,17 @@ impl HttpStatusCode for WithdrawError {
             | WithdrawError::UnexpectedFromAddress(_)
             | WithdrawError::UnknownAccount { .. }
             | WithdrawError::UnexpectedUserAction { .. }
-            | WithdrawError::CoinDoesntSupportNftWithdraw { .. }
-            | WithdrawError::AddressMismatchError { .. }
-            | WithdrawError::ActionNotAllowed(_)
-            | WithdrawError::ContractTypeDoesntSupportNftWithdrawing(_) => StatusCode::BAD_REQUEST,
+            | WithdrawError::ActionNotAllowed(_) => StatusCode::BAD_REQUEST,
             WithdrawError::HwError(_) => StatusCode::GONE,
             #[cfg(target_arch = "wasm32")]
             WithdrawError::BroadcastExpected(_) => StatusCode::BAD_REQUEST,
             WithdrawError::Transport(_) | WithdrawError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            #[cfg(feature = "enable-nft-integration")]
+            WithdrawError::GetNftInfoError(_)
+            | WithdrawError::AddressMismatchError { .. }
+            | WithdrawError::ContractTypeDoesntSupportNftWithdrawing(_)
+            | WithdrawError::CoinDoesntSupportNftWithdraw { .. }
+            | WithdrawError::NotEnoughNftsAmount { .. } => StatusCode::BAD_REQUEST,
         }
     }
 }
@@ -1865,6 +1941,31 @@ impl From<UtxoSignWithKeyPairError> for WithdrawError {
 
 impl From<TimeoutError> for WithdrawError {
     fn from(e: TimeoutError) -> Self { WithdrawError::Timeout(e.duration) }
+}
+
+#[cfg(feature = "enable-nft-integration")]
+impl From<GetValidEthWithdrawAddError> for WithdrawError {
+    fn from(e: GetValidEthWithdrawAddError) -> Self {
+        match e {
+            GetValidEthWithdrawAddError::AddressMismatchError { my_address, from } => {
+                WithdrawError::AddressMismatchError { my_address, from }
+            },
+            GetValidEthWithdrawAddError::CoinDoesntSupportNftWithdraw { coin } => {
+                WithdrawError::CoinDoesntSupportNftWithdraw { coin }
+            },
+            GetValidEthWithdrawAddError::InvalidAddress(e) => WithdrawError::InvalidAddress(e),
+        }
+    }
+}
+
+impl From<EthGasDetailsErr> for WithdrawError {
+    fn from(e: EthGasDetailsErr) -> Self {
+        match e {
+            EthGasDetailsErr::InvalidFeePolicy(e) => WithdrawError::InvalidFeePolicy(e),
+            EthGasDetailsErr::Internal(e) => WithdrawError::InternalError(e),
+            EthGasDetailsErr::Transport(e) => WithdrawError::Transport(e),
+        }
+    }
 }
 
 impl WithdrawError {
@@ -2198,9 +2299,19 @@ pub enum MmCoinEnum {
     SlpToken(SlpToken),
     Tendermint(TendermintCoin),
     TendermintToken(TendermintToken),
-    #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+    #[cfg(all(
+        feature = "enable-solana",
+        not(target_os = "ios"),
+        not(target_os = "android"),
+        not(target_arch = "wasm32")
+    ))]
     SolanaCoin(SolanaCoin),
-    #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+    #[cfg(all(
+        feature = "enable-solana",
+        not(target_os = "ios"),
+        not(target_os = "android"),
+        not(target_arch = "wasm32")
+    ))]
     SplToken(SplToken),
     #[cfg(not(target_arch = "wasm32"))]
     LightningCoin(LightningCoin),
@@ -2219,12 +2330,22 @@ impl From<TestCoin> for MmCoinEnum {
     fn from(c: TestCoin) -> MmCoinEnum { MmCoinEnum::Test(c) }
 }
 
-#[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+#[cfg(all(
+    feature = "enable-solana",
+    not(target_os = "ios"),
+    not(target_os = "android"),
+    not(target_arch = "wasm32")
+))]
 impl From<SolanaCoin> for MmCoinEnum {
     fn from(c: SolanaCoin) -> MmCoinEnum { MmCoinEnum::SolanaCoin(c) }
 }
 
-#[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+#[cfg(all(
+    feature = "enable-solana",
+    not(target_os = "ios"),
+    not(target_os = "android"),
+    not(target_arch = "wasm32")
+))]
 impl From<SplToken> for MmCoinEnum {
     fn from(c: SplToken) -> MmCoinEnum { MmCoinEnum::SplToken(c) }
 }
@@ -2281,9 +2402,19 @@ impl Deref for MmCoinEnum {
             #[cfg(not(target_arch = "wasm32"))]
             MmCoinEnum::ZCoin(ref c) => c,
             MmCoinEnum::Test(ref c) => c,
-            #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+            #[cfg(all(
+                feature = "enable-solana",
+                not(target_os = "ios"),
+                not(target_os = "android"),
+                not(target_arch = "wasm32")
+            ))]
             MmCoinEnum::SolanaCoin(ref c) => c,
-            #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_arch = "wasm32")))]
+            #[cfg(all(
+                feature = "enable-solana",
+                not(target_os = "ios"),
+                not(target_os = "android"),
+                not(target_arch = "wasm32")
+            ))]
             MmCoinEnum::SplToken(ref c) => c,
         }
     }
@@ -2598,9 +2729,9 @@ pub enum CoinProtocol {
         network: BlockchainNetwork,
         confirmation_targets: PlatformCoinConfirmationTargets,
     },
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(feature = "enable-solana", not(target_arch = "wasm32")))]
     SOLANA,
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(feature = "enable-solana", not(target_arch = "wasm32")))]
     SPLTOKEN {
         platform: String,
         token_contract_address: String,
@@ -2863,11 +2994,11 @@ pub async fn lp_coininit(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoin
         CoinProtocol::ZHTLC { .. } => return ERR!("ZHTLC protocol is not supported by lp_coininit"),
         #[cfg(not(target_arch = "wasm32"))]
         CoinProtocol::LIGHTNING { .. } => return ERR!("Lightning protocol is not supported by lp_coininit"),
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(feature = "enable-solana", not(target_arch = "wasm32")))]
         CoinProtocol::SOLANA => {
             return ERR!("Solana protocol is not supported by lp_coininit - use enable_solana_with_tokens instead")
         },
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(feature = "enable-solana", not(target_arch = "wasm32")))]
         CoinProtocol::SPLTOKEN { .. } => {
             return ERR!("SplToken protocol is not supported by lp_coininit - use enable_spl instead")
         },
@@ -3433,7 +3564,7 @@ pub fn address_by_coin_conf_and_pubkey_str(
         CoinProtocol::LIGHTNING { .. } => {
             ERR!("address_by_coin_conf_and_pubkey_str is not implemented for lightning protocol yet!")
         },
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(feature = "enable-solana", not(target_arch = "wasm32")))]
         CoinProtocol::SOLANA | CoinProtocol::SPLTOKEN { .. } => {
             ERR!("Solana pubkey is the public address - you do not need to use this rpc call.")
         },

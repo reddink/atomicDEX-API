@@ -89,12 +89,6 @@ If you want to build from source, the following prerequisites are required:
     rustup component add rustfmt-preview
     ```
 
-**Note for x86_64 UNIX systems**:
-To have more efficient memory consumption please execute the following command before building mm2. (It's also good to have before launching mm2.)
-```sh
-export JEMALLOC_SYS_WITH_MALLOC_CONF="background_thread:true,narenas:1,tcache:false,dirty_decay_ms:0,muzzy_decay_ms:0,metadata_thp:auto"
-```
-
 To build, run `cargo build` (or `cargo build -vv` to get verbose build output).
 
 For more detailed instructions, please refer to the [Installation Guide](https://developers.komodoplatform.com/basic-docs/atomicdex/atomicdex-setup/get-started-atomicdex.html). 
@@ -175,7 +169,7 @@ Refer to the [Komodo Developer Docs](https://developers.komodoplatform.com/basic
 
 ## Additional docs for developers
 
-- [Contribution guide](./CONTRIBUTING.md)
+- [Contribution guide](./docs/CONTRIBUTING.md)
 - [Setting up the environment to run the full tests suite](./docs/DEV_ENVIRONMENT.md)
 - [Git flow and general workflow](./docs/GIT_FLOW_AND_WORKING_PROCESS.md)
 - [Komodo Developer Docs](https://developers.komodoplatform.com/basic-docs/atomicdex/introduction-to-atomicdex.html)

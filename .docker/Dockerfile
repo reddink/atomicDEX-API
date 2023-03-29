@@ -6,14 +6,14 @@
 # docker build --tag mm2 .
 
 # NB: The version here was picked to match the one tested in our CI. The latest Travis has (as of 2018-11) is Xenial.
-FROM ubuntu:xenial
+FROM docker.io/ubuntu:xenial
 
 RUN \
     apt-get update &&\
     apt-get install -y git build-essential libssl-dev wget &&\
     apt-get install -y cmake &&\
     # https://github.com/rust-lang/rust-bindgen/blob/master/book/src/requirements.md#debian-based-linuxes
-    apt-get install -y llvm-3.9-dev libclang-3.9-dev clang-3.9 &&\
+    apt-get install -y llvm-3.9-dev libclang-3.9-dev clang-3.9 lld &&\
     # openssl-sys requirements, cf. https://crates.io/crates/openssl-sys
     apt-get install -y pkg-config libssl-dev &&\
     apt-get clean
@@ -47,9 +47,6 @@ RUN cd /mm2 && cargo fetch
 # This will overwrite the Git version with the local one.
 # Only needed when we're developing or changing something locally.
 #COPY . /mm2
-
-# Important for x86_64 builds
-ENV JEMALLOC_SYS_WITH_MALLOC_CONF="background_thread:true,narenas:1,tcache:false,dirty_decay_ms:0,muzzy_decay_ms:0,metadata_thp:auto"
 
 # Build MM1 and MM2.
 # Increased verbosity here allows us to see the MM1 CMake logs.
