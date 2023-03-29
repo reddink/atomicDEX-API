@@ -2,8 +2,10 @@ use super::{broadcast_p2p_tx_msg, get_payment_locktime, lp_coinfind, min_watcher
             tx_helper_topic, H256Json, SwapsContext, WAIT_CONFIRM_INTERVAL};
 use crate::mm2::MmError;
 use async_trait::async_trait;
+use coins::WatcherReward;
 use coins::{CanRefundHtlc, FoundSwapTxSpend, MmCoinEnum, RefundPaymentArgs, SendMakerPaymentSpendPreimageInput,
-            WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput};
+            WaitForHTLCTxSpendArgs, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
+            WatcherValidateTakerFeeInput};
 use common::executor::{AbortSettings, SpawnAbortable, Timer};
 use common::log::{debug, error, info};
 use common::state_machine::prelude::*;
@@ -190,6 +192,7 @@ impl State for ValidateTakerFee {
     }
 }
 
+// TODO: Validate also maker payment
 #[async_trait]
 impl State for ValidateTakerPayment {
     type Ctx = WatcherContext;
@@ -234,7 +237,7 @@ impl State for ValidateTakerPayment {
         }
 
         let min_watcher_reward = if watcher_ctx.watcher_reward {
-            let reward = match min_watcher_reward(&watcher_ctx.taker_coin, &watcher_ctx.maker_coin).await {
+            let amount = match min_watcher_reward(&watcher_ctx.taker_coin, &watcher_ctx.maker_coin, None, None).await {
                 Ok(reward) => reward,
                 Err(err) => {
                     return Self::change_state(Stopped::from_reason(StopReason::Error(
@@ -242,7 +245,8 @@ impl State for ValidateTakerPayment {
                     )))
                 },
             };
-            Some(reward)
+            let is_refund_only = watcher_ctx.taker_coin.is_eth() && !watcher_ctx.maker_coin.is_eth();
+            Some(WatcherReward { amount, is_refund_only })
         } else {
             None
         };
@@ -346,14 +350,15 @@ impl State for WaitForTakerPaymentSpend {
                     },
                 };
 
-                let f = watcher_ctx.maker_coin.wait_for_htlc_tx_spend(
-                    &maker_payment_hex,
-                    &watcher_ctx.data.secret_hash,
+                let f = watcher_ctx.maker_coin.wait_for_htlc_tx_spend(WaitForHTLCTxSpendArgs {
+                    tx_bytes: &maker_payment_hex,
+                    secret_hash: &watcher_ctx.data.secret_hash,
                     wait_until,
-                    watcher_ctx.data.maker_coin_start_block,
-                    &None,
-                    payment_search_interval,
-                );
+                    from_block: watcher_ctx.data.maker_coin_start_block,
+                    swap_contract_address: &None,
+                    check_every: payment_search_interval,
+                    watcher_reward: watcher_ctx.watcher_reward,
+                });
 
                 if f.compat().await.is_ok() {
                     info!("{}", MAKER_PAYMENT_SPEND_FOUND_LOG);

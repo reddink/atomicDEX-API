@@ -1,10 +1,9 @@
 pub use common::{block_on, now_ms};
 pub use mm2_number::MmNumber;
-use mm2_test_helpers::for_tests::ETH_SEPOLIA_NODE;
-use mm2_test_helpers::for_tests::ETH_SEPOLIA_SWAP_CONTRACT;
 pub use mm2_test_helpers::for_tests::{check_my_swap_status, check_recent_swaps, check_stats_swap_status,
                                       enable_native_bch, mm_dump, MarketMakerIt, MAKER_ERROR_EVENTS,
                                       MAKER_SUCCESS_EVENTS, TAKER_ERROR_EVENTS, TAKER_SUCCESS_EVENTS};
+use mm2_test_helpers::for_tests::{ETH_SEPOLIA_NODE, ETH_SEPOLIA_SWAP_CONTRACT, ETH_SEPOLIA_TOKEN_CONTRACT};
 pub use secp256k1::{PublicKey, SecretKey};
 pub use std::env;
 pub use std::thread;
@@ -203,7 +202,7 @@ pub fn generate_jst_with_seed(seed: &str) -> EthCoin {
         &req,
         CoinProtocol::ERC20 {
             platform: "ETH".into(),
-            contract_address: String::from("0x948BF5172383F1Bc0Fdf3aBe0630b855694A5D2c"),
+            contract_address: String::from(ETH_SEPOLIA_TOKEN_CONTRACT),
         },
         priv_key_policy,
     ))
@@ -959,7 +958,7 @@ pub fn slp_supplied_node() -> MarketMakerIt {
     mm
 }
 
-pub fn solana_supplied_node() -> MarketMakerIt {
+pub fn _solana_supplied_node() -> MarketMakerIt {
     let coins = json! ([
         {"coin": "SOL-DEVNET","name": "solana","fname": "Solana","rpcport": 80,"mm2": 1,"required_confirmations": 1,"avg_blocktime": 0.25,"protocol": {"type": "SOLANA"}},
         {"coin":"USDC-SOL-DEVNET","protocol":{"type":"SPLTOKEN","protocol_data":{"decimals":6,"token_contract_address":"4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU","platform":"SOL-DEVNET"}},"mm2": 1},

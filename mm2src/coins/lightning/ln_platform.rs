@@ -6,7 +6,7 @@ use crate::utxo::rpc_clients::{BestBlock as RpcBestBlock, BlockHashOrHeight, Con
 use crate::utxo::spv::SimplePaymentVerification;
 use crate::utxo::utxo_standard::UtxoStandardCoin;
 use crate::utxo::GetConfirmedTxError;
-use crate::{CoinFutSpawner, MarketCoinOps, MmCoin};
+use crate::{CoinFutSpawner, MarketCoinOps, MmCoin, WaitForHTLCTxSpendArgs};
 use bitcoin::blockdata::block::BlockHeader;
 use bitcoin::blockdata::script::Script;
 use bitcoin::blockdata::transaction::Transaction;
@@ -531,14 +531,15 @@ impl Platform {
         let closing_tx = self
             .coin
             // TODO add fn with old wait_for_tx_spend name
-            .wait_for_htlc_tx_spend(
-                &funding_tx_bytes.into_vec(),
-                &[],
-                (now_ms() / 1000) + 3600,
+            .wait_for_htlc_tx_spend(WaitForHTLCTxSpendArgs {
+                tx_bytes: &funding_tx_bytes.into_vec(),
+                secret_hash: &[],
+                wait_until: (now_ms() / 1000) + 3600,
                 from_block,
-                &None,
-                TAKER_PAYMENT_SPEND_SEARCH_INTERVAL,
-            )
+                swap_contract_address: &None,
+                check_every: TAKER_PAYMENT_SPEND_SEARCH_INTERVAL,
+                watcher_reward: false,
+            })
             .compat()
             .await
             .map_to_mm(|e| SaveChannelClosingError::WaitForFundingTxSpendError(e.get_plain_text_format()))?;

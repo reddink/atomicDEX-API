@@ -24,7 +24,7 @@ use crate::{BalanceError, BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, Coi
             TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum,
             TransactionErr, TransactionFut, TransactionType, TxMarshalingErr, UnexpectedDerivationMethod,
             ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr,
-            ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherOps,
+            ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps,
             WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput,
             WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult};
 use async_trait::async_trait;
@@ -1238,18 +1238,13 @@ impl MarketCoinOps for Qrc20Coin {
         Box::new(fut.boxed().compat())
     }
 
-    fn wait_for_htlc_tx_spend(
-        &self,
-        transaction: &[u8],
-        _secret_hash: &[u8],
-        wait_until: u64,
-        from_block: u64,
-        _swap_contract_address: &Option<BytesJson>,
-        check_every: f64,
-    ) -> TransactionFut {
-        let tx: UtxoTx = try_tx_fus!(deserialize(transaction).map_err(|e| ERRL!("{:?}", e)));
+    fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionFut {
+        let tx: UtxoTx = try_tx_fus!(deserialize(args.tx_bytes).map_err(|e| ERRL!("{:?}", e)));
 
         let selfi = self.clone();
+        let check_every = args.check_every;
+        let from_block = args.from_block;
+        let wait_until = args.wait_until;
         let fut = async move {
             selfi
                 .wait_for_tx_spend_impl(tx, wait_until, from_block, check_every)

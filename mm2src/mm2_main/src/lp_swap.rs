@@ -59,7 +59,7 @@
 
 use crate::mm2::lp_network::{broadcast_p2p_msg, Libp2pPeerId};
 use bitcrypto::{dhash160, sha256};
-use coins::eth::Web3RpcError;
+use coins::eth::u256_to_big_decimal;
 use coins::{lp_coinfind, lp_coinfind_or_err, CoinFindError, MmCoinEnum, TradeFee, TransactionEnum};
 use common::log::{debug, warn};
 use common::time_cache::DuplicateCache;
@@ -68,6 +68,7 @@ use common::{bits256, calc_total_pages,
              log::{error, info},
              now_ms, var, HttpStatusCode, PagingOptions, StatusCode};
 use derive_more::Display;
+use ethereum_types::U256;
 use futures::compat::Future01CompatExt;
 use http::Response;
 use mm2_core::mm_ctx::{from_ctx, MmArc};
@@ -80,6 +81,7 @@ use serde::Serialize;
 use serde_json::{self as json, Value as Json};
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
+use std::ops::Div;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, Weak};
@@ -105,6 +107,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[path = "lp_swap/swap_wasm_db.rs"]
 mod swap_wasm_db;
 
+use crate::mm2::lp_price::fetch_swap_coins_price;
 pub use check_balance::{check_other_coin_balance_for_swap, CheckBalanceError, CheckBalanceResult};
 use crypto::CryptoCtx;
 use keys::KeyPair;
@@ -643,7 +646,7 @@ pub fn lp_atomic_locktime(maker_coin: &str, taker_coin: &str, version: AtomicLoc
     }
 }
 
-fn dex_fee_threshold(min_tx_amount: MmNumber) -> MmNumber {
+pub fn dex_fee_threshold(min_tx_amount: MmNumber) -> MmNumber {
     // Todo: This should be reduced for lightning swaps.
     // 0.0001
     let min_fee = MmNumber::from((1, 10000));
@@ -686,55 +689,101 @@ pub fn dex_fee_amount_from_taker_coin(taker_coin: &MmCoinEnum, maker_coin: &str,
 
 #[derive(Debug, Display)]
 pub enum WatcherRewardError {
-    RPCError(Web3RpcError),
+    RPCError(String),
     InvalidCoinType(String),
+    InternalError(String),
 }
 
-// This needs discussion. We need a way to determine the watcher reward amount, and a way to validate it at watcher side so
-// that watchers won't accept it if it's less than the expected amount. This has to be done for all coin types, because watcher rewards
-// will be required by both parties even if only one side is ETH coin. Artem's suggestion was first calculating the reward for ETH and
-// converting the value to other coins, which is what I'm planning to do. I based the values to be higher than the gas amounts used
-// when the watcher spends the maker payment or refunds the taker payment. For the validation, I check if the reward is higher
-// than a minimum amount using the min_watcher_reward method. I can't make an exact comparison because the gas price and relative
-// price of the coins will be different when the taker/maker sends their payment and when the watcher receives the message. This should
-// work fine if we pick the WATCHER_REWARD_GAS and MIN_WATCHER_REWARD_GAS constants good. The advantage of this is that the reward will
-// be directly based on the amount of gas burned when the watcher will call the contract functions (Artem's idea was to make it slightly
-// profitable for the watchers). The disadvantage is the comparison during the validations using a separate minimum value. If we want
-// validations with exact values, there are two other ways I could think of:
-// 1.  Precalculating fixed rewards for all coins. The disadvantage is that the gas price and the relative price of coins will change over
-// time and the reward will deviate from the actual gas used by the watchers, and we can't keep updating the values.
-// 2. Picking the reward to be a percentage of the trade amount like the taker fee. The disadvantage is it will be extremely hard to
-// pick the right ratio such that it will be slightly profitable for watchers.
 pub async fn watcher_reward_amount(
     coin: &MmCoinEnum,
     other_coin: &MmCoinEnum,
-) -> Result<u64, MmError<WatcherRewardError>> {
+    coin_amount: Option<BigDecimal>,
+    other_coin_amount: Option<BigDecimal>,
+) -> Result<BigDecimal, MmError<WatcherRewardError>> {
     const WATCHER_REWARD_GAS: u64 = 100_000;
-    watcher_reward_from_gas(coin, other_coin, WATCHER_REWARD_GAS).await
+    watcher_reward_from_gas(coin, other_coin, coin_amount, other_coin_amount, WATCHER_REWARD_GAS).await
 }
 
 pub async fn min_watcher_reward(
     coin: &MmCoinEnum,
     other_coin: &MmCoinEnum,
-) -> Result<u64, MmError<WatcherRewardError>> {
+    coin_amount: Option<BigDecimal>,
+    other_coin_amount: Option<BigDecimal>,
+) -> Result<BigDecimal, MmError<WatcherRewardError>> {
     const MIN_WATCHER_REWARD_GAS: u64 = 70_000;
-    watcher_reward_from_gas(coin, other_coin, MIN_WATCHER_REWARD_GAS).await
+    watcher_reward_from_gas(coin, other_coin, coin_amount, other_coin_amount, MIN_WATCHER_REWARD_GAS).await
 }
 
+// TODO: Refactor this
 pub async fn watcher_reward_from_gas(
-    coin: &MmCoinEnum,
+    first_coin: &MmCoinEnum,
     other_coin: &MmCoinEnum,
+    first_coin_amount: Option<BigDecimal>,
+    other_coin_amount: Option<BigDecimal>,
     gas: u64,
-) -> Result<u64, MmError<WatcherRewardError>> {
-    match (coin, other_coin) {
+) -> Result<BigDecimal, MmError<WatcherRewardError>> {
+    let gas_cost = match (first_coin, other_coin) {
         (MmCoinEnum::EthCoin(coin), _) | (_, MmCoinEnum::EthCoin(coin)) => {
             let mut attempts = 0;
             loop {
                 match coin.get_gas_price().compat().await {
-                    Ok(gas_price) => return Ok(gas * gas_price.as_u64()),
+                    Ok(gas_price) => {
+                        let gas_cost_wei = U256::from(gas) * gas_price;
+                        let gas_cost_eth = u256_to_big_decimal(gas_cost_wei, 18)
+                            .map_err(|e| WatcherRewardError::InternalError(e.to_string()))?;
+                        if first_coin.ticker() == "ETH" {
+                            return Ok(gas_cost_eth);
+                        } else if other_coin.ticker() == "ETH" {
+                            if let (Some(first_coin_amount), Some(other_coin_amount)) =
+                                (first_coin_amount, other_coin_amount)
+                            {
+                                let price_in_eth = other_coin_amount.div(first_coin_amount);
+                                return Ok(gas_cost_eth.div(price_in_eth));
+                            } else {
+                                // Special case for integration tests
+                                if let Ok(test_coin_price) = std::env::var("TEST_COIN_PRICE") {
+                                    let test_coin_price = BigDecimal::from_str(&test_coin_price)
+                                        .map_err(|e| WatcherRewardError::InternalError(e.to_string()))?;
+                                    return Ok(gas_cost_eth.div(test_coin_price));
+                                }
+                                let cex_rates = fetch_swap_coins_price(
+                                    Some(first_coin.ticker().to_string()),
+                                    Some("ETH".to_string()),
+                                )
+                                .await
+                                .ok_or_else(|| {
+                                    WatcherRewardError::RPCError(format!(
+                                        "Price of coin {} in ETH could not be found",
+                                        first_coin.ticker()
+                                    ))
+                                })?;
+
+                                let price_in_eth = cex_rates.base / cex_rates.rel;
+                                return Ok(gas_cost_eth.div(price_in_eth));
+                            }
+                        } else {
+                            // Special case for integration tests
+                            if let Ok(test_coin_price) = std::env::var("TEST_COIN_PRICE") {
+                                let test_coin_price = BigDecimal::from_str(&test_coin_price)
+                                    .map_err(|e| WatcherRewardError::InternalError(e.to_string()))?;
+                                return Ok(gas_cost_eth.div(test_coin_price));
+                            }
+                            let cex_rates =
+                                fetch_swap_coins_price(Some(first_coin.ticker().to_string()), Some("ETH".to_string()))
+                                    .await
+                                    .ok_or_else(|| {
+                                        WatcherRewardError::RPCError(format!(
+                                            "Price of coin {} in ETH could not be found",
+                                            first_coin.ticker()
+                                        ))
+                                    })?;
+                            let price_in_eth = cex_rates.base / cex_rates.rel;
+                            return Ok(gas_cost_eth.div(price_in_eth));
+                        }
+                    },
                     Err(err) => {
                         if attempts >= 3 {
-                            return MmError::err(WatcherRewardError::RPCError(err.into_inner()));
+                            return MmError::err(WatcherRewardError::RPCError(err.to_string()));
                         } else {
                             attempts += 1;
                             Timer::sleep(10.).await;
@@ -747,7 +796,9 @@ pub async fn watcher_reward_from_gas(
             "At least one coin must be ETH to use watcher reward".to_string(),
         )
         .into()),
-    }
+    };
+
+    gas_cost
 }
 
 #[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]

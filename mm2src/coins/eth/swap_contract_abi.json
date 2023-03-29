@@ -4,32 +4,6 @@
 		"inputs": [
 			{
 				"indexed": false,
-				"internalType": "string",
-				"name": "message",
-				"type": "string"
-			}
-		],
-		"name": "Log",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "uint256",
-				"name": "number",
-				"type": "uint256"
-			}
-		],
-		"name": "LogNumber",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
 				"internalType": "bytes32",
 				"name": "id",
 				"type": "bytes32"
@@ -139,6 +113,16 @@
 				"internalType": "uint64",
 				"name": "_lockTime",
 				"type": "uint64"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_watcherReward",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bool",
+				"name": "_refundOnlyReward",
+				"type": "bool"
 			}
 		],
 		"name": "erc20PaymentReward",
@@ -200,6 +184,11 @@
 				"internalType": "uint256",
 				"name": "_watcherReward",
 				"type": "uint256"
+			},
+			{
+				"internalType": "bool",
+				"name": "_refundOnlyReward",
+				"type": "bool"
 			}
 		],
 		"name": "ethPaymentReward",
@@ -276,6 +265,11 @@
 				"internalType": "uint256",
 				"name": "_watcherReward",
 				"type": "uint256"
+			},
+			{
+				"internalType": "bool",
+				"name": "_refundOnlyReward",
+				"type": "bool"
 			}
 		],
 		"name": "receiverSpendReward",
@@ -352,6 +346,11 @@
 				"internalType": "uint256",
 				"name": "_watcherReward",
 				"type": "uint256"
+			},
+			{
+				"internalType": "bool",
+				"name": "_refundOnlyReward",
+				"type": "bool"
 			}
 		],
 		"name": "senderRefundReward",

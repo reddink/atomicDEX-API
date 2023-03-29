@@ -28,9 +28,9 @@ use crate::{CanRefundHtlc, CheckIfMyPaymentSentArgs, CoinBalance, CoinWithDeriva
             SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignatureResult,
             SpendPaymentArgs, SwapOps, TakerSwapMakerCoin, TradePreimageValue, TransactionFut, TxMarshalingErr,
             ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr,
-            ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WatcherOps,
-            WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawFut,
-            WithdrawSenderAddress};
+            ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput, VerificationResult,
+            WaitForHTLCTxSpendArgs, WatcherOps, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
+            WatcherValidateTakerFeeInput, WithdrawFut, WithdrawSenderAddress};
 use common::executor::{AbortableSystem, AbortedError};
 use crypto::Bip44Chain;
 use futures::{FutureExt, TryFutureExt};
@@ -614,22 +614,14 @@ impl MarketCoinOps for UtxoStandardCoin {
         )
     }
 
-    fn wait_for_htlc_tx_spend(
-        &self,
-        transaction: &[u8],
-        _secret_hash: &[u8],
-        wait_until: u64,
-        from_block: u64,
-        _swap_contract_address: &Option<BytesJson>,
-        check_every: f64,
-    ) -> TransactionFut {
+    fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionFut {
         utxo_common::wait_for_output_spend(
             &self.utxo_arc,
-            transaction,
+            args.tx_bytes,
             utxo_common::DEFAULT_SWAP_VOUT,
-            from_block,
-            wait_until,
-            check_every,
+            args.from_block,
+            args.wait_until,
+            args.check_every,
         )
     }
 

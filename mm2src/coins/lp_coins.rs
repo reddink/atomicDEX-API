@@ -562,7 +562,7 @@ pub struct WatcherValidatePaymentInput {
     pub secret_hash: Vec<u8>,
     pub try_spv_proof_until: u64,
     pub confirmations: u64,
-    pub min_watcher_reward: Option<u64>,
+    pub min_watcher_reward: Option<WatcherReward>,
 }
 
 #[derive(Clone, Debug)]
@@ -577,7 +577,7 @@ pub struct ValidatePaymentInput {
     pub try_spv_proof_until: u64,
     pub confirmations: u64,
     pub unique_swap_data: Vec<u8>,
-    pub min_watcher_reward: Option<u64>,
+    pub min_watcher_reward: Option<WatcherReward>,
 }
 
 #[derive(Clone, Debug)]
@@ -612,6 +612,12 @@ pub struct SearchForSwapTxSpendInput<'a> {
 }
 
 #[derive(Clone, Debug)]
+pub struct WatcherReward {
+    pub amount: BigDecimal,
+    pub is_refund_only: bool,
+}
+
+#[derive(Clone, Debug)]
 pub struct SendPaymentArgs<'a> {
     pub time_lock_duration: u64,
     pub time_lock: u32,
@@ -624,7 +630,7 @@ pub struct SendPaymentArgs<'a> {
     pub swap_contract_address: &'a Option<BytesJson>,
     pub swap_unique_data: &'a [u8],
     pub payment_instructions: &'a Option<PaymentInstructions>,
-    pub watcher_reward: Option<u64>,
+    pub watcher_reward: Option<WatcherReward>,
     pub wait_for_confirmation_until: u64,
 }
 
@@ -689,6 +695,17 @@ pub struct EthValidateFeeArgs<'a> {
     pub amount: &'a BigDecimal,
     pub min_block_number: u64,
     pub uuid: &'a [u8],
+}
+
+#[derive(Clone, Debug)]
+pub struct WaitForHTLCTxSpendArgs<'a> {
+    pub tx_bytes: &'a [u8],
+    pub secret_hash: &'a [u8],
+    pub wait_until: u64,
+    pub from_block: u64,
+    pub swap_contract_address: &'a Option<BytesJson>,
+    pub check_every: f64,
+    pub watcher_reward: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -950,15 +967,7 @@ pub trait MarketCoinOps {
         check_every: u64,
     ) -> Box<dyn Future<Item = (), Error = String> + Send>;
 
-    fn wait_for_htlc_tx_spend(
-        &self,
-        transaction: &[u8],
-        secret_hash: &[u8],
-        wait_until: u64,
-        from_block: u64,
-        swap_contract_address: &Option<BytesJson>,
-        check_every: f64,
-    ) -> TransactionFut;
+    fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionFut;
 
     fn tx_enum_from_bytes(&self, bytes: &[u8]) -> Result<TransactionEnum, MmError<TxMarshalingErr>>;
 

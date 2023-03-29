@@ -19,7 +19,7 @@ use crate::mm2::lp_swap::{broadcast_swap_message, min_watcher_reward, taker_paym
 use coins::{CanRefundHtlc, CheckIfMyPaymentSentArgs, FeeApproxStage, FoundSwapTxSpend, MmCoinEnum,
             PaymentInstructions, PaymentInstructionsErr, RefundPaymentArgs, SearchForSwapTxSpendInput,
             SendPaymentArgs, SpendPaymentArgs, TradeFee, TradePreimageValue, TransactionEnum, ValidateFeeArgs,
-            ValidatePaymentInput};
+            ValidatePaymentInput, WatcherReward};
 use common::log::{debug, error, info, warn};
 use common::{bits256, executor::Timer, now_ms, DEX_FEE_ADDR_RAW_PUBKEY};
 use crypto::privkey::SerializableSecp256k1Keypair;
@@ -810,8 +810,16 @@ impl MakerSwap {
             })
             .compat();
 
-        let reward_amount = if self.r().watcher_reward {
-            let reward = match watcher_reward_amount(&self.maker_coin, &self.taker_coin).await {
+
+        let reward_amount = if self.r().watcher_reward && self.maker_coin.is_eth() {
+            let reward = match watcher_reward_amount(
+                &self.maker_coin,
+                &self.taker_coin,
+                Some(self.maker_amount.clone()),
+                Some(self.taker_amount.clone()),
+            )
+            .await
+            {
                 Ok(reward) => reward,
                 Err(err) => {
                     return Ok((Some(MakerSwapCommand::Finish), vec![
@@ -819,7 +827,10 @@ impl MakerSwap {
                     ]))
                 },
             };
-            Some(reward)
+            Some(WatcherReward {
+                amount: reward,
+                is_refund_only: false,
+            })
         } else {
             None
         };
@@ -986,7 +997,14 @@ impl MakerSwap {
         }
 
         let min_watcher_reward = if self.r().watcher_reward {
-            let reward = match min_watcher_reward(&self.taker_coin, &self.maker_coin).await {
+            let amount = match min_watcher_reward(
+                &self.taker_coin,
+                &self.maker_coin,
+                Some(self.taker_amount.clone()),
+                Some(self.maker_amount.clone()),
+            )
+            .await
+            {
                 Ok(reward) => reward,
                 Err(err) => {
                     return Ok((Some(MakerSwapCommand::Finish), vec![
@@ -994,7 +1012,8 @@ impl MakerSwap {
                     ]))
                 },
             };
-            Some(reward)
+            let is_refund_only = !self.maker_coin.is_eth();
+            Some(WatcherReward { amount, is_refund_only })
         } else {
             None
         };
@@ -1128,6 +1147,7 @@ impl MakerSwap {
             ]));
         }
 
+        info!("Taker payment spend confirmed");
         Ok((Some(MakerSwapCommand::Finish), vec![
             MakerSwapEvent::TakerPaymentSpendConfirmed,
         ]))

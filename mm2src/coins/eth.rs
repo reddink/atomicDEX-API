@@ -87,10 +87,10 @@ use super::{coin_conf, AsyncMutex, BalanceError, BalanceFut, CheckIfMyPaymentSen
             TransactionEnum, TransactionErr, TransactionFut, TxMarshalingErr, UnexpectedDerivationMethod,
             ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr,
             ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput, VerificationError, VerificationResult,
-            WatcherOps, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput,
-            WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult, EARLY_CONFIRMATION_ERR_LOG,
-            INSUFFICIENT_WATCHER_REWARD_ERR_LOG, INVALID_CONTRACT_ADDRESS_ERR_LOG, INVALID_PAYMENT_STATE_ERR_LOG,
-            INVALID_RECEIVER_ERR_LOG, INVALID_SENDER_ERR_LOG, INVALID_SWAP_ID_ERR_LOG};
+            WaitForHTLCTxSpendArgs, WatcherOps, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
+            WatcherValidateTakerFeeInput, WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult,
+            EARLY_CONFIRMATION_ERR_LOG, INSUFFICIENT_WATCHER_REWARD_ERR_LOG, INVALID_CONTRACT_ADDRESS_ERR_LOG,
+            INVALID_PAYMENT_STATE_ERR_LOG, INVALID_RECEIVER_ERR_LOG, INVALID_SENDER_ERR_LOG, INVALID_SWAP_ID_ERR_LOG};
 pub use rlp;
 
 #[cfg(test)] mod eth_tests;
@@ -120,7 +120,7 @@ const ERC721_ABI: &str = include_str!("eth/erc721_abi.json");
 /// Payment states from etomic swap smart contract: https://github.com/artemii235/etomic-swap/blob/master/contracts/EtomicSwap.sol#L5
 pub const PAYMENT_STATE_UNINITIALIZED: u8 = 0;
 pub const PAYMENT_STATE_SENT: u8 = 1;
-const _PAYMENT_STATE_SPENT: u8 = 2;
+const PAYMENT_STATE_SPENT: u8 = 2;
 const _PAYMENT_STATE_REFUNDED: u8 = 3;
 // Ethgasstation API returns response in 10^8 wei units. So 10 from their API mean 1 gwei
 const ETH_GAS_STATION_DECIMALS: u8 = 8;
@@ -1327,7 +1327,7 @@ impl SwapOps for EthCoin {
     }
 
     fn is_supported_by_watchers(&self) -> bool {
-        false
+        true
         //self.contract_supports_watchers
     }
 }
@@ -1424,6 +1424,7 @@ impl WatcherOps for EthCoin {
         };
         let expected_swap_contract_address = self.swap_contract_address;
         let fallback_swap_contract = self.fallback_swap_contract;
+        let decimals = self.decimals;
         let fut = async move {
             let tx_from_rpc = selfi.web3.eth().transaction(TransactionId::Hash(tx.hash)).await?;
 
@@ -1456,15 +1457,16 @@ impl WatcherOps for EthCoin {
                 .compat()
                 .await
                 .map_to_mm(ValidatePaymentError::Transport)?;
-            if status != PAYMENT_STATE_SENT.into() {
+            if status != PAYMENT_STATE_SENT.into() && status != PAYMENT_STATE_SPENT.into() {
                 return MmError::err(ValidatePaymentError::UnexpectedPaymentState(format!(
-                    "{INVALID_PAYMENT_STATE_ERR_LOG}: Payment state is not PAYMENT_STATE_SENT, got {status}"
+                    "{INVALID_PAYMENT_STATE_ERR_LOG}: Payment state is not PAYMENT_STATE_SENT or PAYMENT_STATE_SPENT, got {status}"
                 )));
             }
 
-            let min_watcher_reward = input.min_watcher_reward.ok_or_else(|| {
+            let min_watcher_reward = input.min_watcher_reward.clone().ok_or_else(|| {
                 ValidatePaymentError::InvalidParameter("Minimum watcher reward argument is not provided".to_string())
             })?;
+            let min_watcher_reward_amount = wei_from_big_decimal(&min_watcher_reward.amount, decimals)?;
 
             match &selfi.coin_type {
                 EthCoinType::Eth => {
@@ -1516,13 +1518,21 @@ impl WatcherOps for EthCoin {
                         .into_uint()
                         .ok_or_else(|| {
                             ValidatePaymentError::WrongPaymentTx("Invalid type for watcher reward argument".to_string())
-                        })?
-                        .as_u64();
-
-                    if watcher_reward < min_watcher_reward {
+                        })?;
+                    if watcher_reward < min_watcher_reward_amount {
                         return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
                             "{INSUFFICIENT_WATCHER_REWARD_ERR_LOG}: Provided watcher reward {} is less than the minimum required amount {}",
-                            watcher_reward, min_watcher_reward,
+                            watcher_reward, min_watcher_reward_amount,
+                        )));
+                    }
+
+                    let is_refund_only_reward = get_function_input_data(&decoded, function, 5)
+                        .map_to_mm(ValidatePaymentError::TxDeserializationError)?;
+
+                    if is_refund_only_reward != Token::Bool(min_watcher_reward.is_refund_only) {
+                        return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                            "Payment tx is_refund_only_reward arg {} is invalid, expected {}",
+                            is_refund_only_reward, min_watcher_reward.is_refund_only
                         )));
                     }
                 },
@@ -1536,14 +1546,6 @@ impl WatcherOps for EthCoin {
                         .map_to_mm(|err| ValidatePaymentError::InternalError(err.to_string()))?;
                     let decoded = decode_contract_call(function, &tx_from_rpc.input.0)
                         .map_to_mm(|err| ValidatePaymentError::TxDeserializationError(err.to_string()))?;
-
-                    if tx_from_rpc.value.as_u64() < min_watcher_reward {
-                        return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                            "{INSUFFICIENT_WATCHER_REWARD_ERR_LOG}: Provided watcher reward {} is less than the minimum required amount {}",
-                            tx_from_rpc.value.as_u64(),
-                            min_watcher_reward,
-                        )));
-                    }
 
                     let swap_id_input = get_function_input_data(&decoded, function, 0)
                         .map_to_mm(ValidatePaymentError::TxDeserializationError)?;
@@ -1588,6 +1590,31 @@ impl WatcherOps for EthCoin {
                             "Payment tx time_lock arg {:?} is invalid, expected {:?}",
                             time_lock_input,
                             Token::Uint(U256::from(input.time_lock)),
+                        )));
+                    }
+
+                    let watcher_reward = get_function_input_data(&decoded, function, 6)
+                        .map_to_mm(ValidatePaymentError::TxDeserializationError)?
+                        .into_uint()
+                        .ok_or_else(|| {
+                            ValidatePaymentError::WrongPaymentTx("Invalid type for watcher reward argument".to_string())
+                        })?;
+
+                    if watcher_reward < min_watcher_reward_amount {
+                        return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                            "{INSUFFICIENT_WATCHER_REWARD_ERR_LOG}: Provided watcher reward {} is less than the minimum required amount {}",
+                            watcher_reward,
+                            min_watcher_reward_amount,
+                        )));
+                    }
+
+                    let is_refund_only_reward = get_function_input_data(&decoded, function, 7)
+                        .map_to_mm(ValidatePaymentError::TxDeserializationError)?;
+
+                    if is_refund_only_reward != Token::Bool(min_watcher_reward.is_refund_only) {
+                        return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                            "Payment tx is_refund_only_reward arg {} is invalid, expected {}",
+                            is_refund_only_reward, min_watcher_reward.is_refund_only
                         )));
                     }
                 },
@@ -1805,19 +1832,11 @@ impl MarketCoinOps for EthCoin {
         Box::new(fut.boxed().compat())
     }
 
-    fn wait_for_htlc_tx_spend(
-        &self,
-        tx_bytes: &[u8],
-        _secret_hash: &[u8],
-        wait_until: u64,
-        from_block: u64,
-        swap_contract_address: &Option<BytesJson>,
-        check_every: f64,
-    ) -> TransactionFut {
-        let unverified: UnverifiedTransaction = try_tx_fus!(rlp::decode(tx_bytes));
+    fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionFut {
+        let unverified: UnverifiedTransaction = try_tx_fus!(rlp::decode(args.tx_bytes));
         let tx = try_tx_fus!(SignedEthTx::new(unverified));
 
-        let swap_contract_address = match swap_contract_address {
+        let swap_contract_address = match args.swap_contract_address {
             Some(addr) => try_tx_fus!(addr.try_to_address()),
             None => match tx.action {
                 Call(address) => address,
@@ -1830,11 +1849,11 @@ impl MarketCoinOps for EthCoin {
         };
 
         let func_name = match self.coin_type {
-            EthCoinType::Eth => "ethPayment",
-            EthCoinType::Erc20 { .. } => "erc20Payment",
+            EthCoinType::Eth => get_function_name("ethPayment", args.watcher_reward),
+            EthCoinType::Erc20 { .. } => get_function_name("erc20Payment", args.watcher_reward),
         };
 
-        let payment_func = try_tx_fus!(SWAP_CONTRACT.function(func_name));
+        let payment_func = try_tx_fus!(SWAP_CONTRACT.function(&func_name));
         let decoded = try_tx_fus!(decode_contract_call(payment_func, &tx.data));
         let id = match decoded.first() {
             Some(Token::FixedBytes(bytes)) => bytes.clone(),
@@ -1846,7 +1865,9 @@ impl MarketCoinOps for EthCoin {
             },
         };
         let selfi = self.clone();
-
+        let from_block = args.from_block;
+        let wait_until = args.wait_until;
+        let check_every = args.check_every;
         let fut = async move {
             loop {
                 let current_block = match selfi.current_block().compat().await {
@@ -2827,7 +2848,15 @@ impl EthCoin {
         let swap_contract_address = try_tx_fus!(args.swap_contract_address.try_to_address());
         let id = self.etomic_swap_id(args.time_lock, args.secret_hash);
         let trade_amount = try_tx_fus!(wei_from_big_decimal(&args.amount, self.decimals));
-        let watcher_reward = args.watcher_reward.map(U256::from);
+
+        let total_amount = match &args.watcher_reward {
+            Some(reward) => {
+                let reward = try_tx_fus!(wei_from_big_decimal(&reward.amount, self.decimals));
+                trade_amount + reward
+            },
+            None => trade_amount,
+        };
+
         let time_lock = U256::from(args.time_lock);
         let gas = U256::from(ETH_GAS);
 
@@ -2839,20 +2868,19 @@ impl EthCoin {
 
         match &self.coin_type {
             EthCoinType::Eth => {
-                let function_name = get_function_name("ethPayment", watcher_reward.is_some());
+                let function_name = get_function_name("ethPayment", args.watcher_reward.is_some());
                 let function = try_tx_fus!(SWAP_CONTRACT.function(&function_name));
 
-                let mut value = trade_amount;
-                let data = match watcher_reward {
+                let data = match &args.watcher_reward {
                     Some(reward) => {
-                        value += reward;
-
+                        let reward_amount = try_tx_fus!(wei_from_big_decimal(&reward.amount, self.decimals));
                         try_tx_fus!(function.encode_input(&[
                             Token::FixedBytes(id),
                             Token::Address(receiver_addr),
                             Token::FixedBytes(secret_hash),
                             Token::Uint(time_lock),
-                            Token::Uint(reward),
+                            Token::Uint(reward_amount),
+                            Token::Bool(reward.is_refund_only)
                         ]))
                     },
                     None => try_tx_fus!(function.encode_input(&[
@@ -2862,9 +2890,8 @@ impl EthCoin {
                         Token::Uint(time_lock),
                     ])),
                 };
-                drop_mutability!(value);
 
-                self.sign_and_send_transaction(value, Action::Call(swap_contract_address), data, gas)
+                self.sign_and_send_transaction(total_amount, Action::Call(swap_contract_address), data, gas)
             },
             EthCoinType::Erc20 {
                 platform: _,
@@ -2874,17 +2901,35 @@ impl EthCoin {
                     .allowance(swap_contract_address)
                     .map_err(|e| TransactionErr::Plain(ERRL!("{}", e)));
 
-                let function_name = get_function_name("erc20Payment", watcher_reward.is_some());
+                let function_name = get_function_name("erc20Payment", args.watcher_reward.is_some());
                 let function = try_tx_fus!(SWAP_CONTRACT.function(&function_name));
 
-                let data = try_tx_fus!(function.encode_input(&[
-                    Token::FixedBytes(id),
-                    Token::Uint(trade_amount),
-                    Token::Address(*token_addr),
-                    Token::Address(receiver_addr),
-                    Token::FixedBytes(secret_hash),
-                    Token::Uint(time_lock)
-                ]));
+                let data = match args.watcher_reward {
+                    Some(reward) => {
+                        let reward_amount = try_tx_fus!(wei_from_big_decimal(&reward.amount, self.decimals));
+                        try_tx_fus!(function.encode_input(&[
+                            Token::FixedBytes(id),
+                            Token::Uint(total_amount),
+                            Token::Address(*token_addr),
+                            Token::Address(receiver_addr),
+                            Token::FixedBytes(secret_hash),
+                            Token::Uint(time_lock),
+                            Token::Uint(reward_amount),
+                            Token::Bool(reward.is_refund_only)
+                        ]))
+                    },
+                    None => {
+                        try_tx_fus!(function.encode_input(&[
+                            Token::FixedBytes(id),
+                            Token::Uint(trade_amount),
+                            Token::Address(*token_addr),
+                            Token::Address(receiver_addr),
+                            Token::FixedBytes(secret_hash),
+                            Token::Uint(time_lock)
+                        ]))
+                    },
+                };
+
                 let wait_for_required_allowance_until = args.wait_for_confirmation_until;
 
                 let arc = self.clone();
@@ -2909,7 +2954,7 @@ impl EthCoin {
                                     })
                                     .and_then(move |_| {
                                         arc.sign_and_send_transaction(
-                                            watcher_reward.unwrap_or_else(|| 0.into()),
+                                            0.into(),
                                             Action::Call(swap_contract_address),
                                             data,
                                             gas,
@@ -2919,7 +2964,7 @@ impl EthCoin {
                         )
                     } else {
                         Box::new(arc.sign_and_send_transaction(
-                            watcher_reward.unwrap_or_else(|| 0.into()),
+                            0.into(),
                             Action::Call(swap_contract_address),
                             data,
                             gas,
@@ -2971,6 +3016,7 @@ impl EthCoin {
 
                             let value = payment.value;
                             let watcher_reward_amount = try_tx_fus!(get_function_input_data(&decoded, payment_func, 4));
+                            let is_refund_only_reward = try_tx_fus!(get_function_input_data(&decoded, payment_func, 5));
                             let data = try_tx_fus!(spend_func.encode_input(&[
                                 swap_id_input,
                                 Token::Uint(value),
@@ -2979,6 +3025,7 @@ impl EthCoin {
                                 Token::Address(payment.sender()),
                                 Token::Address(taker_addr),
                                 watcher_reward_amount,
+                                is_refund_only_reward
                             ]));
 
                             clone.sign_and_send_transaction(
@@ -3000,6 +3047,8 @@ impl EthCoin {
                 let decoded = try_tx_fus!(decode_contract_call(payment_func, &payment.data));
                 let swap_id_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 0));
                 let amount_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 1));
+                let reward_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 6));
+                let is_refund_only_reward_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 7));
                 let state_f = self.payment_status(swap_contract_address, swap_id_input.clone());
 
                 Box::new(
@@ -3020,7 +3069,8 @@ impl EthCoin {
                                 Token::Address(token_addr),
                                 Token::Address(payment.sender()),
                                 Token::Address(taker_addr),
-                                Token::Uint(payment.value)
+                                reward_input,
+                                is_refund_only_reward_input
                             ]));
                             clone.sign_and_send_transaction(
                                 0.into(),
@@ -3077,6 +3127,8 @@ impl EthCoin {
 
                             let value = payment.value;
                             let watcher_reward_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 4));
+                            let is_refund_only_reward_input =
+                                try_tx_fus!(get_function_input_data(&decoded, payment_func, 5));
 
                             let data = try_tx_fus!(refund_func.encode_input(&[
                                 swap_id_input.clone(),
@@ -3086,6 +3138,7 @@ impl EthCoin {
                                 Token::Address(taker_addr),
                                 receiver_input.clone(),
                                 watcher_reward_input,
+                                is_refund_only_reward_input
                             ]));
 
                             clone.sign_and_send_transaction(
@@ -3109,6 +3162,8 @@ impl EthCoin {
                 let amount_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 1));
                 let receiver_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 3));
                 let hash_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 4));
+                let reward_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 6));
+                let is_refund_only_reward_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 7));
                 let state_f = self.payment_status(swap_contract_address, swap_id_input.clone());
                 Box::new(
                     state_f
@@ -3129,7 +3184,8 @@ impl EthCoin {
                                 Token::Address(token_addr),
                                 Token::Address(taker_addr),
                                 receiver_input.clone(),
-                                Token::Uint(payment.value),
+                                reward_input,
+                                is_refund_only_reward_input
                             ]));
 
                             clone.sign_and_send_transaction(
@@ -3148,13 +3204,13 @@ impl EthCoin {
         let tx: UnverifiedTransaction = try_tx_fus!(rlp::decode(args.other_payment_tx));
         let payment = try_tx_fus!(SignedEthTx::new(tx));
         let swap_contract_address = try_tx_fus!(args.swap_contract_address.try_to_address());
-        let watcher_reward = args.watcher_reward;
 
-        let function_name = get_function_name("receiverSpend", watcher_reward);
+        let function_name = get_function_name("receiverSpend", args.watcher_reward);
         let spend_func = try_tx_fus!(SWAP_CONTRACT.function(&function_name));
 
         let clone = self.clone();
         let secret_vec = args.secret.to_vec();
+        let watcher_reward = args.watcher_reward;
 
         match self.coin_type {
             EthCoinType::Eth => {
@@ -3184,6 +3240,7 @@ impl EthCoin {
                                     Token::Address(payment.sender()),
                                     Token::Address(clone.my_address),
                                     decoded[4].clone(),
+                                    decoded[5].clone()
                                 ]))
                             } else {
                                 try_tx_fus!(spend_func.encode_input(&[
@@ -3233,7 +3290,8 @@ impl EthCoin {
                                     Token::Address(token_addr),
                                     Token::Address(payment.sender()),
                                     Token::Address(clone.my_address),
-                                    Token::Uint(payment.value),
+                                    decoded[6].clone(),
+                                    decoded[7].clone()
                                 ]))
                             } else {
                                 try_tx_fus!(spend_func.encode_input(&[
@@ -3262,9 +3320,9 @@ impl EthCoin {
         let payment = try_tx_fus!(SignedEthTx::new(tx));
         let swap_contract_address = try_tx_fus!(args.swap_contract_address.try_to_address());
 
-        let watcher_reward = args.watcher_reward;
-        let function_name = get_function_name("senderRefund", watcher_reward);
+        let function_name = get_function_name("senderRefund", args.watcher_reward);
         let refund_func = try_tx_fus!(SWAP_CONTRACT.function(&function_name));
+        let watcher_reward = args.watcher_reward;
 
         let clone = self.clone();
 
@@ -3298,6 +3356,7 @@ impl EthCoin {
                                     Token::Address(clone.my_address),
                                     decoded[1].clone(),
                                     decoded[4].clone(),
+                                    decoded[5].clone(),
                                 ]))
                             } else {
                                 try_tx_fus!(refund_func.encode_input(&[
@@ -3347,7 +3406,8 @@ impl EthCoin {
                                     Token::Address(token_addr),
                                     Token::Address(clone.my_address),
                                     decoded[3].clone(),
-                                    Token::Uint(payment.value),
+                                    decoded[6].clone(),
+                                    decoded[7].clone(),
                                 ]))
                             } else {
                                 try_tx_fus!(refund_func.encode_input(&[
@@ -3626,12 +3686,13 @@ impl EthCoin {
 
         let selfi = self.clone();
         let swap_id = selfi.etomic_swap_id(input.time_lock, &input.secret_hash);
+        let decimals = self.decimals;
         let secret_hash = if input.secret_hash.len() == 32 {
             ripemd160(&input.secret_hash).to_vec()
         } else {
             input.secret_hash.to_vec()
         };
-        let mut expected_value = try_f!(wei_from_big_decimal(&input.amount, self.decimals));
+        let trade_amount = try_f!(wei_from_big_decimal(&(input.amount), decimals));
         let fut = async move {
             let status = selfi
                 .payment_status(expected_swap_contract_address, Token::FixedBytes(swap_id.clone()))
@@ -3674,25 +3735,35 @@ impl EthCoin {
                     let decoded = decode_contract_call(function, &tx_from_rpc.input.0)
                         .map_to_mm(|err| ValidatePaymentError::TxDeserializationError(err.to_string()))?;
 
-                    if let Some(min_reward) = input.min_watcher_reward {
-                        let reward = decoded[4].clone().into_uint().ok_or_else(|| {
+                    if let Some(min_watcher_reward) = input.min_watcher_reward {
+                        let min_reward_amount = wei_from_big_decimal(&min_watcher_reward.amount, decimals)?;
+                        let watcher_reward = decoded[4].clone().into_uint().ok_or_else(|| {
                             ValidatePaymentError::WrongPaymentTx("Invalid type for watcher reward argument".to_string())
                         })?;
-                        if reward.as_u64() < min_reward {
+                        if watcher_reward < min_reward_amount {
                             return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                                "Insufficient watcher reward {}, must be at least {}",
-                                reward, min_reward
+                                "{INSUFFICIENT_WATCHER_REWARD_ERR_LOG}: Provided watcher reward {} is less than the minimum required amount {}",
+                                watcher_reward,
+                                min_reward_amount,
                             )));
                         }
-
-                        expected_value += reward;
-                    }
-                    drop_mutability!(expected_value);
-
-                    if tx_from_rpc.value != expected_value {
+                        let expected_value = trade_amount + watcher_reward;
+                        if tx_from_rpc.value != expected_value {
+                            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                                "Payment tx value arg {:?} is invalid, expected{:?}",
+                                tx_from_rpc.value, expected_value
+                            )));
+                        }
+                        if decoded[5] != Token::Bool(min_watcher_reward.is_refund_only) {
+                            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                                "Payment tx is_refund_only_reward arg {:?} is invalid, expected{:?}",
+                                decoded[5], min_watcher_reward.is_refund_only
+                            )));
+                        }
+                    } else if tx_from_rpc.value != trade_amount {
                         return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
                             "Payment tx value arg {:?} is invalid, expected {:?}",
-                            tx_from_rpc, expected_value
+                            tx_from_rpc.value, trade_amount
                         )));
                     }
 
@@ -3737,14 +3808,6 @@ impl EthCoin {
                             tx_from_rpc, expected_swap_contract_address,
                         )));
                     }
-                    if let Some(min_reward) = input.min_watcher_reward {
-                        if tx_from_rpc.value.as_u64() < min_reward {
-                            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                                "Payment tx value arg {} is less than the minimum expected watcher reward {}",
-                                tx_from_rpc.value, min_reward
-                            )));
-                        }
-                    }
                     let function_name = get_function_name("erc20Payment", input.min_watcher_reward.is_some());
                     let function = SWAP_CONTRACT
                         .function(&function_name)
@@ -3759,11 +3822,45 @@ impl EthCoin {
                         )));
                     }
 
-                    if decoded[1] != Token::Uint(expected_value) {
+                    if let Some(min_watcher_reward) = input.min_watcher_reward {
+                        let min_reward_amount = wei_from_big_decimal(&min_watcher_reward.amount, decimals)?;
+
+                        let watcher_reward = get_function_input_data(&decoded, function, 6)
+                            .map_to_mm(ValidatePaymentError::TxDeserializationError)?
+                            .into_uint()
+                            .ok_or_else(|| {
+                                ValidatePaymentError::WrongPaymentTx(
+                                    "Invalid type for watcher reward argument".to_string(),
+                                )
+                            })?;
+
+                        if watcher_reward < min_reward_amount {
+                            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                                "{INSUFFICIENT_WATCHER_REWARD_ERR_LOG}: Provided watcher reward {} is less than the minimum required amount {}",
+                                watcher_reward,
+                                min_reward_amount,
+                            )));
+                        }
+
+                        if decoded[1] != Token::Uint(trade_amount + watcher_reward) {
+                            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                                "Payment tx amount arg {:?} is invalid, expected {:?}",
+                                decoded[1],
+                                trade_amount + watcher_reward,
+                            )));
+                        }
+
+                        if decoded[7] != Token::Bool(min_watcher_reward.is_refund_only) {
+                            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                                "Payment tx is_refund_only_reward arg {:?} is invalid, expected{:?}",
+                                decoded[7], min_watcher_reward.is_refund_only
+                            )));
+                        }
+                    } else if decoded[1] != Token::Uint(trade_amount) {
                         return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                            "Payment tx value arg {:?} is invalid, expected {:?}",
+                            "Payment tx amount arg {:?} is invalid, expected {:?}",
                             decoded[1],
-                            Token::Uint(expected_value),
+                            Token::Uint(trade_amount),
                         )));
                     }
 

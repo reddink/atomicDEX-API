@@ -8,7 +8,7 @@ use coins::utxo::utxo_common::big_decimal_from_sat;
 use coins::utxo::{UtxoActivationParams, UtxoCommonOps};
 use coins::{CheckIfMyPaymentSentArgs, FeeApproxStage, FoundSwapTxSpend, MarketCoinOps, MmCoin, RefundPaymentArgs,
             SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapOps, TradePreimageValue,
-            TransactionEnum, ValidatePaymentInput};
+            TransactionEnum, ValidatePaymentInput, WaitForHTLCTxSpendArgs};
 use common::log::debug;
 use common::{temp_dir, DEX_FEE_ADDR_RAW_PUBKEY};
 use crypto::Secp256k1Secret;
@@ -768,14 +768,15 @@ fn test_wait_for_tx_spend() {
     // first try to check if the wait_for_htlc_tx_spend() returns an error correctly
     let wait_until = (now_ms() / 1000) + 5;
     let tx_err = maker_coin
-        .wait_for_htlc_tx_spend(
-            &payment_tx_hex,
-            &[],
+        .wait_for_htlc_tx_spend(WaitForHTLCTxSpendArgs {
+            tx_bytes: &payment_tx_hex,
+            secret_hash: &[],
             wait_until,
             from_block,
-            &maker_coin.swap_contract_address(),
-            TAKER_PAYMENT_SPEND_SEARCH_INTERVAL,
-        )
+            swap_contract_address: &maker_coin.swap_contract_address(),
+            check_every: TAKER_PAYMENT_SPEND_SEARCH_INTERVAL,
+            watcher_reward: false,
+        })
         .wait()
         .expect_err("Expected 'Waited too long' error");
 
@@ -809,14 +810,15 @@ fn test_wait_for_tx_spend() {
 
     let wait_until = (now_ms() / 1000) + 120;
     let found = maker_coin
-        .wait_for_htlc_tx_spend(
-            &payment_tx_hex,
-            &[],
+        .wait_for_htlc_tx_spend(WaitForHTLCTxSpendArgs {
+            tx_bytes: &payment_tx_hex,
+            secret_hash: &[],
             wait_until,
             from_block,
-            &maker_coin.swap_contract_address(),
-            TAKER_PAYMENT_SPEND_SEARCH_INTERVAL,
-        )
+            swap_contract_address: &maker_coin.swap_contract_address(),
+            check_every: TAKER_PAYMENT_SPEND_SEARCH_INTERVAL,
+            watcher_reward: false,
+        })
         .wait()
         .unwrap();
 

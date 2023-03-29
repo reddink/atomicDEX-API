@@ -147,8 +147,8 @@ pub const ETH_DEV_NODES: &[&str] = &["http://195.201.0.6:8565"];
 pub const ETH_DEV_SWAP_CONTRACT: &str = "0xa09ad3cd7e96586ebd05a2607ee56b56fb2db8fd";
 
 pub const ETH_SEPOLIA_NODE: &[&str] = &["https://rpc-sepolia.rockx.com/"];
-pub const ETH_SEPOLIA_SWAP_CONTRACT: &str = "0x5BCC05dD32a87fABEDBcbbfeb77476eaD1F7051C";
-pub const ETH_SEPOLIA_TOKEN_CONTRACT: &str = "0x948BF5172383F1Bc0Fdf3aBe0630b855694A5D2c";
+pub const ETH_SEPOLIA_SWAP_CONTRACT: &str = "0x42d395BaE38922b29c532cB020712B745f4E6Bbe";
+pub const ETH_SEPOLIA_TOKEN_CONTRACT: &str = "0x09d0d71FBC00D7CCF9CFf132f5E6825C88293F19";
 
 pub const BCHD_TESTNET_URLS: &[&str] = &["https://bchd-testnet.greyh.at:18335"];
 

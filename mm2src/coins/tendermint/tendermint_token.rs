@@ -16,8 +16,8 @@ use crate::{big_decimal_from_sat_unsigned, utxo::sat_from_big_decimal, BalanceFu
             TransactionErr, TransactionFut, TransactionType, TxFeeDetails, TxMarshalingErr,
             UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr,
             ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput,
-            VerificationResult, WatcherOps, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
-            WatcherValidateTakerFeeInput, WithdrawError, WithdrawFut, WithdrawRequest};
+            VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps, WatcherSearchForSwapTxSpendInput,
+            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawError, WithdrawFut, WithdrawRequest};
 use async_trait::async_trait;
 use bitcrypto::sha256;
 use common::executor::abortable_queue::AbortableQueue;
@@ -534,23 +534,16 @@ impl MarketCoinOps for TendermintToken {
             .wait_for_confirmations(tx, confirmations, requires_nota, wait_until, check_every)
     }
 
-    fn wait_for_htlc_tx_spend(
-        &self,
-        transaction: &[u8],
-        secret_hash: &[u8],
-        wait_until: u64,
-        from_block: u64,
-        swap_contract_address: &Option<BytesJson>,
-        check_every: f64,
-    ) -> TransactionFut {
-        self.platform_coin.wait_for_htlc_tx_spend(
-            transaction,
-            secret_hash,
-            wait_until,
-            from_block,
-            swap_contract_address,
-            check_every,
-        )
+    fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionFut {
+        self.platform_coin.wait_for_htlc_tx_spend(WaitForHTLCTxSpendArgs {
+            tx_bytes: args.tx_bytes,
+            secret_hash: args.secret_hash,
+            wait_until: args.wait_until,
+            from_block: args.from_block,
+            swap_contract_address: args.swap_contract_address,
+            check_every: args.check_every,
+            watcher_reward: false,
+        })
     }
 
     fn tx_enum_from_bytes(&self, bytes: &[u8]) -> Result<TransactionEnum, MmError<TxMarshalingErr>> {

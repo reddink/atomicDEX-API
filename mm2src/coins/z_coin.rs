@@ -23,8 +23,8 @@ use crate::{BalanceError, BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, Coi
             TransactionDetails, TransactionEnum, TransactionFut, TxFeeDetails, TxMarshalingErr,
             UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr,
             ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput, VerificationError,
-            VerificationResult, WatcherOps, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
-            WatcherValidateTakerFeeInput, WithdrawFut, WithdrawRequest};
+            VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps, WatcherSearchForSwapTxSpendInput,
+            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawFut, WithdrawRequest};
 use crate::{Transaction, WithdrawError};
 use async_trait::async_trait;
 use bitcrypto::dhash256;
@@ -1058,22 +1058,14 @@ impl MarketCoinOps for ZCoin {
         utxo_common::wait_for_confirmations(self.as_ref(), tx, confirmations, requires_nota, wait_until, check_every)
     }
 
-    fn wait_for_htlc_tx_spend(
-        &self,
-        transaction: &[u8],
-        _secret_hash: &[u8],
-        wait_until: u64,
-        from_block: u64,
-        _swap_contract_address: &Option<BytesJson>,
-        check_every: f64,
-    ) -> TransactionFut {
+    fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionFut {
         utxo_common::wait_for_output_spend(
             self.as_ref(),
-            transaction,
+            args.tx_bytes,
             utxo_common::DEFAULT_SWAP_VOUT,
-            from_block,
-            wait_until,
-            check_every,
+            args.from_block,
+            args.wait_until,
+            args.check_every,
         )
     }
 

@@ -31,7 +31,7 @@ use crate::utxo::utxo_tx_history_v2::{UtxoTxDetailsParams, UtxoTxHistoryOps};
 use crate::INVALID_SENDER_ERR_LOG;
 use crate::{BlockHeightAndTime, CoinBalance, IguanaPrivKey, PrivKeyBuildPolicy, SearchForSwapTxSpendInput,
             SpendPaymentArgs, StakingInfosDetails, SwapOps, TradePreimageValue, TxFeeDetails, TxMarshalingErr,
-            ValidateFeeArgs};
+            ValidateFeeArgs, WaitForHTLCTxSpendArgs};
 use chain::{BlockHeader, BlockHeaderBits, OutPoint};
 use common::executor::Timer;
 use common::{block_on, now_ms, OrdRange, PagingOptionsEnum, DEX_FEE_ADDR_RAW_PUBKEY};
@@ -415,14 +415,15 @@ fn test_wait_for_payment_spend_timeout_native() {
     let from_block = 1000;
 
     assert!(coin
-        .wait_for_htlc_tx_spend(
-            &transaction,
-            &[],
+        .wait_for_htlc_tx_spend(WaitForHTLCTxSpendArgs {
+            tx_bytes: &transaction,
+            secret_hash: &[],
             wait_until,
             from_block,
-            &None,
-            TAKER_PAYMENT_SPEND_SEARCH_INTERVAL
-        )
+            swap_contract_address: &None,
+            check_every: TAKER_PAYMENT_SPEND_SEARCH_INTERVAL,
+            watcher_reward: false
+        })
         .wait()
         .is_err());
     assert!(unsafe { OUTPUT_SPEND_CALLED });
@@ -461,14 +462,15 @@ fn test_wait_for_payment_spend_timeout_electrum() {
     let from_block = 1000;
 
     assert!(coin
-        .wait_for_htlc_tx_spend(
-            &transaction,
-            &[],
+        .wait_for_htlc_tx_spend(WaitForHTLCTxSpendArgs {
+            tx_bytes: &transaction,
+            secret_hash: &[],
             wait_until,
             from_block,
-            &None,
-            TAKER_PAYMENT_SPEND_SEARCH_INTERVAL
-        )
+            swap_contract_address: &None,
+            check_every: TAKER_PAYMENT_SPEND_SEARCH_INTERVAL,
+            watcher_reward: false
+        })
         .wait()
         .is_err());
     assert!(unsafe { OUTPUT_SPEND_CALLED });

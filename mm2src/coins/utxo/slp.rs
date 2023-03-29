@@ -22,8 +22,9 @@ use crate::{BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, CoinFutSpawner, F
             TradePreimageValue, TransactionDetails, TransactionEnum, TransactionErr, TransactionFut, TxFeeDetails,
             TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs,
             ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentInput, VerificationError,
-            VerificationResult, WatcherOps, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
-            WatcherValidateTakerFeeInput, WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest};
+            VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps, WatcherSearchForSwapTxSpendInput,
+            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawError, WithdrawFee, WithdrawFut,
+            WithdrawRequest};
 use async_trait::async_trait;
 use bitcrypto::dhash160;
 use chain::constants::SEQUENCE_FINAL;
@@ -502,6 +503,7 @@ impl SlpToken {
             htlc_keypair.public(),
             &input.secret_hash,
             self.platform_dust_dec(),
+            None,
             input.time_lock,
             now_ms() / 1000 + 60,
             input.confirmations,
@@ -1166,22 +1168,14 @@ impl MarketCoinOps for SlpToken {
             .wait_for_confirmations(tx, confirmations, requires_nota, wait_until, check_every)
     }
 
-    fn wait_for_htlc_tx_spend(
-        &self,
-        transaction: &[u8],
-        _secret_hash: &[u8],
-        wait_until: u64,
-        from_block: u64,
-        _swap_contract_address: &Option<BytesJson>,
-        check_every: f64,
-    ) -> TransactionFut {
+    fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionFut {
         utxo_common::wait_for_output_spend(
             self.platform_coin.as_ref(),
-            transaction,
+            args.tx_bytes,
             SLP_SWAP_VOUT,
-            from_block,
-            wait_until,
-            check_every,
+            args.from_block,
+            args.wait_until,
+            args.check_every,
         )
     }
 
@@ -2099,11 +2093,11 @@ mod slp_tests {
 
         let other_pub = hex::decode("036879df230663db4cd083c8eeb0f293f46abc460ad3c299b0089b72e6d472202c").unwrap();
 
-        utxo_common::validate_payment::<BchCoin>.mock_safe(|coin, tx, out_i, pub0, _, h, a, lock, spv, conf| {
+        utxo_common::validate_payment::<BchCoin>.mock_safe(|coin, tx, out_i, pub0, _, h, a, wr, lock, spv, conf| {
             // replace the second public because payment was sent with privkey that is currently unknown
             let my_pub = hex::decode("03c6a78589e18b482aea046975e6d0acbdea7bf7dbf04d9d5bd67fda917815e3ed").unwrap();
             let my_pub = Box::leak(Box::new(Public::from_slice(&my_pub).unwrap()));
-            MockResult::Continue((coin, tx, out_i, pub0, my_pub, h, a, lock, spv, conf))
+            MockResult::Continue((coin, tx, out_i, pub0, my_pub, h, a, wr, lock, spv, conf))
         });
 
         let lock_time = 1624547837;
@@ -2237,6 +2231,7 @@ mod slp_tests {
             &other_pub,
             &secret_hash,
             fusd.platform_dust_dec(),
+            None,
             lock_time,
             now_ms() / 1000 + 60,
             1,

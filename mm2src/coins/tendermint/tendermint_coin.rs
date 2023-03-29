@@ -24,8 +24,8 @@ use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal,
             TransactionErr, TransactionFut, TransactionType, TxFeeDetails, TxMarshalingErr,
             UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr,
             ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput, VerificationError, VerificationResult,
-            WatcherOps, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput,
-            WithdrawError, WithdrawFut, WithdrawRequest};
+            WaitForHTLCTxSpendArgs, WatcherOps, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
+            WatcherValidateTakerFeeInput, WithdrawError, WithdrawFut, WithdrawRequest};
 use async_std::prelude::FutureExt as AsyncStdFutureExt;
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
@@ -2170,20 +2170,12 @@ impl MarketCoinOps for TendermintCoin {
         Box::new(fut.boxed().compat())
     }
 
-    fn wait_for_htlc_tx_spend(
-        &self,
-        transaction: &[u8],
-        secret_hash: &[u8],
-        wait_until: u64,
-        _from_block: u64,
-        _swap_contract_address: &Option<BytesJson>,
-        _check_every: f64,
-    ) -> TransactionFut {
-        let tx = try_tx_fus!(cosmrs::Tx::from_bytes(transaction));
+    fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionFut {
+        let tx = try_tx_fus!(cosmrs::Tx::from_bytes(args.tx_bytes));
         let first_message = try_tx_fus!(tx.body.messages.first().ok_or("Tx body couldn't be read."));
         let htlc_proto = try_tx_fus!(CreateHtlcProtoRep::decode(first_message.value.as_slice()));
         let htlc = try_tx_fus!(MsgCreateHtlc::try_from(htlc_proto));
-        let htlc_id = self.calculate_htlc_id(&htlc.sender, &htlc.to, htlc.amount, secret_hash);
+        let htlc_id = self.calculate_htlc_id(&htlc.sender, &htlc.to, htlc.amount, args.secret_hash);
 
         let events_string = format!("claim_htlc.id='{}'", htlc_id);
         let request = GetTxsEventRequest {
@@ -2195,6 +2187,7 @@ impl MarketCoinOps for TendermintCoin {
 
         let coin = self.clone();
         let path = try_tx_fus!(AbciPath::from_str(ABCI_GET_TXS_EVENT_PATH));
+        let wait_until = args.wait_until;
         let fut = async move {
             loop {
                 let response = try_tx_s!(
@@ -2923,14 +2916,15 @@ pub mod tendermint_coin_tests {
 
         let secret_hash = hex::decode("0C34C71EBA2A51738699F9F3D6DAFFB15BE576E8ED543203485791B5DA39D10D").unwrap();
         let spend_tx = block_on(
-            coin.wait_for_htlc_tx_spend(
-                &encoded_tx,
-                &secret_hash,
-                get_utc_timestamp() as u64,
-                0,
-                &None,
-                TAKER_PAYMENT_SPEND_SEARCH_INTERVAL,
-            )
+            coin.wait_for_htlc_tx_spend(WaitForHTLCTxSpendArgs {
+                tx_bytes: &encoded_tx,
+                secret_hash: &secret_hash,
+                wait_until: get_utc_timestamp() as u64,
+                from_block: 0,
+                swap_contract_address: &None,
+                check_every: TAKER_PAYMENT_SPEND_SEARCH_INTERVAL,
+                watcher_reward: false,
+            })
             .compat(),
         )
         .unwrap();

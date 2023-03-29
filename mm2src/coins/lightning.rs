@@ -24,8 +24,8 @@ use crate::{BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, CoinFutSpawner, F
             Transaction, TransactionEnum, TransactionErr, TransactionFut, TxMarshalingErr, UnexpectedDerivationMethod,
             UtxoStandardCoin, ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr,
             ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput, VerificationError, VerificationResult,
-            WatcherOps, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput,
-            WithdrawError, WithdrawFut, WithdrawRequest};
+            WaitForHTLCTxSpendArgs, WatcherOps, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
+            WatcherValidateTakerFeeInput, WithdrawError, WithdrawFut, WithdrawRequest};
 use async_trait::async_trait;
 use bitcoin::bech32::ToBase32;
 use bitcoin::hashes::Hash;
@@ -1130,19 +1130,12 @@ impl MarketCoinOps for LightningCoin {
         Box::new(fut.boxed().compat())
     }
 
-    fn wait_for_htlc_tx_spend(
-        &self,
-        transaction: &[u8],
-        _secret_hash: &[u8],
-        wait_until: u64,
-        _from_block: u64,
-        _swap_contract_address: &Option<BytesJson>,
-        _check_every: f64,
-    ) -> TransactionFut {
-        let payment_hash = try_tx_fus!(payment_hash_from_slice(transaction));
+    fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionFut {
+        let payment_hash = try_tx_fus!(payment_hash_from_slice(args.tx_bytes));
         let payment_hex = hex::encode(payment_hash.0);
 
         let coin = self.clone();
+        let wait_until = args.wait_until;
         let fut = async move {
             loop {
                 if now_ms() / 1000 > wait_until {

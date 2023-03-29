@@ -12,6 +12,7 @@ use crate::utxo::rpc_clients::{electrum_script_hash, BlockHashOrHeight, UnspentI
 use crate::utxo::spv::SimplePaymentVerification;
 use crate::utxo::tx_cache::TxCacheResult;
 use crate::utxo::utxo_withdraw::{InitUtxoWithdraw, StandardUtxoWithdraw, UtxoWithdraw};
+use crate::WatcherReward;
 use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, GetWithdrawSenderAddress, HDAccountAddressId,
             RawTransactionError, RawTransactionRequest, RawTransactionRes, RefundPaymentArgs,
             SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignatureError,
@@ -1194,6 +1195,11 @@ pub fn send_maker_payment<T>(coin: T, args: SendPaymentArgs) -> TransactionFut
 where
     T: UtxoCommonOps + GetUtxoListOps + SwapOps,
 {
+    let total_amount = match args.watcher_reward {
+        Some(reward) => args.amount + reward.amount,
+        None => args.amount,
+    };
+
     let maker_htlc_key_pair = coin.derive_htlc_key_pair(args.swap_unique_data);
     let SwapPaymentOutputsResult {
         payment_address,
@@ -1204,7 +1210,7 @@ where
         maker_htlc_key_pair.public_slice(),
         args.other_pubkey,
         args.secret_hash,
-        args.amount
+        total_amount
     ));
     let send_fut = match &coin.as_ref().rpc_client {
         UtxoRpcClientEnum::Electrum(_) => Either::A(send_outputs_from_my_address(coin, outputs)),
@@ -1225,6 +1231,11 @@ pub fn send_taker_payment<T>(coin: T, args: SendPaymentArgs) -> TransactionFut
 where
     T: UtxoCommonOps + GetUtxoListOps + SwapOps,
 {
+    let total_amount = match args.watcher_reward {
+        Some(reward) => args.amount + reward.amount,
+        None => args.amount,
+    };
+
     let taker_htlc_key_pair = coin.derive_htlc_key_pair(args.swap_unique_data);
     let SwapPaymentOutputsResult {
         payment_address,
@@ -1235,7 +1246,7 @@ where
         taker_htlc_key_pair.public_slice(),
         args.other_pubkey,
         args.secret_hash,
-        args.amount
+        total_amount
     ));
 
     let send_fut = match &coin.as_ref().rpc_client {
@@ -1962,6 +1973,7 @@ pub fn validate_maker_payment<T: UtxoCommonOps + SwapOps>(
         htlc_keypair.public(),
         &input.secret_hash,
         input.amount,
+        input.min_watcher_reward,
         input.time_lock,
         input.try_spv_proof_until,
         input.confirmations,
@@ -2063,6 +2075,7 @@ pub fn validate_taker_payment<T: UtxoCommonOps + SwapOps>(
         htlc_keypair.public(),
         &input.secret_hash,
         input.amount,
+        input.min_watcher_reward,
         input.time_lock,
         input.try_spv_proof_until,
         input.confirmations,
@@ -3447,6 +3460,7 @@ where
     T: MarketCoinOps + UtxoCommonOps,
 {
     let decimals = coin.as_ref().decimals;
+    println!("**dex_fee_amount: {}", dex_fee_amount);
     let value = sat_from_big_decimal(&dex_fee_amount, decimals)?;
     let output = TransactionOutput {
         value,
@@ -3751,6 +3765,7 @@ pub fn validate_payment<T: UtxoCommonOps>(
     second_pub0: &Public,
     priv_bn_hash: &[u8],
     amount: BigDecimal,
+    min_watcher_reward: Option<WatcherReward>,
     time_lock: u32,
     try_spv_proof_until: u64,
     confirmations: u64,
@@ -3781,16 +3796,37 @@ pub fn validate_payment<T: UtxoCommonOps>(
             )));
         }
 
-        let expected_output = TransactionOutput {
-            value: amount,
-            script_pubkey: Builder::build_p2sh(&dhash160(&expected_redeem).into()).into(),
+        let expected_script_pubkey: Bytes = Builder::build_p2sh(&dhash160(&expected_redeem).into()).into();
+
+        let actual_output = match tx.outputs.get(output_index) {
+            Some(output) => output,
+            None => {
+                return MmError::err(ValidatePaymentError::WrongPaymentTx(
+                    "Payment tx has no outputs".to_string(),
+                ))
+            },
         };
 
-        let actual_output = tx.outputs.get(output_index);
-        if actual_output != Some(&expected_output) {
+        if expected_script_pubkey != actual_output.script_pubkey {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                "Provided payment tx output doesn't match expected {:?} {:?}",
-                actual_output, expected_output
+                "Provided payment tx script pubkey doesn't match expected {:?} {:?}",
+                actual_output.script_pubkey, expected_script_pubkey
+            )));
+        }
+
+        if let Some(min_watcher_reward) = min_watcher_reward {
+            let min_watcher_reward = sat_from_big_decimal(&min_watcher_reward.amount, coin.as_ref().decimals)?;
+            let min_expected_amount = min_watcher_reward + amount;
+            if actual_output.value < min_expected_amount {
+                return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                    "Provided payment tx output value is less than expected {:?} {:?}",
+                    actual_output.value, min_expected_amount
+                )));
+            }
+        } else if actual_output.value != amount {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                "Provided payment tx output value doesn't match expected {:?} {:?}",
+                actual_output.value, amount
             )));
         }
 

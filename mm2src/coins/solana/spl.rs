@@ -10,7 +10,7 @@ use crate::{BalanceFut, CheckIfMyPaymentSentArgs, CoinFutSpawner, FeeApproxStage
             TradePreimageValue, TransactionDetails, TransactionFut, TransactionType, TxMarshalingErr,
             UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr,
             ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput,
-            VerificationResult, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
+            VerificationResult, WaitForHTLCTxSpendArgs, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
             WatcherValidateTakerFeeInput, WithdrawError, WithdrawFut, WithdrawRequest, WithdrawResult};
 use async_trait::async_trait;
 use bincode::serialize;
@@ -276,17 +276,7 @@ impl MarketCoinOps for SplToken {
         unimplemented!()
     }
 
-    fn wait_for_htlc_tx_spend(
-        &self,
-        _transaction: &[u8],
-        _secret_hash: &[u8],
-        _wait_until: u64,
-        _from_block: u64,
-        _swap_contract_address: &Option<BytesJson>,
-        check_every: f64,
-    ) -> TransactionFut {
-        unimplemented!()
-    }
+    fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionFut { unimplemented!() }
 
     fn tx_enum_from_bytes(&self, _bytes: &[u8]) -> Result<TransactionEnum, MmError<TxMarshalingErr>> {
         MmError::err(TxMarshalingErr::NotSupported(

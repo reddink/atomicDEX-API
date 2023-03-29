@@ -10,8 +10,9 @@ use crate::{BalanceError, BalanceFut, CheckIfMyPaymentSentArgs, CoinFutSpawner, 
             TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionFut, TransactionType,
             TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs,
             ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut,
-            ValidatePaymentInput, VerificationResult, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
-            WatcherValidateTakerFeeInput, WithdrawError, WithdrawFut, WithdrawRequest, WithdrawResult};
+            ValidatePaymentInput, VerificationResult, WaitForHTLCTxSpendArgs, WatcherSearchForSwapTxSpendInput,
+            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawError, WithdrawFut, WithdrawRequest,
+            WithdrawResult};
 use async_trait::async_trait;
 use base58::ToBase58;
 use bincode::{deserialize, serialize};
@@ -452,17 +453,7 @@ impl MarketCoinOps for SolanaCoin {
         unimplemented!()
     }
 
-    fn wait_for_htlc_tx_spend(
-        &self,
-        _transaction: &[u8],
-        _secret_hash: &[u8],
-        _wait_until: u64,
-        _from_block: u64,
-        _swap_contract_address: &Option<BytesJson>,
-        _check_every: f64,
-    ) -> TransactionFut {
-        unimplemented!()
-    }
+    fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionFut { unimplemented!() }
 
     fn tx_enum_from_bytes(&self, _bytes: &[u8]) -> Result<TransactionEnum, MmError<TxMarshalingErr>> {
         MmError::err(TxMarshalingErr::NotSupported(

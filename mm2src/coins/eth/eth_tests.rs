@@ -483,14 +483,15 @@ fn test_wait_for_payment_spend_timeout() {
     ];
 
     assert!(coin
-        .wait_for_htlc_tx_spend(
-            &tx_bytes,
-            &[],
+        .wait_for_htlc_tx_spend(WaitForHTLCTxSpendArgs {
+            tx_bytes: &tx_bytes,
+            secret_hash: &[],
             wait_until,
             from_block,
-            &coin.swap_contract_address(),
-            TAKER_PAYMENT_SPEND_SEARCH_INTERVAL
-        )
+            swap_contract_address: &coin.swap_contract_address(),
+            check_every: TAKER_PAYMENT_SPEND_SEARCH_INTERVAL,
+            watcher_reward: false
+        })
         .wait()
         .is_err());
 }
