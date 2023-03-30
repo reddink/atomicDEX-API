@@ -602,7 +602,7 @@ mod tests {
         block_on(validate_headers(
             "MORTY",
             1330480,
-            headers,
+            &headers,
             &TestBlockHeadersStorage { ticker: "MORTY".into() },
             &conf,
         ))
@@ -633,7 +633,7 @@ mod tests {
         block_on(validate_headers(
             "BTC",
             724608,
-            headers,
+            &headers,
             &TestBlockHeadersStorage { ticker: "BTC".into() },
             &conf,
         ))

@@ -431,7 +431,7 @@ pub(crate) async fn detect_and_resolve_chain_reorg(
         if current_header.previous_header_hash == header.previous_header_hash
             && (current_header.hash() != header.hash() && current_header.bits != header.bits)
         {
-            if u32::from(current_header.bits.clone()) > u32::from(header.bits.clone()) {
+            if u32::from(current_header.bits.clone()) < u32::from(header.bits.clone()) {
                 // Todo: retry header sync using another eletrum.
                 return Err(ChainReorgError::InvalidChain(coin.to_string()));
             } else {
