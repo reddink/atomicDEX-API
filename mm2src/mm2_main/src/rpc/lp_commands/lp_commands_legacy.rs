@@ -235,12 +235,19 @@ pub async fn my_balance(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, Stri
         Err(err) => return ERR!("!lp_coinfind({}): {}", ticker, err),
     };
     let my_balance = try_s!(coin.my_balance().compat().await);
-    let res = json!({
+    let mut res = json!({
         "coin": ticker,
         "balance": my_balance.spendable,
         "unspendable_balance": my_balance.unspendable,
         "address": try_s!(coin.my_address()),
     });
+    if let Some(balance) = my_balance.protocol_specific_balance {
+        res.as_object_mut().expect("Object can't be None!").insert(
+            "protocol_specific_balance".into(),
+            json::to_value(balance).expect("protocol_specific_balance should be deserializable!"),
+        );
+    }
+    drop_mutability!(res);
     let res = try_s!(json::to_vec(&res));
     Ok(try_s!(Response::builder().body(res)))
 }

@@ -8,8 +8,8 @@ use mm2_number::BigDecimal;
 use mm2_test_helpers::for_tests::{disable_coin, disable_coin_err, init_lightning, init_lightning_status, my_balance,
                                   sign_message, start_swaps, verify_message, wait_for_swaps_finish_and_check_status,
                                   MarketMakerIt};
-use mm2_test_helpers::structs::{InitLightningStatus, InitTaskResult, LightningActivationResult, RpcV2Response,
-                                SignatureResponse, VerificationResponse};
+use mm2_test_helpers::structs::{InitLightningStatus, InitTaskResult, LightningActivationResult,
+                                ProtocolSpecificBalance, RpcV2Response, SignatureResponse, VerificationResponse};
 use serde_json::{self as json, json, Value as Json};
 use std::env;
 use std::str::FromStr;
@@ -542,6 +542,16 @@ fn test_send_payment() {
         0.0002,
         true,
     ));
+
+    // Check inbound balance in node 1
+    assert_eq!(
+        block_on(my_balance(&mm_node_1, "tBTC-TEST-lightning"))
+            .protocol_specific_balance
+            .unwrap(),
+        ProtocolSpecificBalance::Lightning {
+            inbound: BigDecimal::from_str("0.00019").unwrap()
+        },
+    );
 
     let send_payment = block_on(mm_node_2.rpc(&json!({
         "userpass": mm_node_2.userpass,

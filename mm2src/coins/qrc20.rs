@@ -1198,6 +1198,7 @@ impl MarketCoinOps for Qrc20Coin {
             Ok(CoinBalance {
                 spendable,
                 unspendable: BigDecimal::from(0),
+                protocol_specific_balance: None,
             })
         };
         Box::new(fut.boxed().compat())

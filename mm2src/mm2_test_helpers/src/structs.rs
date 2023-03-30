@@ -649,6 +649,7 @@ pub struct MyBalanceResponse {
     pub address: String,
     pub balance: BigDecimal,
     pub unspendable_balance: BigDecimal,
+    pub protocol_specific_balance: Option<ProtocolSpecificBalance>,
     pub coin: String,
 }
 
@@ -862,11 +863,18 @@ pub struct RpcV2Response<T> {
     pub result: T,
 }
 
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub enum ProtocolSpecificBalance {
+    Lightning { inbound: BigDecimal },
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CoinBalance {
     pub spendable: BigDecimal,
     pub unspendable: BigDecimal,
+    pub protocol_specific_balance: Option<ProtocolSpecificBalance>,
 }
 
 #[derive(Debug, Deserialize)]

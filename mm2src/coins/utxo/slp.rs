@@ -782,6 +782,7 @@ impl SlpToken {
         Ok(CoinBalance {
             spendable,
             unspendable: 0.into(),
+            protocol_specific_balance: None,
         })
     }
 

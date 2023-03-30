@@ -17,15 +17,16 @@ use crate::utxo::utxo_common::{big_decimal_from_sat, big_decimal_from_sat_unsign
 use crate::utxo::{sat_from_big_decimal, utxo_common, BlockchainNetwork};
 use crate::{BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, CoinFutSpawner, ConfirmPaymentInput, FeeApproxStage,
             FoundSwapTxSpend, HistorySyncState, MakerSwapTakerCoin, MarketCoinOps, MmCoin,
-            NegotiateSwapContractAddrErr, PaymentInstructions, PaymentInstructionsErr, RawTransactionError,
-            RawTransactionFut, RawTransactionRequest, RefundError, RefundPaymentArgs, RefundResult,
-            SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignatureError,
-            SignatureResult, SpendPaymentArgs, SwapOps, TakerSwapMakerCoin, TradeFee, TradePreimageFut,
-            TradePreimageResult, TradePreimageValue, Transaction, TransactionEnum, TransactionErr, TransactionFut,
-            TxMarshalingErr, UnexpectedDerivationMethod, UtxoStandardCoin, ValidateAddressResult, ValidateFeeArgs,
-            ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut,
-            ValidatePaymentInput, VerificationError, VerificationResult, WatcherOps, WatcherSearchForSwapTxSpendInput,
-            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawError, WithdrawFut, WithdrawRequest};
+            NegotiateSwapContractAddrErr, PaymentInstructions, PaymentInstructionsErr, ProtocolSpecificBalance,
+            RawTransactionError, RawTransactionFut, RawTransactionRequest, RefundError, RefundPaymentArgs,
+            RefundResult, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs,
+            SignatureError, SignatureResult, SpendPaymentArgs, SwapOps, TakerSwapMakerCoin, TradeFee,
+            TradePreimageFut, TradePreimageResult, TradePreimageValue, Transaction, TransactionEnum, TransactionErr,
+            TransactionFut, TxMarshalingErr, UnexpectedDerivationMethod, UtxoStandardCoin, ValidateAddressResult,
+            ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentError,
+            ValidatePaymentFut, ValidatePaymentInput, VerificationError, VerificationResult, WatcherOps,
+            WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput,
+            WithdrawError, WithdrawFut, WithdrawRequest};
 use async_trait::async_trait;
 use bitcoin::bech32::ToBase32;
 use bitcoin::hashes::Hash;
@@ -168,18 +169,19 @@ impl LightningCoin {
         async_blocking(move || channel_manager.list_channels()).await
     }
 
-    async fn get_balance_msat(&self) -> (u64, u64) {
+    async fn get_balance_msat(&self) -> (u64, u64, u64) {
         self.list_channels()
             .await
             .iter()
-            .fold((0, 0), |(spendable, unspendable), chan| {
+            .fold((0, 0, 0), |(spendable, unspendable, inbound), chan| {
                 if chan.is_usable {
                     (
                         spendable + chan.outbound_capacity_msat,
                         unspendable + chan.balance_msat - chan.outbound_capacity_msat,
+                        inbound + chan.inbound_capacity_msat,
                     )
                 } else {
-                    (spendable, unspendable + chan.balance_msat)
+                    (spendable, unspendable + chan.balance_msat, inbound)
                 }
             })
     }
@@ -1057,10 +1059,13 @@ impl MarketCoinOps for LightningCoin {
         let coin = self.clone();
         let decimals = self.decimals();
         let fut = async move {
-            let (spendable_msat, unspendable_msat) = coin.get_balance_msat().await;
+            let (spendable_msat, unspendable_msat, inbound_msat) = coin.get_balance_msat().await;
             Ok(CoinBalance {
                 spendable: big_decimal_from_sat_unsigned(spendable_msat, decimals),
                 unspendable: big_decimal_from_sat_unsigned(unspendable_msat, decimals),
+                protocol_specific_balance: Some(ProtocolSpecificBalance::Lightning {
+                    inbound: big_decimal_from_sat_unsigned(inbound_msat, decimals),
+                }),
             })
         };
         Box::new(fut.boxed().compat())

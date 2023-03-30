@@ -336,6 +336,7 @@ impl SolanaCoin {
             return Ok(CoinBalance {
                 spendable: Default::default(),
                 unspendable: Default::default(),
+                protocol_specific_balance: None,
             });
         }
         let actual_token_pubkey =
@@ -350,6 +351,7 @@ impl SolanaCoin {
         Ok(CoinBalance {
             spendable: balance,
             unspendable: Default::default(),
+            protocol_specific_balance: None,
         })
     }
 
@@ -397,6 +399,7 @@ impl MarketCoinOps for SolanaCoin {
             Ok(CoinBalance {
                 spendable: result.with_prec(decimals),
                 unspendable: 0.into(),
+                protocol_specific_balance: None,
             })
         });
         Box::new(fut)

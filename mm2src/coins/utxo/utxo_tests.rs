@@ -1787,7 +1787,9 @@ fn test_qtum_my_balance() {
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
     let coin = block_on(qtum_coin_with_priv_key(&ctx, "tQTUM", &conf, &params, priv_key)).unwrap();
 
-    let CoinBalance { spendable, unspendable } = coin.my_balance().wait().unwrap();
+    let CoinBalance {
+        spendable, unspendable, ..
+    } = coin.my_balance().wait().unwrap();
     let expected_spendable = BigDecimal::from(66);
     let expected_unspendable = BigDecimal::from(2);
     assert_eq!(spendable, expected_spendable);
@@ -1823,7 +1825,9 @@ fn test_qtum_my_balance_with_check_utxo_maturity_false() {
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
     let coin = block_on(qtum_coin_with_priv_key(&ctx, "tQTUM", &conf, &params, priv_key)).unwrap();
 
-    let CoinBalance { spendable, unspendable } = coin.my_balance().wait().unwrap();
+    let CoinBalance {
+        spendable, unspendable, ..
+    } = coin.my_balance().wait().unwrap();
     let expected_spendable = BigDecimal::from(DISPLAY_BALANCE);
     let expected_unspendable = BigDecimal::from(0);
     assert_eq!(spendable, expected_spendable);

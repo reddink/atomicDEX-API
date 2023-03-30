@@ -2073,6 +2073,7 @@ impl MarketCoinOps for TendermintCoin {
             Ok(CoinBalance {
                 spendable: big_decimal_from_sat_unsigned(balance_denom, coin.decimals),
                 unspendable: BigDecimal::default(),
+                protocol_specific_balance: None,
             })
         };
         Box::new(fut.boxed().compat())

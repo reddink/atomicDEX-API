@@ -1708,6 +1708,7 @@ impl MarketCoinOps for EthCoin {
             .map(|spendable| CoinBalance {
                 spendable,
                 unspendable: BigDecimal::from(0),
+                protocol_specific_balance: None,
             });
         Box::new(fut)
     }
@@ -3442,6 +3443,7 @@ impl EthCoin {
             let balance = CoinBalance {
                 spendable: balance_as_big_decimal,
                 unspendable: BigDecimal::from(0),
+                protocol_specific_balance: None,
             };
             token_balances.insert(token_ticker.clone(), balance);
         }

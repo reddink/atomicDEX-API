@@ -924,6 +924,7 @@ impl MatureUnspentList {
         CoinBalance {
             spendable: self.mature.iter().fold(BigDecimal::default(), fold),
             unspendable: self.immature.iter().fold(BigDecimal::default(), fold),
+            protocol_specific_balance: None,
         }
     }
 }

@@ -944,6 +944,7 @@ fn test_taker_fee_tx_fee() {
     let expected_balance = CoinBalance {
         spendable: BigDecimal::from(5u32),
         unspendable: BigDecimal::from(0u32),
+        protocol_specific_balance: None,
     };
     assert_eq!(coin.my_balance().wait().expect("!my_balance"), expected_balance);
 

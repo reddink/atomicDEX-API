@@ -1360,10 +1360,32 @@ pub struct TradeFee {
     pub paid_from_trading_vol: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, PartialOrd, Serialize)]
+pub enum ProtocolSpecificBalance {
+    Lightning { inbound: BigDecimal },
+}
+
+impl Add for ProtocolSpecificBalance {
+    type Output = ProtocolSpecificBalance;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (
+                ProtocolSpecificBalance::Lightning { inbound },
+                ProtocolSpecificBalance::Lightning { inbound: rhs_inbound },
+            ) => ProtocolSpecificBalance::Lightning {
+                inbound: inbound + rhs_inbound,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, PartialOrd, Serialize)]
 pub struct CoinBalance {
     pub spendable: BigDecimal,
     pub unspendable: BigDecimal,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol_specific_balance: Option<ProtocolSpecificBalance>,
 }
 
 impl CoinBalance {
@@ -1371,6 +1393,7 @@ impl CoinBalance {
         CoinBalance {
             spendable,
             unspendable: BigDecimal::from(0),
+            protocol_specific_balance: None,
         }
     }
 
@@ -1386,6 +1409,10 @@ impl Add for CoinBalance {
         CoinBalance {
             spendable: self.spendable + rhs.spendable,
             unspendable: self.unspendable + rhs.unspendable,
+            protocol_specific_balance: self
+                .protocol_specific_balance
+                .zip(rhs.protocol_specific_balance)
+                .map(|(l, r)| l + r),
         }
     }
 }

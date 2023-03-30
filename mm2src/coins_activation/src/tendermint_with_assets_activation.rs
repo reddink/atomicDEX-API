@@ -204,6 +204,7 @@ impl PlatformWithTokensActivationOps for TendermintCoin {
             balance: CoinBalance {
                 spendable: balances.platform_balance,
                 unspendable: BigDecimal::default(),
+                protocol_specific_balance: None,
             },
             tokens_balances: balances
                 .tokens_balances
@@ -212,6 +213,7 @@ impl PlatformWithTokensActivationOps for TendermintCoin {
                     (ticker, CoinBalance {
                         spendable: balance,
                         unspendable: BigDecimal::default(),
+                        protocol_specific_balance: None,
                     })
                 })
                 .collect(),
