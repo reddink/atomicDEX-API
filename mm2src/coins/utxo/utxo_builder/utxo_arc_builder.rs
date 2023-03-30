@@ -365,6 +365,14 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
             },
         };
 
+        // Validate retrieved block headers.
+        if let Err(err) = validate_headers(ticker, from_block_height, &block_headers, storage, &spv_conf).await {
+            error!("Error {err:?} on validating the latest headers for {ticker}!");
+            // Todo: remove this electrum server and use another in this case since the headers from this server are invalid
+            sync_status_loop_handle.notify_on_permanent_error(err);
+            break;
+        };
+
         // Detect and resolve header for chain reorg
         match detect_and_resolve_chain_reorg(ticker, from_block_height, storage.inner.as_ref(), &block_headers).await {
             Ok(res) => {
@@ -383,14 +391,6 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
             },
         };
 
-        // Validate retrieved block headers.
-        if let Err(err) = validate_headers(ticker, from_block_height, block_headers, storage, &spv_conf).await {
-            error!("Error {err:?} on validating the latest headers for {ticker}!");
-            // Todo: remove this electrum server and use another in this case since the headers from this server are invalid
-            sync_status_loop_handle.notify_on_permanent_error(err);
-            break;
-        };
-
         let sleep = args.success_sleep;
         ok_or_continue_after_sleep!(storage.add_block_headers_to_storage(block_registry).await, sleep);
     }
@@ -405,6 +405,8 @@ pub(crate) struct ChainReorgHeader {
 pub(crate) enum ChainReorgError {
     #[display(fmt = "Block header not found for height {} - reason: ", _0)]
     BlockNotFound(u64, String),
+    #[display(fmt = "Invalid chain detected for {} new block headers", _0)]
+    InvalidChain(String),
     #[display(fmt = "RemoveHeaderFromStorageErr: {}", _0)]
     RemoveHeaderFromStorageErr(String),
 }
@@ -417,30 +419,50 @@ pub(crate) async fn detect_and_resolve_chain_reorg(
     storage: &dyn BlockHeaderStorageOps,
     rpc_headers: &[BlockHeader],
 ) -> Result<Option<ChainReorgHeader>, ChainReorgError> {
-    let mut curr_height = last_block_height;
-    let mut curr_hash = storage
-        .get_block_header(curr_height)
+    let mut current_height = last_block_height;
+    let mut current_header = storage
+        .get_block_header(current_height)
         .await
-        .map_err(|e| ChainReorgError::BlockNotFound(curr_height, e.to_string()))?
-        .ok_or_else(|| ChainReorgError::BlockNotFound(curr_height, "no block header for height".to_string()))?
-        .hash();
+        .map_err(|e| ChainReorgError::BlockNotFound(current_height, e.to_string()))?
+        .ok_or_else(|| ChainReorgError::BlockNotFound(current_height, "no block header for height".to_string()))?;
 
     for header in rpc_headers.iter() {
-        if header.previous_header_hash != curr_hash {
-            log!("Chain reorg detected at height: {curr_height} -> hash:{curr_hash} -> coin: {coin}");
-
-            while header.previous_header_hash != curr_hash {
-                curr_height -= 1;
-                match storage
-                    .get_block_header(curr_height)
+        // Compare difficulty of the conflicting block and the new block.
+        if current_header.previous_header_hash == header.previous_header_hash
+            && (current_header.hash() != header.hash() && current_header.bits != header.bits)
+        {
+            if u32::from(current_header.bits.clone()) > u32::from(header.bits.clone()) {
+                // Todo: retry header sync using another eletrum.
+                return Err(ChainReorgError::InvalidChain(coin.to_string()));
+            } else {
+                // Remove bad conflicting header and successors from storage.
+                storage
+                    .remove_headers_from_storage(current_height + 1, last_block_height)
                     .await
-                    .map_err(|e| ChainReorgError::BlockNotFound(curr_height, e.to_string()))
+                    .map_err(|err| ChainReorgError::RemoveHeaderFromStorageErr(err.to_string()))?;
+            };
+        }
+
+        // Compare header hash of old block with the new block hash and resolve chain reorg.
+        if header.previous_header_hash != current_header.hash() {
+            log!(
+                "Chain reorg detected at height: {current_height} -> hash: {} -> coin: {coin}",
+                current_header.hash()
+            );
+
+            let mut best_header = current_header.clone();
+            while header.previous_header_hash != best_header.hash() {
+                current_height -= 1;
+                match storage
+                    .get_block_header(current_height)
+                    .await
+                    .map_err(|e| ChainReorgError::BlockNotFound(current_height, e.to_string()))
                 {
                     Ok(res) => {
                         let res = res.ok_or_else(|| {
-                            ChainReorgError::BlockNotFound(curr_height, "no block header for height".to_string())
+                            ChainReorgError::BlockNotFound(current_height, "no block header for height".to_string())
                         })?;
-                        curr_hash = res.hash()
+                        best_header = res;
                     },
                     Err(err) => {
                         // handle case for empty headers in storage.
@@ -454,18 +476,18 @@ pub(crate) async fn detect_and_resolve_chain_reorg(
             }
 
             storage
-                .remove_headers_from_storage(curr_height + 1, last_block_height)
+                .remove_headers_from_storage(current_height + 1, last_block_height)
                 .await
                 .map_err(|err| ChainReorgError::RemoveHeaderFromStorageErr(err.to_string()))?;
 
             return Ok(Some(ChainReorgHeader {
-                height: curr_height,
-                hash: curr_hash,
+                height: current_height,
+                hash: best_header.hash(),
             }));
         }
 
-        curr_height += 1;
-        curr_hash = header.hash();
+        current_height += 1;
+        current_header = header.clone();
     }
 
     Ok(None)

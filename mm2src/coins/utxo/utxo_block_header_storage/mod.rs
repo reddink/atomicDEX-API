@@ -294,6 +294,10 @@ mod block_headers_storage_tests {
         let block_header: BlockHeader = "02000000cbed7fd98f1f06e85c47e13ff956533642056be45e7e6b532d4d768f00000000f2680982f333fcc9afa7f9a5e2a84dc54b7fe10605cd187362980b3aa882e9683be21353ab80011c813e1fc0".into();
         let block_header_201594_hash = block_header.hash();
         headers.insert(201594, block_header);
+
+        // https://live.blockcypher.com/btc-testnet/block/0000000000ad144538e6c80289378ba14cebb50ee47538b2a120742d1aa601ea/
+        let block_header: BlockHeader = "020000001f38c8e30b30af912fbd4c3e781506713cfb43e73dff6250348e060000000000afa8f3eede276ccb4c4ee649ad9823fc181632f262848ca330733e7e7e541beb9be51353ffff001d00a63037".into();
+        headers.insert(201593, block_header);
         storage.add_block_headers_to_storage(headers).await.unwrap();
 
         let mut rpc_headers = vec![];

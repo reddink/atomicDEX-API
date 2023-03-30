@@ -333,7 +333,7 @@ fn validate_header_prev_hash(actual: &H256, to_compare_with: &H256) -> bool { ac
 pub async fn validate_headers(
     coin: &str,
     previous_height: u64,
-    headers: Vec<BlockHeader>,
+    headers: &[BlockHeader],
     storage: &dyn BlockHeaderStorageOps,
     conf: &SPVConf,
 ) -> Result<(), SPVError> {
@@ -353,7 +353,7 @@ pub async fn validate_headers(
     let mut previous_hash = previous_header.hash;
     let mut prev_bits = previous_header.bits.clone();
 
-    for header in headers.into_iter() {
+    for header in headers.iter() {
         if !validate_header_prev_hash(&header.previous_header_hash, &previous_hash) {
             return Err(SPVError::InvalidChain {
                 coin: coin.to_string(),
@@ -378,7 +378,7 @@ pub async fn validate_headers(
         }
 
         prev_bits = current_block_bits;
-        previous_header = SPVBlockHeader::from_block_header_and_height(&header, previous_height + 1);
+        previous_header = SPVBlockHeader::from_block_header_and_height(header, previous_height + 1);
         previous_hash = previous_header.hash;
         previous_height += 1;
     }
