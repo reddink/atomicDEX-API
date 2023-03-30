@@ -686,8 +686,16 @@ fn test_watcher_validate_taker_fee_utxo() {
         .wait()
         .unwrap();
 
+    let confirm_payment_input = ConfirmPaymentInput {
+        payment_tx: taker_fee.tx_hex(),
+        confirmations: 1,
+        requires_nota: false,
+        wait_until: timeout,
+        check_every: 1,
+    };
+
     taker_coin
-        .wait_for_confirmations(&taker_fee.tx_hex(), 1, false, timeout, 1)
+        .wait_for_confirmations(confirm_payment_input)
         .wait()
         .unwrap();
 
@@ -894,7 +902,7 @@ fn test_watcher_validate_taker_fee_eth() {
 }
 
 #[test]
-#[ignore]
+//#[ignore]
 fn test_watcher_validate_taker_fee_erc20() {
     let timeout = (now_ms() / 1000) + 120; // timeout if test takes more than 120 seconds to run
     let lock_duration = get_payment_locktime();
@@ -1123,13 +1131,13 @@ fn test_watcher_validate_taker_payment_utxo() {
         .send_taker_payment(SendPaymentArgs {
             time_lock_duration,
             time_lock,
-            other_pubkey: maker_pub,
+            other_pubkey: maker_pubkey,
             secret_hash: wrong_secret_hash.as_slice(),
-            amount,
+            amount: BigDecimal::from(10),
             swap_contract_address: &taker_coin.swap_contract_address(),
             swap_unique_data: &[],
             payment_instructions: &None,
-            watcher_reward,
+            watcher_reward: None,
             wait_for_confirmation_until,
         })
         .wait()
@@ -1212,7 +1220,7 @@ fn test_watcher_validate_taker_payment_utxo() {
 }
 
 #[test]
-#[ignore]
+//#[ignore]
 fn test_watcher_validate_taker_payment_eth() {
     let timeout = (now_ms() / 1000) + 120; // timeout if test takes more than 120 seconds to run
 
@@ -1696,8 +1704,15 @@ fn test_watcher_validate_taker_payment_erc20() {
         .wait()
         .unwrap();
 
+    let confirm_payment_input = ConfirmPaymentInput {
+        payment_tx: taker_payment_wrong_secret.tx_hex(),
+        confirmations: 1,
+        requires_nota: false,
+        wait_until: timeout,
+        check_every: 1,
+    };
     taker_coin
-        .wait_for_confirmations(&taker_payment_wrong_secret.tx_hex(), 1, false, timeout, 1)
+        .wait_for_confirmations(confirm_payment_input)
         .wait()
         .unwrap();
 
