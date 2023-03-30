@@ -7,14 +7,13 @@ use crate::utxo::{generate_and_send_tx, FeePolicy, GetUtxoListOps, UtxoArc, Utxo
                   UtxoWeak};
 use crate::{DerivationMethod, PrivKeyBuildPolicy, UtxoActivationParams};
 use async_trait::async_trait;
-use chain::{BlockHeader, TransactionOutput};
+use chain::TransactionOutput;
 use common::executor::{AbortSettings, SpawnAbortable, Timer};
 use common::log::{error, info, warn};
 use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 #[cfg(test)] use mocktopus::macros::*;
-use primitives::hash::H256;
 use script::Builder;
 use serde_json::Value as Json;
 use serialization::Reader;
@@ -373,124 +372,9 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
             break;
         };
 
-        // Detect and resolve header for chain reorg
-        match detect_and_resolve_chain_reorg(ticker, from_block_height, storage.inner.as_ref(), &block_headers).await {
-            Ok(res) => {
-                if let Some(chain) = res {
-                    log!(
-                        "Chain reorg resolved at height {} with hash {:?}",
-                        chain.height,
-                        chain.hash
-                    );
-                }
-            },
-            Err(err) => {
-                error!("{err}!");
-                sync_status_loop_handle.notify_on_temp_error(err);
-                break;
-            },
-        };
-
         let sleep = args.success_sleep;
         ok_or_continue_after_sleep!(storage.add_block_headers_to_storage(block_registry).await, sleep);
     }
-}
-
-pub(crate) struct ChainReorgHeader {
-    pub(crate) height: u64,
-    pub(crate) hash: H256,
-}
-
-#[derive(Debug, Display)]
-pub(crate) enum ChainReorgError {
-    #[display(fmt = "Block header not found for height {} - reason: ", _0)]
-    BlockNotFound(u64, String),
-    #[display(fmt = "Invalid chain detected for {} new block headers", _0)]
-    InvalidChain(String),
-    #[display(fmt = "RemoveHeaderFromStorageErr: {}", _0)]
-    RemoveHeaderFromStorageErr(String),
-}
-
-// Check for a chain reorg given a block header and a list of headers
-// downloaded from an RPC node and remove bad headers from storage
-pub(crate) async fn detect_and_resolve_chain_reorg(
-    coin: &str,
-    last_block_height: u64,
-    storage: &dyn BlockHeaderStorageOps,
-    rpc_headers: &[BlockHeader],
-) -> Result<Option<ChainReorgHeader>, ChainReorgError> {
-    let mut current_height = last_block_height;
-    let mut current_header = storage
-        .get_block_header(current_height)
-        .await
-        .map_err(|e| ChainReorgError::BlockNotFound(current_height, e.to_string()))?
-        .ok_or_else(|| ChainReorgError::BlockNotFound(current_height, "no block header for height".to_string()))?;
-
-    for header in rpc_headers.iter() {
-        // Compare difficulty of the conflicting block and the new block.
-        if current_header.previous_header_hash == header.previous_header_hash
-            && (current_header.hash() != header.hash() && current_header.bits != header.bits)
-        {
-            if u32::from(current_header.bits.clone()) < u32::from(header.bits.clone()) {
-                // Todo: retry header sync using another eletrum.
-                return Err(ChainReorgError::InvalidChain(coin.to_string()));
-            } else {
-                // Remove bad conflicting header and successors from storage.
-                storage
-                    .remove_headers_from_storage(current_height + 1, last_block_height)
-                    .await
-                    .map_err(|err| ChainReorgError::RemoveHeaderFromStorageErr(err.to_string()))?;
-            };
-        }
-
-        // Compare header hash of old block with the new block hash and resolve chain reorg.
-        if header.previous_header_hash != current_header.hash() {
-            log!(
-                "Chain reorg detected at height: {current_height} -> hash: {} -> coin: {coin}",
-                current_header.hash()
-            );
-
-            let mut best_header = current_header.clone();
-            while header.previous_header_hash != best_header.hash() {
-                current_height -= 1;
-                match storage
-                    .get_block_header(current_height)
-                    .await
-                    .map_err(|e| ChainReorgError::BlockNotFound(current_height, e.to_string()))
-                {
-                    Ok(res) => {
-                        let res = res.ok_or_else(|| {
-                            ChainReorgError::BlockNotFound(current_height, "no block header for height".to_string())
-                        })?;
-                        best_header = res;
-                    },
-                    Err(err) => {
-                        // handle case for empty headers in storage.
-                        if storage.is_table_empty().await.is_ok() {
-                            break;
-                        };
-
-                        return Err(err);
-                    },
-                }
-            }
-
-            storage
-                .remove_headers_from_storage(current_height + 1, last_block_height)
-                .await
-                .map_err(|err| ChainReorgError::RemoveHeaderFromStorageErr(err.to_string()))?;
-
-            return Ok(Some(ChainReorgHeader {
-                height: current_height,
-                hash: best_header.hash(),
-            }));
-        }
-
-        current_height += 1;
-        current_header = header.clone();
-    }
-
-    Ok(None)
 }
 
 #[derive(Display)]
