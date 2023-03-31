@@ -363,19 +363,19 @@ pub async fn validate_headers(
             });
         }
         // Compare header difficulty of old block with the new block difficulty and remove bad headers from storage if there's a conflict.
-        if previous_height > 1 {
-            detect_and_resolve_conflicting_headers_by_diffidculty(
-                coin,
-                previous_height,
-                last_block_height,
-                header,
-                storage,
-            )
+
+        detect_and_resolve_conflicting_headers_by_difficulty(
+            coin,
+            previous_height,
+            &previous_header,
+            last_block_height,
+            header,
+            storage,
+        )
+        .await?;
+        // Compare header hash of old block with the new block hash and remove bad headers from storage if there's a conflict.
+        detect_and_resolve_conflicting_headers_by_hash(coin, last_block_height, &previous_header, header, storage)
             .await?;
-            // Compare header hash of old block with the new block hash and remove bad headers from storage if there's a conflict.
-            detect_and_resolve_conflicting_headers_by_hash(coin, last_block_height, &previous_header, header, storage)
-                .await?;
-        }
 
         let current_block_bits = header.bits.clone();
         if let Some(params) = &conf.validation_params {
@@ -426,30 +426,23 @@ impl From<ChainReorgError> for SPVError {
 }
 
 // Check for a chain reorg given a block header and a list of headers
-// downloaded from an RPC node and remove bad headers from storage
-pub(crate) async fn detect_and_resolve_conflicting_headers_by_diffidculty(
+// downloaded from an RPC node and remove bad headers from storage by block difficulty.
+pub(crate) async fn detect_and_resolve_conflicting_headers_by_difficulty(
     coin: &str,
     previous_height: u64,
+    previous_header: &SPVBlockHeader,
     last_block_height: u64,
     new_header: &BlockHeader,
     storage: &dyn BlockHeaderStorageOps,
 ) -> Result<(), ChainReorgError> {
-    let previous_header = storage
-        .get_block_header(previous_height)
-        .await
-        .map_err(|e| ChainReorgError::BlockNotFound {
-            coin: coin.to_string(),
-            reason: e.to_string(),
-        })?
-        .ok_or_else(|| ChainReorgError::BlockNotFound {
-            coin: coin.to_string(),
-            reason: format!("Header not found for block height: {previous_height}"),
-        })?;
-
     if previous_header.previous_header_hash == new_header.previous_header_hash
-        && (previous_header.hash() != new_header.hash() && previous_header.bits != new_header.bits)
+        && (previous_header.hash != new_header.hash() && previous_header.bits != new_header.bits)
     {
-        if u32::from(previous_header.bits) > u32::from(new_header.bits.clone()) {
+        if u32::from(previous_header.bits.clone()) > u32::from(new_header.bits.clone()) {
+            println!(
+                "Chain reorg detected at height: {last_block_height} -> hash: {} -> coin: {coin}",
+                new_header.hash()
+            );
             // Todo: retry header sync using another eletrum.
             return Err(ChainReorgError::InvalidChain {
                 coin: coin.to_string(),
@@ -473,7 +466,7 @@ pub(crate) async fn detect_and_resolve_conflicting_headers_by_diffidculty(
 }
 
 // Check for a chain reorg given a block header and a list of headers
-// downloaded from an RPC node and remove bad headers from storage
+// downloaded from an RPC node and remove bad headers from storage by block hash.
 pub(crate) async fn detect_and_resolve_conflicting_headers_by_hash(
     coin: &str,
     last_block_height: u64,
@@ -742,6 +735,7 @@ mod tests {
             starting_block_header: SPVBlockHeader {
                 height: 0,
                 hash: "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f".into(),
+                previous_header_hash: Default::default(),
                 time: 486604799,
                 bits: BlockHeaderBits::Compact(1231006505.into()),
             },
@@ -761,9 +755,12 @@ mod tests {
     #[test]
     fn test_block_headers_difficulty_check() {
         // BTC: 724609, 724610, 724611
-        let headers: Vec<BlockHeader> = vec!["00200020eab6fa183da8f9e4c761b31a67a76fa6a7658eb84c760200000000000000000063cd9585d434ec0db25894ec4b1f03735f10e31709c4395ea67c50c8378f134b972f166278100a17bfd87203".into(),
+        let headers: Vec<BlockHeader> =
+            vec!["00200020eab6fa183da8f9e4c761b31a67a76fa6a7658eb84c760200000000000000000063cd9585d434ec0db25894ec4b1f03735f10e31709c4395ea67c50c8378f134b972f166278100a17bfd87203".into(),
                                              "0000402045c698413fbe8b5bf10635658d2a1cec72062798e51200000000000000000000869617420a4c95b1d3d6d012419d2b6c199cff9b68dd9a790892a4da8466fb056033166278100a1743ac4d5b".into(),
                                              "0400e02019d733c1fd76a1fa5950de7bee9d80f107276b93a67204000000000000000000a0d1dee718f5f732c041800e9aa2c25e92be3f6de28278545388db8a6ae27df64c37166278100a170a970c19".into()];
+
+        // modify hash of header 724610 to hash of header 0.
         let params = BlockHeaderValidationParams {
             difficulty_check: true,
             constant_difficulty: false,
@@ -773,6 +770,7 @@ mod tests {
             starting_block_header: SPVBlockHeader {
                 height: 0,
                 hash: "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f".into(),
+                previous_header_hash: Default::default(),
                 time: 486604799,
                 bits: BlockHeaderBits::Compact(1231006505.into()),
             },

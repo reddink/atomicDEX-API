@@ -4370,6 +4370,7 @@ fn test_block_header_utxo_loop() {
         "starting_block_header": {
             "height": 1,
             "hash": "0c714ba4f8d5f2d5c014a08c4e21a5387156e23bcc819c0f9bc536437586cdf5",
+            "previous_header_hash": "027e3758c3a65b12aa1046462b486d0a63bfa1beae327897f56c5cfb7daaae71",
             "time": 1564482125,
             "bits": 537857807
         },
@@ -4390,7 +4391,7 @@ fn test_block_header_utxo_loop() {
     let test_fut = async move {
         *expected_steps.lock().unwrap() = vec![(2, 5), (6, 9), (10, 13), (14, 14)];
         unsafe { CURRENT_BLOCK_COUNT = 14 }
-        Timer::sleep(3.).await;
+        Timer::sleep(4.).await;
         let get_headers_count = client
             .block_headers_storage()
             .get_last_block_height()
@@ -4459,6 +4460,7 @@ fn test_spv_conf_with_verification() {
         starting_block_header: SPVBlockHeader {
             height: 4032,
             hash,
+            previous_header_hash: "00000000f037ad09d0b05ee66b8c1da83030abaf909d2b1bf519c3c7d2cd3fdf".into(),
             time: 1234466190,
             bits: BlockHeaderBits::Compact(486604799.into()),
         },
@@ -4468,11 +4470,12 @@ fn test_spv_conf_with_verification() {
     assert!(spv_conf.validate("BTC").is_ok());
 
     // test for bad retarget_block_header_height
-    // Block header hash for BLOCK HEIGHT 4032
+    // Block header hash for BLOCK HEIGHT 4037
     let hash = "0000000045c689dc49dee778a9fbca7b5bc48fceca9f05cde5fc8d667f00e7d2".into();
     spv_conf.starting_block_header = SPVBlockHeader {
         height: 4037,
         hash,
+        previous_header_hash: "00000000e185f244cd92bf2b9c15e189e55ee30ebb73b262d58edcb3484d348b".into(),
         time: 1234470475,
         bits: BlockHeaderBits::Compact(486604799.into()),
     };
@@ -4489,6 +4492,7 @@ fn test_spv_conf_with_verification() {
         starting_block_header: SPVBlockHeader {
             height: 4032,
             hash,
+            previous_header_hash: "00000000f037ad09d0b05ee66b8c1da83030abaf909d2b1bf519c3c7d2cd3fdf".into(),
             time: 1234466190,
             bits: BlockHeaderBits::Compact(486604799.into()),
         },

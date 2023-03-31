@@ -366,6 +366,7 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
 
         // Validate retrieved block headers.
         if let Err(err) = validate_headers(ticker, from_block_height, &block_headers, storage, &spv_conf).await {
+            println!("{err:?}");
             error!("Error {err:?} on validating the latest headers for {ticker}!");
             // Todo: remove this electrum server and use another in this case since the headers from this server are invalid
             sync_status_loop_handle.notify_on_permanent_error(err);
