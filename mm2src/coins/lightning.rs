@@ -71,11 +71,13 @@ use script::TransactionInputSigner;
 use secp256k1v24::PublicKey;
 use serde::Deserialize;
 use serde_json::Value as Json;
+use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::fmt;
 use std::io::Cursor;
 use std::net::SocketAddr;
+use std::ops::Add;
 use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -124,6 +126,108 @@ impl fmt::Debug for LightningCoin {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "LightningCoin {{ conf: {:?} }}", self.conf) }
 }
 
+struct LightningSpecificBalanceMsat {
+    inbound: u64,
+    min_receivable_amount_per_payment: u64,
+    max_receivable_amount_per_payment: u64,
+    min_spendable_amount_per_payment: u64,
+    max_spendable_amount_per_payment: u64,
+}
+
+impl Default for LightningSpecificBalanceMsat {
+    fn default() -> Self {
+        LightningSpecificBalanceMsat {
+            inbound: 0,
+            min_receivable_amount_per_payment: u64::MAX,
+            max_receivable_amount_per_payment: 0,
+            min_spendable_amount_per_payment: u64::MAX,
+            max_spendable_amount_per_payment: 0,
+        }
+    }
+}
+
+impl Add for LightningSpecificBalanceMsat {
+    type Output = LightningSpecificBalanceMsat;
+
+    // Todo: revise this
+    fn add(self, rhs: Self) -> Self::Output {
+        LightningSpecificBalanceMsat {
+            inbound: self.inbound + rhs.inbound,
+            min_receivable_amount_per_payment: min(
+                self.min_receivable_amount_per_payment,
+                rhs.min_receivable_amount_per_payment,
+            ),
+            max_receivable_amount_per_payment: self.max_receivable_amount_per_payment
+                + rhs.max_receivable_amount_per_payment,
+            min_spendable_amount_per_payment: min(
+                self.min_spendable_amount_per_payment,
+                rhs.min_spendable_amount_per_payment,
+            ),
+            max_spendable_amount_per_payment: self.max_spendable_amount_per_payment
+                + rhs.max_spendable_amount_per_payment,
+        }
+    }
+}
+
+// Todo: need to think about this and maybe refactor it to include minimal information, can min/max amounts be bypass-able by sending multiple payments with the same hash and claiming all of them at once?
+// Todo: check also other config fields and other channel details field, e.g. max in flight htlcs
+// Todo: if this is refactored, remove #[allow(clippy::large_enum_variant)] in multiple structs
+#[derive(Clone, Debug, PartialEq, PartialOrd, Serialize)]
+pub struct LightningSpecificBalance {
+    inbound: BigDecimal,
+    min_receivable_amount_per_payment: BigDecimal,
+    max_receivable_amount_per_payment: BigDecimal,
+    min_spendable_amount_per_payment: BigDecimal,
+    max_spendable_amount_per_payment: BigDecimal,
+}
+
+impl Add for LightningSpecificBalance {
+    type Output = LightningSpecificBalance;
+
+    // Todo: revise this
+    fn add(self, rhs: Self) -> Self::Output {
+        LightningSpecificBalance {
+            inbound: self.inbound + rhs.inbound,
+            min_receivable_amount_per_payment: min(
+                self.min_receivable_amount_per_payment,
+                rhs.min_receivable_amount_per_payment,
+            ),
+            max_receivable_amount_per_payment: self.max_receivable_amount_per_payment
+                + rhs.max_receivable_amount_per_payment,
+            min_spendable_amount_per_payment: min(
+                self.min_spendable_amount_per_payment,
+                rhs.min_spendable_amount_per_payment,
+            ),
+            max_spendable_amount_per_payment: self.max_spendable_amount_per_payment
+                + rhs.max_spendable_amount_per_payment,
+        }
+    }
+}
+
+impl LightningSpecificBalance {
+    fn from_msat(msat: LightningSpecificBalanceMsat, decimals: u8) -> Self {
+        LightningSpecificBalance {
+            inbound: big_decimal_from_sat_unsigned(msat.inbound, decimals),
+            min_receivable_amount_per_payment: big_decimal_from_sat_unsigned(
+                msat.min_receivable_amount_per_payment,
+                decimals,
+            ),
+            max_receivable_amount_per_payment: big_decimal_from_sat_unsigned(
+                msat.max_receivable_amount_per_payment,
+                decimals,
+            ),
+            min_spendable_amount_per_payment: big_decimal_from_sat_unsigned(
+                msat.min_spendable_amount_per_payment,
+                decimals,
+            ),
+            max_spendable_amount_per_payment: big_decimal_from_sat_unsigned(
+                msat.max_spendable_amount_per_payment,
+                decimals,
+            ),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct OpenChannelsFilter {
     pub channel_id: Option<H256Json>,
@@ -169,21 +273,38 @@ impl LightningCoin {
         async_blocking(move || channel_manager.list_channels()).await
     }
 
-    async fn get_balance_msat(&self) -> (u64, u64, u64) {
-        self.list_channels()
-            .await
-            .iter()
-            .fold((0, 0, 0), |(spendable, unspendable, inbound), chan| {
+    async fn get_balance_msat(&self) -> (u64, u64, LightningSpecificBalanceMsat) {
+        self.list_channels().await.iter().fold(
+            (0, 0, LightningSpecificBalanceMsat::default()),
+            |(spendable, unspendable, lightning_specific_balance_msat), chan| {
                 if chan.is_usable {
                     (
                         spendable + chan.outbound_capacity_msat,
                         unspendable + chan.balance_msat - chan.outbound_capacity_msat,
-                        inbound + chan.inbound_capacity_msat,
+                        lightning_specific_balance_msat
+                            + LightningSpecificBalanceMsat {
+                                inbound: chan.inbound_capacity_msat,
+                                min_receivable_amount_per_payment: chan.inbound_htlc_minimum_msat.unwrap_or(u64::MAX),
+                                max_receivable_amount_per_payment: chan.inbound_htlc_maximum_msat.unwrap_or_default(),
+                                min_spendable_amount_per_payment: chan
+                                    .counterparty
+                                    .outbound_htlc_minimum_msat
+                                    .unwrap_or(u64::MAX),
+                                max_spendable_amount_per_payment: chan
+                                    .counterparty
+                                    .outbound_htlc_maximum_msat
+                                    .unwrap_or_default(),
+                            },
                     )
                 } else {
-                    (spendable, unspendable + chan.balance_msat, inbound)
+                    (
+                        spendable,
+                        unspendable + chan.balance_msat,
+                        lightning_specific_balance_msat,
+                    )
                 }
-            })
+            },
+        )
     }
 
     pub(crate) async fn get_channel_by_uuid(&self, uuid: Uuid) -> Option<ChannelDetails> {
@@ -1053,19 +1174,20 @@ impl MarketCoinOps for LightningCoin {
         Ok(recovered_pubkey.to_string() == pubkey)
     }
 
+    // Todo: add a protocol_specific_balance method to start adding other checks in order matching
     // Todo: max_inbound_in_flight_htlc_percent should be taken in consideration too for max allowed amount, this can be considered the spendable balance,
     // Todo: but it's better to refactor the CoinBalance struct to add more info. We can make it 100% in the config for now until this is implemented.
     fn my_balance(&self) -> BalanceFut<CoinBalance> {
         let coin = self.clone();
         let decimals = self.decimals();
         let fut = async move {
-            let (spendable_msat, unspendable_msat, inbound_msat) = coin.get_balance_msat().await;
+            let (spendable_msat, unspendable_msat, lightning_specific_balance_msat) = coin.get_balance_msat().await;
             Ok(CoinBalance {
                 spendable: big_decimal_from_sat_unsigned(spendable_msat, decimals),
                 unspendable: big_decimal_from_sat_unsigned(unspendable_msat, decimals),
-                protocol_specific_balance: Some(ProtocolSpecificBalance::Lightning {
-                    inbound: big_decimal_from_sat_unsigned(inbound_msat, decimals),
-                }),
+                protocol_specific_balance: Some(ProtocolSpecificBalance::Lightning(
+                    LightningSpecificBalance::from_msat(lightning_specific_balance_msat, decimals),
+                )),
             })
         };
         Box::new(fut.boxed().compat())

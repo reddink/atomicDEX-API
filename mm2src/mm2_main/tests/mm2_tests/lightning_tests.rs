@@ -543,14 +543,32 @@ fn test_send_payment() {
         true,
     ));
 
-    // Check inbound balance in node 1
+    // Check additional balance info in node 1
+    let node_1_additional_balance_fields = match block_on(my_balance(&mm_node_1, "tBTC-TEST-lightning"))
+        .protocol_specific_balance
+        .unwrap()
+    {
+        ProtocolSpecificBalance::Lightning(balance) => balance,
+    };
     assert_eq!(
-        block_on(my_balance(&mm_node_1, "tBTC-TEST-lightning"))
-            .protocol_specific_balance
-            .unwrap(),
-        ProtocolSpecificBalance::Lightning {
-            inbound: BigDecimal::from_str("0.00019").unwrap()
-        },
+        node_1_additional_balance_fields.inbound,
+        BigDecimal::from_str("0.00019").unwrap()
+    );
+    assert_eq!(
+        node_1_additional_balance_fields.min_receivable_amount_per_payment,
+        BigDecimal::from_str("0.00000000001").unwrap()
+    );
+    assert_eq!(
+        node_1_additional_balance_fields.max_receivable_amount_per_payment,
+        BigDecimal::from_str("0.00018").unwrap()
+    );
+    assert_eq!(
+        node_1_additional_balance_fields.min_spendable_amount_per_payment,
+        BigDecimal::from_str("0.00000000001").unwrap()
+    );
+    assert_eq!(
+        node_1_additional_balance_fields.max_spendable_amount_per_payment,
+        BigDecimal::from_str("0.00018").unwrap()
     );
 
     let send_payment = block_on(mm_node_2.rpc(&json!({

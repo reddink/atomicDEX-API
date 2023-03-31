@@ -286,6 +286,7 @@ use utxo::{BlockchainNetwork, GenerateTxError, UtxoFeeDetails, UtxoTx};
 use nft::nft_errors::GetNftInfoError;
 
 #[cfg(not(target_arch = "wasm32"))] pub mod z_coin;
+use crate::lightning::LightningSpecificBalance;
 #[cfg(not(target_arch = "wasm32"))] use z_coin::ZCoin;
 
 pub type TransactionFut = Box<dyn Future<Item = TransactionEnum, Error = TransactionErr> + Send>;
@@ -1360,9 +1361,10 @@ pub struct TradeFee {
     pub paid_from_trading_vol: bool,
 }
 
+// Todo: maybe rename this to additional balance info
 #[derive(Clone, Debug, PartialEq, PartialOrd, Serialize)]
 pub enum ProtocolSpecificBalance {
-    Lightning { inbound: BigDecimal },
+    Lightning(LightningSpecificBalance),
 }
 
 impl Add for ProtocolSpecificBalance {
@@ -1370,11 +1372,8 @@ impl Add for ProtocolSpecificBalance {
 
     fn add(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (
-                ProtocolSpecificBalance::Lightning { inbound },
-                ProtocolSpecificBalance::Lightning { inbound: rhs_inbound },
-            ) => ProtocolSpecificBalance::Lightning {
-                inbound: inbound + rhs_inbound,
+            (ProtocolSpecificBalance::Lightning(lhs), ProtocolSpecificBalance::Lightning(rhs)) => {
+                ProtocolSpecificBalance::Lightning(lhs + rhs)
             },
         }
     }

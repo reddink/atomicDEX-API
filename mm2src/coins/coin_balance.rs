@@ -35,6 +35,7 @@ impl From<BalanceError> for EnableCoinBalanceError {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[allow(clippy::large_enum_variant)]
 #[serde(tag = "wallet_type")]
 pub enum CoinBalanceReport {
     Iguana(IguanaWalletBalance),

@@ -26,6 +26,7 @@ pub async fn check_my_coin_balance_for_swap(
     debug!("Check my_coin '{}' balance for swap", ticker);
     let balance: MmNumber = coin.my_spendable_balance().compat().await?.into();
 
+    // Todo: get locked inbound balance for lightning swaps
     let locked = match swap_uuid {
         Some(u) => get_locked_amount_by_other_swaps(ctx, u, ticker),
         None => get_locked_amount(ctx, ticker),

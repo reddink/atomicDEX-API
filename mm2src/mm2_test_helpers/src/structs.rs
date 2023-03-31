@@ -698,6 +698,7 @@ pub struct HDAccountAddressId {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 #[serde(deny_unknown_fields, tag = "wallet_type")]
 pub enum EnableCoinBalance {
     Iguana(IguanaWalletBalance),
@@ -742,6 +743,7 @@ pub enum MmRpcResult<T> {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 #[serde(deny_unknown_fields, tag = "status", content = "details")]
 pub enum InitZcoinStatus {
     Ok(CoinActivationResult),
@@ -751,6 +753,7 @@ pub enum InitZcoinStatus {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 #[serde(deny_unknown_fields, tag = "status", content = "details")]
 pub enum InitUtxoStatus {
     Ok(UtxoStandardActivationResult),
@@ -760,6 +763,7 @@ pub enum InitUtxoStatus {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 #[serde(deny_unknown_fields, tag = "status", content = "details")]
 pub enum InitLightningStatus {
     Ok(LightningActivationResult),
@@ -865,8 +869,18 @@ pub struct RpcV2Response<T> {
 
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
+pub struct LightningSpecificBalance {
+    pub inbound: BigDecimal,
+    pub min_receivable_amount_per_payment: BigDecimal,
+    pub max_receivable_amount_per_payment: BigDecimal,
+    pub min_spendable_amount_per_payment: BigDecimal,
+    pub max_spendable_amount_per_payment: BigDecimal,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub enum ProtocolSpecificBalance {
-    Lightning { inbound: BigDecimal },
+    Lightning(LightningSpecificBalance),
 }
 
 #[derive(Debug, Deserialize)]
