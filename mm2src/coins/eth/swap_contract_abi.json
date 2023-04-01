@@ -1,5 +1,10 @@
 [
 	{
+		"inputs": [],
+		"stateMutability": "nonpayable",
+		"type": "constructor"
+	},
+	{
 		"anonymous": false,
 		"inputs": [
 			{
@@ -115,14 +120,19 @@
 				"type": "uint64"
 			},
 			{
-				"internalType": "uint256",
-				"name": "_watcherReward",
-				"type": "uint256"
+				"internalType": "enum EtomicSwap.RewardTargetOnSpend",
+				"name": "_rewardTarget",
+				"type": "uint8"
 			},
 			{
 				"internalType": "bool",
-				"name": "_refundOnlyReward",
+				"name": "_sendsReward",
 				"type": "bool"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_rewardAmount",
+				"type": "uint256"
 			}
 		],
 		"name": "erc20PaymentReward",
@@ -181,19 +191,53 @@
 				"type": "uint64"
 			},
 			{
-				"internalType": "uint256",
-				"name": "_watcherReward",
-				"type": "uint256"
+				"internalType": "enum EtomicSwap.RewardTargetOnSpend",
+				"name": "_rewardTarget",
+				"type": "uint8"
 			},
 			{
 				"internalType": "bool",
-				"name": "_refundOnlyReward",
+				"name": "_sendsReward",
 				"type": "bool"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_rewardAmount",
+				"type": "uint256"
 			}
 		],
 		"name": "ethPaymentReward",
 		"outputs": [],
 		"stateMutability": "payable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "",
+				"type": "bytes32"
+			}
+		],
+		"name": "payments",
+		"outputs": [
+			{
+				"internalType": "bytes20",
+				"name": "paymentHash",
+				"type": "bytes20"
+			},
+			{
+				"internalType": "uint64",
+				"name": "lockTime",
+				"type": "uint64"
+			},
+			{
+				"internalType": "enum EtomicSwap.PaymentState",
+				"name": "state",
+				"type": "uint8"
+			}
+		],
+		"stateMutability": "view",
 		"type": "function"
 	},
 	{
@@ -262,14 +306,19 @@
 				"type": "address"
 			},
 			{
-				"internalType": "uint256",
-				"name": "_watcherReward",
-				"type": "uint256"
+				"internalType": "enum EtomicSwap.RewardTargetOnSpend",
+				"name": "_rewardTarget",
+				"type": "uint8"
 			},
 			{
 				"internalType": "bool",
-				"name": "_refundOnlyReward",
+				"name": "_sendsReward",
 				"type": "bool"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_rewardAmount",
+				"type": "uint256"
 			}
 		],
 		"name": "receiverSpendReward",
@@ -343,53 +392,24 @@
 				"type": "address"
 			},
 			{
-				"internalType": "uint256",
-				"name": "_watcherReward",
-				"type": "uint256"
+				"internalType": "enum EtomicSwap.RewardTargetOnSpend",
+				"name": "_rewardTarget",
+				"type": "uint8"
 			},
 			{
 				"internalType": "bool",
-				"name": "_refundOnlyReward",
+				"name": "_sendsReward",
 				"type": "bool"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_rewardAmount",
+				"type": "uint256"
 			}
 		],
 		"name": "senderRefundReward",
 		"outputs": [],
 		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"stateMutability": "nonpayable",
-		"type": "constructor"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "bytes32",
-				"name": "",
-				"type": "bytes32"
-			}
-		],
-		"name": "payments",
-		"outputs": [
-			{
-				"internalType": "bytes20",
-				"name": "paymentHash",
-				"type": "bytes20"
-			},
-			{
-				"internalType": "uint64",
-				"name": "lockTime",
-				"type": "uint64"
-			},
-			{
-				"internalType": "enum EtomicSwap.PaymentState",
-				"name": "state",
-				"type": "uint8"
-			}
-		],
-		"stateMutability": "view",
 		"type": "function"
 	}
 ]
