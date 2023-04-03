@@ -285,7 +285,9 @@ use utxo::{BlockchainNetwork, GenerateTxError, UtxoFeeDetails, UtxoTx};
 #[cfg(feature = "enable-nft-integration")]
 use nft::nft_errors::GetNftInfoError;
 
+#[cfg(feature = "enable-nft-integration")] pub mod nft_storage;
 #[cfg(not(target_arch = "wasm32"))] pub mod z_coin;
+
 #[cfg(not(target_arch = "wasm32"))] use z_coin::ZCoin;
 
 pub type TransactionFut = Box<dyn Future<Item = TransactionEnum, Error = TransactionErr> + Send>;
