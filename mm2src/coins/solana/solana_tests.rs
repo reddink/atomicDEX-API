@@ -204,7 +204,7 @@ fn solana_transaction_zero_balance() {
         WithdrawError::NotSufficientBalance { required, .. } => {
             assert_eq!(required, sol_required);
         },
-        e @ _ => panic!("Unexpected err {:?}", e),
+        e => panic!("Unexpected err {:?}", e),
     };
 }
 
@@ -238,7 +238,7 @@ fn solana_transaction_simulations_not_enough_for_fees() {
             assert_eq!(available, 0.into());
             assert_eq!(required, sol_required);
         },
-        e @ _ => panic!("Unexpected err {:?}", e),
+        e => panic!("Unexpected err {:?}", e),
     };
 }
 

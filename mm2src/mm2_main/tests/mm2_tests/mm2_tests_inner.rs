@@ -1,4 +1,5 @@
 use crate::integration_tests_common::*;
+use crate::mm2_tests;
 use common::executor::Timer;
 use common::{cfg_native, cfg_wasm32, get_utc_timestamp, log, new_uuid};
 use crypto::privkey::key_pair_from_seed;
@@ -41,30 +42,6 @@ cfg_wasm32! {
     use wasm_bindgen_test::*;
 
     wasm_bindgen_test_configure!(run_in_browser);
-}
-
-#[cfg(all(feature = "zhtlc-native-tests", not(target_arch = "wasm32")))]
-async fn enable_z_coin(mm: &MarketMakerIt, coin: &str) -> CoinActivationResult {
-    use common::now_ms;
-    use mm2_test_helpers::for_tests::init_z_coin_status;
-
-    let init = init_z_coin_native(mm, coin).await;
-    let init: RpcV2Response<InitTaskResult> = json::from_value(init).unwrap();
-    let timeout = now_ms() + 120000;
-
-    loop {
-        if gstuff::now_ms() > timeout {
-            panic!("{} initialization timed out", coin);
-        }
-
-        let status = init_z_coin_status(mm, init.result.task_id).await;
-        let status: RpcV2Response<InitZcoinStatus> = json::from_value(status).unwrap();
-        match status.result {
-            InitZcoinStatus::Ok(result) => break result,
-            InitZcoinStatus::Error(e) => panic!("{} initialization error {:?}", coin, e),
-            _ => Timer::sleep(1.).await,
-        }
-    }
 }
 
 /// Integration test for RPC server.
@@ -788,12 +765,14 @@ async fn trade_base_rel_electrum(
 
     #[cfg(all(feature = "zhtlc-native-tests", not(target_arch = "wasm32")))]
     {
+        let bob_passphrase = get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap();
         Timer::sleep(1.).await;
         let rmd = rmd160_from_passphrase(&bob_passphrase);
         let bob_zombie_cache_path = mm_bob.folder.join("DB").join(hex::encode(rmd)).join("ZOMBIE_CACHE.db");
         log!("bob_zombie_cache_path {}", bob_zombie_cache_path.display());
         std::fs::copy("./mm2src/coins/for_tests/ZOMBIE_CACHE.db", bob_zombie_cache_path).unwrap();
 
+        let alice_passphrase = get_passphrase!(".env.client", "ALICE_PASSPHRASE").unwrap();
         let rmd = rmd160_from_passphrase(&alice_passphrase);
         let alice_zombie_cache_path = mm_alice
             .folder
@@ -804,9 +783,9 @@ async fn trade_base_rel_electrum(
 
         std::fs::copy("./mm2src/coins/for_tests/ZOMBIE_CACHE.db", alice_zombie_cache_path).unwrap();
 
-        let zombie_bob = enable_z_coin(&mm_bob, "ZOMBIE").await;
+        let zombie_bob = mm2_tests::enable_z_coin(&mm_bob, "ZOMBIE").await;
         log!("enable ZOMBIE bob {:?}", zombie_bob);
-        let zombie_alice = enable_z_coin(&mm_alice, "ZOMBIE").await;
+        let zombie_alice = mm2_tests::enable_z_coin(&mm_alice, "ZOMBIE").await;
         log!("enable ZOMBIE alice {:?}", zombie_alice);
     }
     // Enable coins on Bob side. Print the replies in case we need the address.
