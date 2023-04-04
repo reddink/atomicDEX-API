@@ -1,10 +1,13 @@
-use super::*;
-use crate::z_coin::z_htlc::z_send_dex_fee;
+use crate::utxo::utxo_common::validate_fee;
+use bitcrypto::ripemd160;
 use common::block_on;
 use common::now_ms;
 use mm2_core::mm_ctx::MmCtxBuilder;
 use std::time::Duration;
 use zcash_client_backend::encoding::decode_extended_spending_key;
+
+use super::*;
+use crate::z_coin::z_htlc::z_send_dex_fee;
 
 #[test]
 fn zombie_coin_send_and_refund_maker_payment() {
@@ -208,32 +211,59 @@ fn zombie_coin_validate_dex_fee() {
     let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
     let tx = tx.into();
 
+    let validate_fee_args = ValidateFeeArgs {
+        fee_tx: &tx,
+        expected_sender: &[],
+        fee_addr: &[],
+        amount: &"0.001".parse().unwrap(),
+        min_block_number: 12000,
+        uuid: &[1; 16],
+    };
     // Invalid amount should return an error
-    let err = coin
-        .validate_fee(&tx, &[], &[], &"0.001".parse().unwrap(), 12000, &[1; 16])
-        .wait()
-        .unwrap_err();
-    println!("{}", err);
-    assert!(err.contains("Dex fee has invalid amount"));
+    let err = coin.validate_fee(validate_fee_args).wait().unwrap_err();
+    match err {
+        ValidatePaymentError::WrongPaymentTx(err) => assert!(err.contains("Dex fee has invalid amount")),
+        _ => panic!("Expected `WrongPaymentTx`: {:?}", err),
+    }
 
     // Invalid memo should return an error
-    let err = coin
-        .validate_fee(&tx, &[], &[], &"0.01".parse().unwrap(), 12000, &[2; 16])
-        .wait()
-        .unwrap_err();
-    println!("{}", err);
-    assert!(err.contains("Dex fee has invalid memo"));
+    let validate_fee_args = ValidateFeeArgs {
+        fee_tx: &tx,
+        expected_sender: &[],
+        fee_addr: &[],
+        amount: &"0.01".parse().unwrap(),
+        min_block_number: 12000,
+        uuid: &[2; 16],
+    };
+    let err = coin.validate_fee(validate_fee_args).wait().unwrap_err();
+    match err {
+        ValidatePaymentError::WrongPaymentTx(err) => assert!(err.contains("Dex fee has invalid memo")),
+        _ => panic!("Expected `WrongPaymentTx`: {:?}", err),
+    }
 
     // Confirmed before min block
-    let err = coin
-        .validate_fee(&tx, &[], &[], &"0.01".parse().unwrap(), 14000, &[1; 16])
-        .wait()
-        .unwrap_err();
-    println!("{}", err);
-    assert!(err.contains("confirmed before min block"));
+    let validate_fee_args = ValidateFeeArgs {
+        fee_tx: &tx,
+        expected_sender: &[],
+        fee_addr: &[],
+        amount: &"0.01".parse().unwrap(),
+        min_block_number: 14000,
+        uuid: &[1; 16],
+    };
+    let err = coin.validate_fee(validate_fee_args).wait().unwrap_err();
+    match err {
+        ValidatePaymentError::WrongPaymentTx(err) => assert!(err.contains("confirmed before min block")),
+        _ => panic!("Expected `WrongPaymentTx`: {:?}", err),
+    }
 
     // Success validation
-    coin.validate_fee(&tx, &[], &[], &"0.01".parse().unwrap(), 12000, &[1; 16])
-        .wait()
-        .unwrap();
+    let validate_fee_args = ValidateFeeArgs {
+        fee_tx: &tx,
+        expected_sender: &[],
+        fee_addr: &[],
+        amount: &"0.01".parse().unwrap(),
+        min_block_number: 12000,
+        uuid: &[1; 16],
+    };
+    coin.validate_fee(validate_fee_args).wait().unwrap();
 }
