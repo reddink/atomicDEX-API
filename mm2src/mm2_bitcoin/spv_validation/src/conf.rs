@@ -42,7 +42,7 @@ pub struct SPVBlockHeader {
 }
 
 impl SPVBlockHeader {
-    pub(crate) fn from_block_header_and_height(header: &BlockHeader, height: u64) -> Self {
+    pub fn from_block_header_and_height(header: &BlockHeader, height: u64) -> Self {
         Self {
             height,
             hash: header.hash(),

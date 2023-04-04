@@ -7,7 +7,7 @@ use crate::utxo::{generate_and_send_tx, FeePolicy, GetUtxoListOps, UtxoArc, Utxo
                   UtxoWeak};
 use crate::{DerivationMethod, PrivKeyBuildPolicy, UtxoActivationParams};
 use async_trait::async_trait;
-use chain::TransactionOutput;
+use chain::{BlockHeader, TransactionOutput};
 use common::executor::{AbortSettings, SpawnAbortable, Timer};
 use common::log::{error, info, warn};
 use futures::compat::Future01CompatExt;
@@ -16,12 +16,14 @@ use mm2_err_handle::prelude::*;
 #[cfg(test)] use mocktopus::macros::*;
 use script::Builder;
 use serde_json::Value as Json;
-use serialization::Reader;
+use serialization::{deserialize, Reader};
 use spv_validation::conf::SPVConf;
-use spv_validation::helpers_validation::validate_headers;
+use spv_validation::helpers_validation::{validate_headers, ChainReorgHeader, SPVError};
 use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 use std::collections::HashMap;
 use std::num::NonZeroU64;
+use std::thread::sleep;
+use std::time::Duration;
 
 const FETCH_BLOCK_HEADERS_ATTEMPTS: u64 = 3;
 const CHUNK_SIZE_REDUCER_VALUE: u64 = 100;
@@ -324,7 +326,7 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
         sync_status_loop_handle.notify_blocks_headers_sync_status(from_block_height + 1, to_block_height);
 
         let mut fetch_blocker_headers_attempts = FETCH_BLOCK_HEADERS_ATTEMPTS;
-        let (block_registry, block_headers) = match client
+        let (mut block_registry, block_headers) = match client
             .retrieve_headers(from_block_height + 1, to_block_height)
             .compat()
             .await
@@ -366,8 +368,16 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
 
         // Validate retrieved block headers.
         if let Err(err) = validate_headers(ticker, from_block_height, &block_headers, storage, &spv_conf).await {
-            println!("{err:?}");
             error!("Error {err:?} on validating the latest headers for {ticker}!");
+            if let SPVError::ChainReorgDetected(last_header) = &err {
+                if let Err(err) =
+                    resolve_chain_reorg(client, storage, from_block_height, last_header, &mut block_registry).await
+                {
+                    error!("Error {err:?} on validating the latest headers for {ticker}!");
+                    sync_status_loop_handle.notify_on_permanent_error(err);
+                    break;
+                };
+            }
             // Todo: remove this electrum server and use another in this case since the headers from this server are invalid
             sync_status_loop_handle.notify_on_permanent_error(err);
             break;
@@ -376,6 +386,146 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
         let sleep = args.success_sleep;
         ok_or_continue_after_sleep!(storage.add_block_headers_to_storage(block_registry).await, sleep);
     }
+}
+
+#[derive(Debug, Clone, Display, Eq, PartialEq)]
+pub enum ChainReorgError {
+    #[display(fmt = "Can't get from the storage for {} - reason: {}", coin, reason)]
+    BlockNotFound {
+        coin: String,
+        reason: String,
+    },
+    #[display(
+        fmt = "Unable to delete block headers from_height{from_height} to_height {to_height} from storage for \
+    {coin}\
+     - reason: \
+    {reason}"
+    )]
+    UnableToDeleteHeaders {
+        from_height: u64,
+        to_height: u64,
+        coin: String,
+        reason: String,
+    },
+    AddToStorageErr(String),
+}
+
+// `resolve_chain_reorg` is used to resolve chain reorganizations (chain splits) in a blockchain.
+// It takes in parameters including the Electrum client, the coin ticker being analyzed, a block header storage object,
+// the previous height of the blockchain, a pointer to the last block header, and a mutable hashmap of RPC headers.
+
+// The function first checks the hashmap of RPC headers for the latest header and sets it as the latest_rpc_header.
+// It then loops through the headers to find a conflicting header and checks if the bits (difficulty) of the conflicting headers match. If they do, the function removes the bad headers from rpc_headers and continues to use the headers from storage. If the bits don't match, the function checks the cumulative difficulty of the headers from RPC and the ones in storage to choose which chain is the best. If the headers from RPC have a higher difficulty, the function removes the bad headers from storage and continues to use the headers from RPC. If the headers from storage have a higher difficulty, the function keeps headers from storage and skips the conflicting header from RPC.
+
+// The function returns an error if it is unable to find a block header or delete headers from storage. If it
+// successfully resolves the chain reorganization, the function returns Ok(()).
+async fn resolve_chain_reorg(
+    client: &ElectrumClient,
+    storage: &BlockHeaderStorage,
+    previous_height: u64,
+    last_block_header: &ChainReorgHeader,
+    rpc_headers: &mut HashMap<u64, BlockHeader>,
+) -> Result<(), ChainReorgError> {
+    let ticker = last_block_header.coin.as_str();
+    let latest_rpc_header = rpc_headers
+        .clone()
+        .into_values()
+        .next()
+        .ok_or_else(|| ChainReorgError::BlockNotFound {
+            coin: ticker.to_string(),
+            reason: "empty header".to_string(),
+        })?;
+    let current_hash = last_block_header.hash;
+    let current_bits = u32::from(last_block_header.bits.clone());
+
+    let mut next_height = previous_height;
+    let mut latest_rpc_header = latest_rpc_header.clone();
+    let mut limit = 30;
+
+    while current_hash != latest_rpc_header.previous_header_hash || limit > 1 {
+        // Try using next header from already downloaded headers before requesting new ones.
+        let rpc_header: BlockHeader = if let Some(header) = rpc_headers.remove(&(next_height + 1)) {
+            header.clone()
+        } else {
+            // Request new header if downloaded headers' empty.
+            deserialize(
+                client
+                    .blockchain_block_header(next_height + 1)
+                    .compat()
+                    .await
+                    .map_err(|err| ChainReorgError::BlockNotFound {
+                        coin: ticker.to_string(),
+                        reason: err.to_string(),
+                    })?
+                    .as_slice(),
+            )
+            .map_err(|err| ChainReorgError::BlockNotFound {
+                coin: ticker.to_string(),
+                reason: err.to_string(),
+            })?
+        };
+
+        // Check if conflicting headers have different bits.
+        if current_hash == rpc_header.previous_header_hash && current_bits != u32::from(rpc_header.bits.clone()) {
+            println!(
+                "Chain reorg detected at height: {previous_height} -> hash: {} -> coin: {ticker}",
+                current_hash
+            );
+            // if so, we need to check the best chain by calculating the header with the lowest bits(lower bit,
+            // higher difficulty).
+            return if u32::from(last_block_header.bits.clone()) > u32::from(rpc_header.bits.clone()) {
+                // Remove and replace bad header in storage as latest_rpc_header difficulty is higher
+                // than current header from storage.
+                storage
+                    .remove_headers_from_storage(previous_height, next_height + 1)
+                    .await
+                    .map_err(|err| ChainReorgError::UnableToDeleteHeaders {
+                        from_height: previous_height,
+                        to_height: next_height,
+                        coin: ticker.to_string(),
+                        reason: err.to_string(),
+                    })?;
+                // Replace with new best header(latest_rpc_header with higher difficulty)
+                let mut headers = HashMap::new();
+                headers.insert(next_height + 1, rpc_header.clone());
+                storage
+                    .add_block_headers_to_storage(headers)
+                    .await
+                    .map_err(|err| ChainReorgError::AddToStorageErr(err.to_string()))?;
+                Ok(())
+            } else {
+                // If the header from storage has a higher difficulty, skip the header from RPC and keep the storage
+                // header.
+                Ok(())
+            };
+        } else {
+            // Remove bad conflicting header and successors from storage.
+            storage
+                .remove_headers_from_storage(previous_height, next_height + 1)
+                .await
+                .map_err(|err| ChainReorgError::UnableToDeleteHeaders {
+                    from_height: previous_height,
+                    to_height: next_height + 1,
+                    coin: ticker.to_string(),
+                    reason: err.to_string(),
+                })?;
+        }
+
+        if current_hash == rpc_header.previous_header_hash
+            && current_bits == u32::from(rpc_header.bits.clone())
+            && u32::from(last_block_header.bits.clone()) > u32::from(rpc_header.bits.clone())
+        {
+            return Ok(());
+        }
+
+        latest_rpc_header = rpc_header;
+        next_height += 1;
+        limit -= 1;
+
+        sleep(Duration::from_secs(10))
+    }
+
+    Ok(())
 }
 
 #[derive(Display)]

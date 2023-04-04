@@ -1,12 +1,13 @@
 use crate::conf::{SPVBlockHeader, SPVConf};
 use crate::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 use crate::work::{next_block_bits, NextBlockBitsError};
-use chain::{BlockHeader, RawHeaderError};
+use chain::{BlockHeader, BlockHeaderBits, RawHeaderError};
 use derive_more::Display;
 use primitives::hash::H256;
 use ripemd160::Digest;
 use serialization::parse_compact_int;
 use sha2::Sha256;
+use std::fmt::Formatter;
 
 #[derive(Clone, Debug, Display, Eq, PartialEq)]
 pub enum SPVError {
@@ -62,7 +63,7 @@ pub enum SPVError {
     #[display(fmt = "Internal error: {}", _0)]
     Internal(String),
     #[display(fmt = "Chain reorg error: {}", _0)]
-    ChainReorgError(String),
+    ChainReorgDetected(ChainReorgHeader),
 }
 
 impl From<RawHeaderError> for SPVError {
@@ -313,8 +314,6 @@ pub(crate) fn merkle_prove(
     verify_hash256_merkle(txid.take().into(), merkle_root.take().into(), &nodes, index)
 }
 
-fn validate_header_prev_hash(actual: &H256, to_compare_with: &H256) -> bool { actual == to_compare_with }
-
 /// Checks validity of header chain.
 /// Compares the hash of each header to the prevHash in the next header.
 ///
@@ -352,30 +351,12 @@ pub async fn validate_headers(
             SPVBlockHeader::from_block_header_and_height(&header, last_block_height)
         };
     let mut previous_height = last_block_height;
-    let mut previous_hash = previous_header.hash;
+    //    let mut previous_hash = previous_header.hash;
     let mut prev_bits = previous_header.bits.clone();
 
     for header in headers.iter() {
-        if !validate_header_prev_hash(&header.previous_header_hash, &previous_hash) {
-            return Err(SPVError::InvalidChain {
-                coin: coin.to_string(),
-                height: previous_height + 1,
-            });
-        }
-        // Compare header difficulty of old block with the new block difficulty and remove bad headers from storage if there's a conflict.
-
-        detect_and_resolve_conflicting_headers_by_difficulty(
-            coin,
-            previous_height,
-            &previous_header,
-            last_block_height,
-            header,
-            storage,
-        )
-        .await?;
-        // Compare header hash of old block with the new block hash and remove bad headers from storage if there's a conflict.
-        detect_and_resolve_conflicting_headers_by_hash(coin, last_block_height, &previous_header, header, storage)
-            .await?;
+        // Detect for chain reorganization and return the last header(previous_header).
+        detect_chain_reorg(coin, &previous_header, header).await?;
 
         let current_block_bits = header.bits.clone();
         if let Some(params) = &conf.validation_params {
@@ -395,133 +376,53 @@ pub async fn validate_headers(
 
         prev_bits = current_block_bits;
         previous_header = SPVBlockHeader::from_block_header_and_height(header, previous_height + 1);
-        previous_hash = previous_header.hash;
+        //        previous_hash = previous_header.hash;
         previous_height += 1;
     }
     Ok(())
 }
 
-#[derive(Debug, Display)]
-pub(crate) enum ChainReorgError {
-    #[display(fmt = "Can't get from the storage for {} - reason: {}", coin, reason)]
-    BlockNotFound { coin: String, reason: String },
-    #[display(fmt = "Invalid chain detected for {} new block headers at height : {}", coin, height)]
-    InvalidChain { coin: String, height: u64 },
-    #[display(
-        fmt = "Unable to delete block headers from_height{from_height} to_height {to_height} from storage for \
-    {coin}\
-     - reason: \
-    {reason}"
-    )]
-    UnableToDeleteHeaders {
-        from_height: u64,
-        to_height: u64,
-        coin: String,
-        reason: String,
-    },
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChainReorgHeader {
+    pub coin: String,
+    pub height: u64,
+    pub hash: H256,
+    pub bits: BlockHeaderBits,
 }
 
-impl From<ChainReorgError> for SPVError {
-    fn from(value: ChainReorgError) -> Self { Self::ChainReorgError(value.to_string()) }
-}
-
-// Check for a chain reorg given a block header and a list of headers
-// downloaded from an RPC node and remove bad headers from storage by block difficulty.
-pub(crate) async fn detect_and_resolve_conflicting_headers_by_difficulty(
-    coin: &str,
-    previous_height: u64,
-    previous_header: &SPVBlockHeader,
-    last_block_height: u64,
-    new_header: &BlockHeader,
-    storage: &dyn BlockHeaderStorageOps,
-) -> Result<(), ChainReorgError> {
-    if previous_header.previous_header_hash == new_header.previous_header_hash
-        && (previous_header.hash != new_header.hash() && previous_header.bits != new_header.bits)
-    {
-        if u32::from(previous_header.bits.clone()) > u32::from(new_header.bits.clone()) {
-            println!(
-                "Chain reorg detected at height: {last_block_height} -> hash: {} -> coin: {coin}",
-                new_header.hash()
-            );
-            // Todo: retry header sync using another eletrum.
-            return Err(ChainReorgError::InvalidChain {
-                coin: coin.to_string(),
-                height: previous_height + 1,
-            });
-        } else {
-            // Remove bad conflicting header and successors from storage.
-            storage
-                .remove_headers_from_storage(previous_height + 1, last_block_height)
-                .await
-                .map_err(|err| ChainReorgError::UnableToDeleteHeaders {
-                    from_height: previous_height + 1,
-                    to_height: last_block_height,
-                    coin: coin.to_string(),
-                    reason: err.to_string(),
-                })?;
-        };
+impl std::fmt::Display for ChainReorgHeader {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "coin:{} height:{} hash:{:?}", self.coin, self.height, self.hash)
     }
-
-    Ok(())
 }
 
-// Check for a chain reorg given a block header and a list of headers
-// downloaded from an RPC node and remove bad headers from storage by block hash.
-pub(crate) async fn detect_and_resolve_conflicting_headers_by_hash(
+impl From<ChainReorgHeader> for SPVError {
+    fn from(value: ChainReorgHeader) -> Self { Self::ChainReorgDetected(value) }
+}
+
+impl Eq for ChainReorgHeader {}
+
+// The function first compares the hash of the last header with the previous hash in the new header. If they don't
+// match, a chain reorganization is detected. In this case, the function prints a message indicating the detection of
+// the reorganization and returns an error with the details of the last header.
+//If the headers match, the function returns Ok(()), indicating that no chain reorganization has been detected.
+pub(crate) async fn detect_chain_reorg(
     coin: &str,
-    last_block_height: u64,
     last_header: &SPVBlockHeader,
     new_header: &BlockHeader,
-    storage: &dyn BlockHeaderStorageOps,
-) -> Result<(), ChainReorgError> {
+) -> Result<(), ChainReorgHeader> {
     // Compare header hash of old block with the new block hash and remove bad headers.
     if last_header.hash != new_header.previous_header_hash {
         println!(
-            "Chain reorg detected at height: {last_block_height} -> hash: {} -> coin: {coin}",
-            new_header.hash()
+            "Chain reorg detected at height: {} -> hash: {} -> coin: {coin}",
+            last_header.height, last_header.hash
         );
-
-        let mut current_height = last_block_height;
-        let mut best_header_hash = last_header.hash;
-        while new_header.previous_header_hash != best_header_hash {
-            current_height -= 1;
-            match storage
-                .get_block_header(current_height)
-                .await
-                .map_err(|e| ChainReorgError::BlockNotFound {
-                    coin: coin.to_string(),
-                    reason: e.to_string(),
-                }) {
-                Ok(res) => {
-                    best_header_hash = res
-                        .ok_or_else(|| ChainReorgError::BlockNotFound {
-                            coin: coin.to_string(),
-                            reason: "No header found".to_string(),
-                        })?
-                        .hash();
-                },
-                Err(err) => {
-                    // handle case for empty headers in storage.
-                    if storage.is_table_empty().await.is_ok() {
-                        break;
-                    };
-
-                    return Err(err);
-                },
-            }
-        }
-
-        storage
-            .remove_headers_from_storage(current_height + 1, last_block_height)
-            .await
-            .map_err(|err| ChainReorgError::UnableToDeleteHeaders {
-                from_height: current_height + 1,
-                to_height: last_block_height,
-                coin: coin.to_string(),
-                reason: err.to_string(),
-            })?;
-
-        return Ok(());
+        return Err(ChainReorgHeader {
+            coin: coin.to_string(),
+            height: last_header.height,
+            hash: last_header.hash,
+            bits: last_header.bits.clone(),
+        });
     }
 
     Ok(())
