@@ -2964,9 +2964,21 @@ pub mod tendermint_coin_tests {
         .unwrap();
 
         let invalid_amount = 1.into();
+
+        // just a random transfer tx not related to AtomicDEX, should fail on recipient address check
+        // TODO: we don't have an explorer to ref tx link
+        let random_transfer_tx_hash = "93BE1E3EDEAC2DA60361EA3DEED34C078C4F633BF5ABF924B3B3B7619F3E92AE";
+        let random_transfer_tx_bytes = block_on(coin.request_tx(random_transfer_tx_hash.into()))
+            .unwrap()
+            .encode_to_vec();
+
+        let random_transfer_tx = TransactionEnum::CosmosTransaction(CosmosTransaction {
+            data: TxRaw::decode(random_transfer_tx_bytes.as_slice()).unwrap(),
+        });
+
         let error = coin
             .validate_fee(ValidateFeeArgs {
-                fee_tx: &create_htlc_tx,
+                fee_tx: &random_transfer_tx,
                 expected_sender: &[],
                 fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
                 amount: &invalid_amount,
