@@ -427,19 +427,19 @@ async fn resolve_chain_reorg(
     rpc_headers: &mut HashMap<u64, BlockHeader>,
 ) -> Result<(), ChainReorgError> {
     let ticker = last_block_header.coin.as_str();
-    let latest_rpc_header = rpc_headers
-        .clone()
-        .into_values()
-        .next()
-        .ok_or_else(|| ChainReorgError::BlockNotFound {
-            coin: ticker.to_string(),
-            reason: "empty header".to_string(),
-        })?;
     let current_hash = last_block_header.hash;
     let current_bits = u32::from(last_block_header.bits.clone());
 
+    let mut latest_rpc_header =
+        rpc_headers
+            .clone()
+            .into_values()
+            .next()
+            .ok_or_else(|| ChainReorgError::BlockNotFound {
+                coin: ticker.to_string(),
+                reason: "empty header".to_string(),
+            })?;
     let mut next_height = previous_height;
-    let mut latest_rpc_header = latest_rpc_header.clone();
     let mut limit = 30;
 
     while current_hash != latest_rpc_header.previous_header_hash || limit > 1 {
