@@ -220,7 +220,7 @@ fn zombie_coin_validate_dex_fee() {
         uuid: &[1; 16],
     };
     // Invalid amount should return an error
-    let err = coin.validate_fee(validate_fee_args).wait().unwrap_err();
+    let err = coin.validate_fee(validate_fee_args).wait().unwrap_err().into_inner();
     match err {
         ValidatePaymentError::WrongPaymentTx(err) => assert!(err.contains("Dex fee has invalid amount")),
         _ => panic!("Expected `WrongPaymentTx`: {:?}", err),
@@ -235,7 +235,7 @@ fn zombie_coin_validate_dex_fee() {
         min_block_number: 12000,
         uuid: &[2; 16],
     };
-    let err = coin.validate_fee(validate_fee_args).wait().unwrap_err();
+    let err = coin.validate_fee(validate_fee_args).wait().unwrap_err().into_inner();
     match err {
         ValidatePaymentError::WrongPaymentTx(err) => assert!(err.contains("Dex fee has invalid memo")),
         _ => panic!("Expected `WrongPaymentTx`: {:?}", err),
@@ -250,7 +250,7 @@ fn zombie_coin_validate_dex_fee() {
         min_block_number: 14000,
         uuid: &[1; 16],
     };
-    let err = coin.validate_fee(validate_fee_args).wait().unwrap_err();
+    let err = coin.validate_fee(validate_fee_args).wait().unwrap_err().into_inner();
     match err {
         ValidatePaymentError::WrongPaymentTx(err) => assert!(err.contains("confirmed before min block")),
         _ => panic!("Expected `WrongPaymentTx`: {:?}", err),

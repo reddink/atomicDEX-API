@@ -12,4 +12,4 @@ mod swaps_file_lock_tests;
 
 // dummy test helping IDE to recognize this as test module
 #[test]
-fn dummy() { assert!(true) }
+fn dummy() {}
