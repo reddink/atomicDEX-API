@@ -43,10 +43,11 @@ use std::sync::Mutex;
 use std::{convert::TryFrom, fmt::Debug, ops::Deref, sync::Arc};
 
 pub mod solana_common;
-#[cfg(test)] mod solana_common_tests;
 mod solana_decode_tx_helpers;
-#[cfg(test)] mod solana_tests;
 pub mod spl;
+
+#[cfg(test)] mod solana_common_tests;
+#[cfg(test)] mod solana_tests;
 #[cfg(test)] mod spl_tests;
 
 pub const SOLANA_DEFAULT_DECIMALS: u64 = 9;
