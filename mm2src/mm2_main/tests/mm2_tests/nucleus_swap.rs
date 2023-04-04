@@ -21,7 +21,7 @@ fn start_swap_operation() {
     let pairs = [
         ("NUCLEUS-TEST", "IRIS-IBC-NUCLEUS-TEST"),
         ("IRIS-IBC-NUCLEUS-TEST", "RICK"),
-        ("NUCLEUS-TEST", "tBNB"),
+        // ("NUCLEUS-TEST", "tBNB"),
     ];
     block_on(trade_base_rel_nucleus(&pairs, 1, 2, 0.008));
 }
@@ -107,8 +107,8 @@ pub async fn trade_base_rel_nucleus(
         .await
     );
     dbg!(enable_electrum(&mm_alice, "RICK", false, RICK_ELECTRUM_ADDRS).await);
-    dbg!(enable_eth_coin(&mm_bob, "tBNB", TBNB_URLS, TBNB_SWAP_CONTRACT, None).await);
-    dbg!(enable_eth_coin(&mm_alice, "tBNB", TBNB_URLS, TBNB_SWAP_CONTRACT, None).await);
+    dbg!(enable_eth_coin(&mm_bob, "tBNB", TBNB_URLS, TBNB_SWAP_CONTRACT, None, false).await);
+    dbg!(enable_eth_coin(&mm_alice, "tBNB", TBNB_URLS, TBNB_SWAP_CONTRACT, None, false).await);
 
     for (base, rel) in pairs.iter() {
         log!("Issue bob {}/{} sell request", base, rel);
