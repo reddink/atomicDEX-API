@@ -1033,13 +1033,10 @@ impl TendermintCoin {
         let msg_payload = MsgCreateHtlc {
             sender: self.account_id.clone(),
             to: to.clone(),
-            receiver_on_other_chain: "".to_string(),
-            sender_on_other_chain: "".to_string(),
             amount: amount.clone(),
             hash_lock: hex::encode(secret_hash),
             timestamp,
             time_lock,
-            transfer: false,
         };
 
         let htlc_id = self.calculate_htlc_id(&self.account_id, to, amount, secret_hash);
@@ -1410,13 +1407,10 @@ impl TendermintCoin {
             let expected_msg = MsgCreateHtlc {
                 sender: sender.clone(),
                 to: coin.account_id.clone(),
-                receiver_on_other_chain: "".into(),
-                sender_on_other_chain: "".into(),
                 amount: amount.clone(),
                 hash_lock: hex::encode(&input.secret_hash),
                 timestamp: 0,
                 time_lock: time_lock as u64,
-                transfer: false,
             };
 
             if create_htlc_msg != expected_msg {

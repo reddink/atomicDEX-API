@@ -49,12 +49,6 @@ pub(crate) struct MsgCreateHtlc {
     /// Recipient's address.
     pub(crate) sender: AccountId,
 
-    /// The claim receiving address on the other chain.
-    pub(crate) receiver_on_other_chain: String,
-
-    /// The counterparty creator address on the other chain.
-    pub(crate) sender_on_other_chain: String,
-
     /// Amount to send.
     pub(crate) amount: Vec<Coin>,
 
@@ -66,9 +60,6 @@ pub(crate) struct MsgCreateHtlc {
 
     /// The timestamp in seconds for generating hash lock if provided.
     pub(crate) timestamp: u64,
-
-    /// Whether it is an HTLT transaction.
-    pub(crate) transfer: bool,
 }
 
 impl Msg for MsgCreateHtlc {
@@ -89,12 +80,9 @@ impl TryFrom<&CreateHtlcProtoRep> for MsgCreateHtlc {
             sender: proto.sender.parse()?,
             to: proto.to.parse()?,
             amount: proto.amount.iter().map(TryFrom::try_from).collect::<Result<_, _>>()?,
-            receiver_on_other_chain: proto.receiver_on_other_chain.clone(),
-            sender_on_other_chain: proto.sender_on_other_chain.clone(),
             hash_lock: proto.hash_lock.clone(),
             timestamp: proto.timestamp,
             time_lock: proto.time_lock,
-            transfer: proto.transfer,
         })
     }
 }
@@ -109,12 +97,9 @@ impl From<&MsgCreateHtlc> for CreateHtlcProtoRep {
             sender: msg.sender.to_string(),
             to: msg.to.to_string(),
             amount: msg.amount.iter().map(Into::into).collect(),
-            receiver_on_other_chain: msg.receiver_on_other_chain.clone(),
-            sender_on_other_chain: msg.sender_on_other_chain.clone(),
             hash_lock: msg.hash_lock.clone(),
             timestamp: msg.timestamp,
             time_lock: msg.time_lock,
-            transfer: msg.transfer,
         }
     }
 }
