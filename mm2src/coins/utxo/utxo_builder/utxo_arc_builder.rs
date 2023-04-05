@@ -368,17 +368,17 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
 
         // Validate retrieved block headers.
         if let Err(err) = validate_headers(ticker, from_block_height, &block_headers, storage, &spv_conf).await {
-            error!("Error {err:?} on validating the latest headers for {ticker}!");
             if let SPVError::ChainReorgDetected(last_header) = &err {
                 if let Err(err) =
                     resolve_chain_reorg(client, storage, from_block_height, last_header, &mut block_registry).await
                 {
                     error!("Error {err:?} on validating the latest headers for {ticker}!");
-                    sync_status_loop_handle.notify_on_permanent_error(err);
-                    break;
+                    sync_status_loop_handle.notify_on_temp_error(err);
+                    continue;
                 };
             }
             // Todo: remove this electrum server and use another in this case since the headers from this server are invalid
+            error!("Error {err:?} on validating the latest headers for {ticker}!");
             sync_status_loop_handle.notify_on_permanent_error(err);
             break;
         };
@@ -496,6 +496,7 @@ async fn resolve_chain_reorg(
             } else {
                 // If the header from storage has a higher difficulty, skip the header from RPC and keep the storage
                 // header.
+                rpc_headers.clear();
                 Ok(())
             };
         } else {
@@ -515,6 +516,7 @@ async fn resolve_chain_reorg(
             && current_bits == u32::from(rpc_header.bits.clone())
             && u32::from(last_block_header.bits.clone()) > u32::from(rpc_header.bits.clone())
         {
+            rpc_headers.clear();
             return Ok(());
         }
 
