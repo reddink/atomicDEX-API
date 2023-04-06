@@ -18,7 +18,7 @@ pub struct NftMetadataReq {
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
-pub(crate) enum Chain {
+pub enum Chain {
     Avalanche,
     Bsc,
     Eth,
@@ -209,7 +209,7 @@ pub struct NftTransfersReq {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct NftTransferHistory {
+pub struct NftTransferHistory {
     pub(crate) chain: Chain,
     pub(crate) block_number: u64,
     pub(crate) block_timestamp: String,
