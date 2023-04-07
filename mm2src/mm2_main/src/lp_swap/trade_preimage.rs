@@ -196,6 +196,20 @@ pub enum TradePreimageRpcError {
         locked_by_swaps: Option<BigDecimal>,
     },
     #[display(
+        fmt = "Not enough receivable {} for swap: available {}, required at least {}, locked by swaps {:?}",
+        coin,
+        available,
+        required,
+        locked_by_swaps
+    )]
+    NotSufficientReceivableBalance {
+        coin: String,
+        available: BigDecimal,
+        required: BigDecimal,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        locked_by_swaps: Option<BigDecimal>,
+    },
+    #[display(
         fmt = "Not enough base coin {} balance for swap: available {}, required at least {}, locked by swaps {:?}",
         coin,
         available,
@@ -240,6 +254,7 @@ impl HttpStatusCode for TradePreimageRpcError {
     fn status_code(&self) -> StatusCode {
         match self {
             TradePreimageRpcError::NotSufficientBalance { .. }
+            | TradePreimageRpcError::NotSufficientReceivableBalance { .. }
             | TradePreimageRpcError::NotSufficientBaseCoinBalance { .. }
             | TradePreimageRpcError::VolumeTooLow { .. }
             | TradePreimageRpcError::NoSuchCoin { .. }
@@ -276,6 +291,17 @@ impl From<CheckBalanceError> for TradePreimageRpcError {
                 required,
                 locked_by_swaps,
             } => TradePreimageRpcError::NotSufficientBalance {
+                coin,
+                available,
+                required,
+                locked_by_swaps,
+            },
+            CheckBalanceError::NotSufficientReceivableBalance {
+                coin,
+                available,
+                required,
+                locked_by_swaps,
+            } => TradePreimageRpcError::NotSufficientReceivableBalance {
                 coin,
                 available,
                 required,

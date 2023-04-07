@@ -174,11 +174,11 @@ impl Add for LightningSpecificBalanceMsat {
 // Todo: if this is refactored, remove #[allow(clippy::large_enum_variant)] in multiple structs
 #[derive(Clone, Debug, PartialEq, PartialOrd, Serialize)]
 pub struct LightningSpecificBalance {
-    inbound: BigDecimal,
-    min_receivable_amount_per_payment: BigDecimal,
-    max_receivable_amount_per_payment: BigDecimal,
-    min_spendable_amount_per_payment: BigDecimal,
-    max_spendable_amount_per_payment: BigDecimal,
+    pub inbound: BigDecimal,
+    pub min_receivable_amount_per_payment: BigDecimal,
+    pub max_receivable_amount_per_payment: BigDecimal,
+    pub min_spendable_amount_per_payment: BigDecimal,
+    pub max_spendable_amount_per_payment: BigDecimal,
 }
 
 impl Add for LightningSpecificBalance {
@@ -1350,6 +1350,7 @@ impl MarketCoinOps for LightningCoin {
     // This will depend on the route/routes taken for the payment, since every channel's counterparty specifies the minimum amount they will allow to route.
     // Since route is not specified at this stage yet, we can use the maximum of these minimum amounts as the min_tx_amount allowed.
     // Default value: 1 msat if the counterparty is using LDK default value.
+    // Todo: recheck this in light of where it is used
     fn min_tx_amount(&self) -> BigDecimal {
         let amount_in_msat = self
             .channel_manager
@@ -1488,6 +1489,7 @@ impl MmCoin for LightningCoin {
     // alongside the receiver lightning node address/pubkey.
     // Note: This is required only for the side that's getting paid in lightning.
     // Todo: should take in consideration JIT routing and using LSPs in next PRs
+    // Todo: revise protocol info after balance checks are done, draw a diagram to show how balance works for lightning, also check match_by and how it's done in GUI
     fn coin_protocol_info(&self, amount_to_receive: Option<MmNumber>) -> Vec<u8> {
         let amt_msat = match amount_to_receive.map(|a| sat_from_big_decimal(&a.into(), self.decimals())) {
             Some(Ok(amt)) => amt,

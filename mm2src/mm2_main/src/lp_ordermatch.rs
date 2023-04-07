@@ -25,7 +25,7 @@ use best_orders::BestOrdersAction;
 use blake2::digest::{Update, VariableOutput};
 use blake2::Blake2bVar;
 use coins::utxo::{compressed_pub_key_from_priv_raw, ChecksumType, UtxoAddressFormat};
-use coins::{coin_conf, find_pair, lp_coinfind, BalanceTradeFeeUpdatedHandler, CoinProtocol, CoinsContext,
+use coins::{coin_conf, find_pair, lp_coinfind, BalanceTradeFeeUpdatedHandler, CoinBalance, CoinProtocol, CoinsContext,
             FeeApproxStage, MmCoinEnum};
 use common::executor::{simple_map::AbortableSimpleMap, AbortSettings, AbortableSystem, AbortedError, SpawnAbortable,
                        SpawnFuture, Timer};
@@ -1025,7 +1025,7 @@ impl BalanceUpdateOrdermatchHandler {
 
 #[async_trait]
 impl BalanceTradeFeeUpdatedHandler for BalanceUpdateOrdermatchHandler {
-    async fn balance_updated(&self, coin: &MmCoinEnum, new_balance: &BigDecimal) {
+    async fn balance_updated(&self, coin: &MmCoinEnum, new_balance: &CoinBalance) {
         let ctx = match MmArc::from_weak(&self.ctx) {
             Some(ctx) => ctx,
             None => return,
@@ -2798,7 +2798,7 @@ impl MakerOrdersContext {
         })
     }
 
-    fn add_order(&mut self, ctx: MmWeak, order: MakerOrder, balance: Option<BigDecimal>) {
+    fn add_order(&mut self, ctx: MmWeak, order: MakerOrder, balance: Option<CoinBalance>) {
         self.spawn_balance_loop_if_not_spawned(ctx, order.base.clone(), balance);
 
         self.order_tickers.insert(order.uuid, order.base.clone());
@@ -2828,7 +2828,7 @@ impl MakerOrdersContext {
         self.count_by_tickers.get(ticker).copied() > Some(0)
     }
 
-    fn spawn_balance_loop_if_not_spawned(&mut self, ctx: MmWeak, order_base: String, balance: Option<BigDecimal>) {
+    fn spawn_balance_loop_if_not_spawned(&mut self, ctx: MmWeak, order_base: String, balance: Option<CoinBalance>) {
         let ticker = order_base.clone();
         let mut balance_loops = self.balance_loops.lock();
 
@@ -3112,7 +3112,7 @@ pub async fn lp_ordermatch_loop(ctx: MmArc) {
                     Ok(Some(pair)) => pair,
                     _ => continue,
                 };
-                let current_balance = match base.my_spendable_balance().compat().await {
+                let current_balance = match base.my_balance().compat().await {
                     Ok(b) => b,
                     Err(e) => {
                         log::info!("Error {} on balance check to kickstart order {}, cancelling", e, uuid);
@@ -4489,7 +4489,7 @@ pub async fn check_other_coin_balance_for_order_issue(
     check_other_coin_balance_for_swap(ctx, other_coin, None, trade_fee).await
 }
 
-pub async fn check_balance_update_loop(ctx: MmWeak, ticker: String, balance: Option<BigDecimal>) {
+pub async fn check_balance_update_loop(ctx: MmWeak, ticker: String, balance: Option<CoinBalance>) {
     let mut current_balance = balance;
     loop {
         Timer::sleep(BALANCE_REQUEST_INTERVAL).await;
@@ -4499,7 +4499,7 @@ pub async fn check_balance_update_loop(ctx: MmWeak, ticker: String, balance: Opt
         };
 
         if let Ok(Some(coin)) = lp_coinfind(&ctx, &ticker).await {
-            let balance = match coin.my_spendable_balance().compat().await {
+            let balance = match coin.my_balance().compat().await {
                 Ok(balance) => balance,
                 Err(_) => continue,
             };
@@ -4537,7 +4537,7 @@ pub async fn create_maker_order(ctx: &MmArc, req: SetPriceReq) -> Result<MakerOr
                 .await
         );
         try_s!(check_other_coin_balance_for_order_issue(ctx, &rel_coin, volume.to_decimal()).await);
-        (volume, balance.to_decimal())
+        (volume, balance)
     } else {
         let balance = try_s!(
             check_balance_for_maker_swap(

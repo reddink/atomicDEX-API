@@ -1367,6 +1367,20 @@ pub enum ProtocolSpecificBalance {
     Lightning(LightningSpecificBalance),
 }
 
+impl ProtocolSpecificBalance {
+    pub fn receivable_balance(&self) -> BigDecimal {
+        match self {
+            ProtocolSpecificBalance::Lightning(balance) => balance.inbound.clone(),
+        }
+    }
+
+    pub fn min_receivable_balance(&self) -> BigDecimal {
+        match self {
+            ProtocolSpecificBalance::Lightning(balance) => balance.min_receivable_amount_per_payment.clone(),
+        }
+    }
+}
+
 impl Add for ProtocolSpecificBalance {
     type Output = ProtocolSpecificBalance;
 
@@ -2456,7 +2470,7 @@ impl MmCoinEnum {
 
 #[async_trait]
 pub trait BalanceTradeFeeUpdatedHandler {
-    async fn balance_updated(&self, coin: &MmCoinEnum, new_balance: &BigDecimal);
+    async fn balance_updated(&self, coin: &MmCoinEnum, new_balance: &CoinBalance);
 }
 
 pub struct CoinsContext {
@@ -2892,7 +2906,7 @@ impl RpcTransportEventHandler for CoinTransportMetrics {
 
 #[async_trait]
 impl BalanceTradeFeeUpdatedHandler for CoinsContext {
-    async fn balance_updated(&self, coin: &MmCoinEnum, new_balance: &BigDecimal) {
+    async fn balance_updated(&self, coin: &MmCoinEnum, new_balance: &CoinBalance) {
         for sub in self.balance_update_handlers.lock().await.iter() {
             sub.balance_updated(coin, new_balance).await
         }

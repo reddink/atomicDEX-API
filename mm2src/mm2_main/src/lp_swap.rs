@@ -379,12 +379,14 @@ pub struct RecoveredSwap {
     transaction: TransactionEnum,
 }
 
-/// Represents the amount of a coin locked by ongoing swap
+/// Represents the amount of a coin locked by ongoing swap, amount_to_receive will only be used by protocols that required inbound liquidity (e.g. lightning)
 #[derive(Debug)]
 pub struct LockedAmount {
     coin: String,
     amount: MmNumber,
     trade_fee: Option<TradeFee>,
+    // Todo: make this optional to return none in case this is not lightning
+    amount_to_receive: MmNumber,
 }
 
 pub trait AtomicSwap: Send + Sync {
@@ -490,12 +492,14 @@ pub async fn get_locked_amount_rpc(
 
     Ok(GetLockedAmountResp {
         coin: req.coin,
-        locked_amount: locked_amount.into(),
+        // Todo: add a field for receivable locked amount
+        locked_amount: locked_amount.0.into(),
     })
 }
 
 /// Get total amount of selected coin locked by all currently ongoing swaps
-pub fn get_locked_amount(ctx: &MmArc, coin: &str) -> MmNumber {
+// Todo: make second amount optional in case of lightning
+pub fn get_locked_amount(ctx: &MmArc, coin: &str) -> (MmNumber, MmNumber) {
     let swap_ctx = SwapsContext::from_ctx(ctx).unwrap();
     let swap_lock = swap_ctx.running_swaps.lock().unwrap();
 
@@ -503,13 +507,14 @@ pub fn get_locked_amount(ctx: &MmArc, coin: &str) -> MmNumber {
         .iter()
         .filter_map(|swap| swap.upgrade())
         .flat_map(|swap| swap.locked_amount())
-        .fold(MmNumber::from(0), |mut total_amount, locked| {
+        .fold((MmNumber::from(0), MmNumber::from(0)), |mut total_amount, locked| {
             if locked.coin == coin {
-                total_amount += locked.amount;
+                total_amount.0 += locked.amount;
+                total_amount.1 += locked.amount_to_receive;
             }
             if let Some(trade_fee) = locked.trade_fee {
                 if trade_fee.coin == coin && !trade_fee.paid_from_trading_vol {
-                    total_amount += trade_fee.amount;
+                    total_amount.0 += trade_fee.amount;
                 }
             }
             total_amount
