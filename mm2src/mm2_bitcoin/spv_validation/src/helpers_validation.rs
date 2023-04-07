@@ -1,13 +1,12 @@
 use crate::conf::{SPVBlockHeader, SPVConf};
 use crate::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 use crate::work::{next_block_bits, NextBlockBitsError};
-use chain::{BlockHeader, BlockHeaderBits, RawHeaderError};
+use chain::{BlockHeader, RawHeaderError};
 use derive_more::Display;
 use primitives::hash::H256;
 use ripemd160::Digest;
 use serialization::parse_compact_int;
 use sha2::Sha256;
-use std::fmt::Formatter;
 
 #[derive(Clone, Debug, Display, Eq, PartialEq)]
 pub enum SPVError {
@@ -62,8 +61,8 @@ pub enum SPVError {
     WrongRetargetHeight { coin: String, expected_height: u64 },
     #[display(fmt = "Internal error: {}", _0)]
     Internal(String),
-    #[display(fmt = "Chain reorg error: {}", _0)]
-    ChainReorgDetected(ChainReorgHeader),
+    #[display(fmt = "Parent Hash Mismatch - coin:{coin} - height:{height}")]
+    ParentHashMismatch { coin: String, height: u64 },
 }
 
 impl From<RawHeaderError> for SPVError {
@@ -314,6 +313,8 @@ pub(crate) fn merkle_prove(
     verify_hash256_merkle(txid.take().into(), merkle_root.take().into(), &nodes, index)
 }
 
+fn validate_header_prev_hash(actual: &H256, to_compare_with: &H256) -> bool { actual == to_compare_with }
+
 /// Checks validity of header chain.
 /// Compares the hash of each header to the prevHash in the next header.
 ///
@@ -333,30 +334,35 @@ pub(crate) fn merkle_prove(
 /// Wrapper inspired by `bitcoin_spv::validatespv::validate_header_chain`
 pub async fn validate_headers(
     coin: &str,
-    last_block_height: u64,
+    previous_height: u64,
     headers: &[BlockHeader],
     storage: &dyn BlockHeaderStorageOps,
     conf: &SPVConf,
 ) -> Result<(), SPVError> {
     let mut previous_header =
-        if last_block_height == conf.starting_block_header.height {
+        if previous_height == conf.starting_block_header.height {
             conf.starting_block_header.clone()
         } else {
-            let header = storage.get_block_header(last_block_height).await?.ok_or(
+            let header = storage.get_block_header(previous_height).await?.ok_or(
                 BlockHeaderStorageError::GetFromStorageError {
                     coin: coin.to_string(),
-                    reason: format!("Header with height {} is not found in storage", last_block_height),
+                    reason: format!("Header with height {} is not found in storage", previous_height),
                 },
             )?;
-            SPVBlockHeader::from_block_header_and_height(&header, last_block_height)
+            SPVBlockHeader::from_block_header_and_height(&header, previous_height)
         };
-    let mut previous_height = last_block_height;
-    //    let mut previous_hash = previous_header.hash;
+    let mut previous_height = previous_height;
+    let mut previous_hash = previous_header.hash;
     let mut prev_bits = previous_header.bits.clone();
 
     for header in headers.iter() {
-        // Detect for chain reorganization and return the last header(previous_header).
-        detect_chain_reorg(coin, &previous_header, header).await?;
+        if !validate_header_prev_hash(&header.previous_header_hash, &previous_hash) {
+            // Detect for chain reorganization and return the last header(previous_header).
+            return Err(SPVError::ParentHashMismatch {
+                coin: coin.to_string(),
+                height: previous_height + 1,
+            });
+        }
 
         let current_block_bits = header.bits.clone();
         if let Some(params) = &conf.validation_params {
@@ -376,55 +382,9 @@ pub async fn validate_headers(
 
         prev_bits = current_block_bits;
         previous_header = SPVBlockHeader::from_block_header_and_height(header, previous_height + 1);
-        //        previous_hash = previous_header.hash;
+        previous_hash = previous_header.hash;
         previous_height += 1;
     }
-    Ok(())
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ChainReorgHeader {
-    pub coin: String,
-    pub height: u64,
-    pub hash: H256,
-    pub bits: BlockHeaderBits,
-}
-
-impl std::fmt::Display for ChainReorgHeader {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "coin:{} height:{} hash:{:?}", self.coin, self.height, self.hash)
-    }
-}
-
-impl From<ChainReorgHeader> for SPVError {
-    fn from(value: ChainReorgHeader) -> Self { Self::ChainReorgDetected(value) }
-}
-
-impl Eq for ChainReorgHeader {}
-
-// The function first compares the hash of the last header with the previous hash in the new header. If they don't
-// match, a chain reorganization is detected. In this case, the function prints a message indicating the detection of
-// the reorganization and returns an error with the details of the last header.
-//If the headers match, the function returns Ok(()), indicating that no chain reorganization has been detected.
-pub(crate) async fn detect_chain_reorg(
-    coin: &str,
-    last_header: &SPVBlockHeader,
-    new_header: &BlockHeader,
-) -> Result<(), ChainReorgHeader> {
-    // Compare header hash of old block with the new block hash and remove bad headers.
-    if last_header.hash != new_header.previous_header_hash {
-        println!(
-            "Chain reorg detected at height: {} -> hash: {} -> coin: {coin}",
-            last_header.height, last_header.hash
-        );
-        return Err(ChainReorgHeader {
-            coin: coin.to_string(),
-            height: last_header.height,
-            hash: last_header.hash,
-            bits: last_header.bits.clone(),
-        });
-    }
-
     Ok(())
 }
 
