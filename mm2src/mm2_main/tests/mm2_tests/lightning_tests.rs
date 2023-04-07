@@ -544,12 +544,10 @@ fn test_send_payment() {
     ));
 
     // Check additional balance info in node 1
-    let node_1_additional_balance_fields = match block_on(my_balance(&mm_node_1, "tBTC-TEST-lightning"))
-        .protocol_specific_balance
-        .unwrap()
-    {
-        ProtocolSpecificBalance::Lightning(balance) => balance,
-    };
+    let ProtocolSpecificBalance::Lightning(node_1_additional_balance_fields) =
+        block_on(my_balance(&mm_node_1, "tBTC-TEST-lightning"))
+            .protocol_specific_balance
+            .unwrap();
     assert_eq!(
         node_1_additional_balance_fields.inbound,
         BigDecimal::from_str("0.00019").unwrap()

@@ -81,7 +81,7 @@ use std::time::Duration;
 use utxo_signer::with_key_pair::UtxoSignWithKeyPairError;
 
 cfg_native! {
-    use crate::lightning::LightningCoin;
+    use crate::lightning::{LightningCoin, LightningSpecificBalance};
     use crate::lightning::ln_conf::PlatformCoinConfirmationTargets;
     use ::lightning::ln::PaymentHash as LightningPayment;
     use async_std::fs;
@@ -286,7 +286,6 @@ use utxo::{BlockchainNetwork, GenerateTxError, UtxoFeeDetails, UtxoTx};
 use nft::nft_errors::GetNftInfoError;
 
 #[cfg(not(target_arch = "wasm32"))] pub mod z_coin;
-use crate::lightning::LightningSpecificBalance;
 #[cfg(not(target_arch = "wasm32"))] use z_coin::ZCoin;
 
 pub type TransactionFut = Box<dyn Future<Item = TransactionEnum, Error = TransactionErr> + Send>;
