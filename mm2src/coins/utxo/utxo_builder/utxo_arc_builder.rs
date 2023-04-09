@@ -357,14 +357,16 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
 
             // Check for mis-matching header, retrieve and revalidate if any.
             if let SPVError::ParentHashMismatch { coin, height } = &err {
+                info!(
+                    "Parent hash mismatch detected for {coin} at height: {height} \n {:=>60}",
+                    ""
+                );
                 if let Err(err) = retrieve_and_revalidate_mismatching_header(
                     &mut sync_status_loop_handle,
                     storage,
-                    client,
-                    &spv_conf,
+                    (client, &spv_conf),
+                    (coin, *height),
                     &mut chunk_size,
-                    coin,
-                    height,
                 )
                 .await
                 {
@@ -472,18 +474,15 @@ async fn retrieve_headers_helper(
 async fn retrieve_and_revalidate_mismatching_header(
     sync_status_loop_handle: &mut UtxoSyncStatusLoopHandle,
     storage: &dyn BlockHeaderStorageOps,
-    client: &ElectrumClient,
-    spv_conf: &SPVConf,
+    (client, spv_conf): (&ElectrumClient, &SPVConf),
+    (coin, mut from_height): (&str, u64),
     chunk_size: &mut u64,
-    coin: &str,
-    height: &u64,
 ) -> Result<(), UtxoLoopCtrStatement> {
-    let args = BlockHeaderUtxoLoopExtraArgs::default();
-    let to_height = *chunk_size;
-
     loop {
-        if *height == spv_conf.starting_block_header.height {
-            log!("Invalid chain for {coin} starting block height");
+        let args = BlockHeaderUtxoLoopExtraArgs::default();
+        let to_height = from_height + *chunk_size;
+        if from_height == spv_conf.starting_block_header.height {
+            log!("Invalid chain for {coin} starting block height {from_height}");
             break;
         };
 
@@ -491,7 +490,7 @@ async fn retrieve_and_revalidate_mismatching_header(
         let (_, block_headers) = match retrieve_headers_helper(
             coin,
             client,
-            *height,
+            from_height,
             to_height,
             chunk_size,
             &mut fetch_blocker_headers_attempts,
@@ -513,11 +512,9 @@ async fn retrieve_and_revalidate_mismatching_header(
             },
         };
 
-        match validate_headers(coin, *height, &block_headers, storage, spv_conf).await {
+        match validate_headers(coin, from_height, &block_headers, storage, spv_conf).await {
             Ok(_) => {
-                // Remove all saved headers from `height` to `chunk_size` and continue the outer loop where it will retrieve
-                // headers from height to chunk_size.
-                if let Err(err) = storage.remove_headers_from_storage(*height, *chunk_size).await {
+                if let Err(err) = storage.remove_headers_from_storage(from_height, to_height).await {
                     sync_status_loop_handle.notify_on_temp_error(err);
                     Timer::sleep(args.error_sleep).await;
                 };
@@ -525,8 +522,9 @@ async fn retrieve_and_revalidate_mismatching_header(
             },
             Err(err) => {
                 // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
-                if let SPVError::ParentHashMismatch { coin: _, height: _ } = &err {
+                if let SPVError::ParentHashMismatch { coin: _, height } = &err {
                     error!("Mis-matching parent hash detected for block height: {height}, coin: {coin}");
+                    from_height = *height;
                     sync_status_loop_handle.notify_on_temp_error(&err);
                     Timer::sleep(args.error_sleep).await;
                     continue;
@@ -631,19 +629,3 @@ pub trait BlockHeaderUtxoArcOps<T>: UtxoCoinBuilderCommonOps {
             .spawn_with_settings(fut, settings);
     }
 }
-
-// Validate retrieved block headers.
-//if let Err(err) = validate_headers(ticker, from_block_height, block_headers, storage, &spv_conf).await {
-//if let SPVError::ParentHashMismatch { coin, height } = &err {
-// 1 - retrieve previous headers from from_block_height - chunk_size
-// 2 - validate_headers again
-// 2.1 - if they are valid, remove all saved headers from this point and continue the outer loop where it will retrieve headers from this point
-// 2.2 - if there is another ParentHashMismatch, loop to point 1, if we arrived at spv_conf.starting_block_header.height,
-// notify_on_permanent_error and break loop, we should add a todo to remove this electrum and use another in such case.
-// Maybe we can have a number of attempts from this electrum before moving it back to the electrum list (in next PRs)
-//}
-//error!("Error {err:?} on validating the latest headers for {ticker}!");
-//// Todo: remove this electrum server and use another in this case since the headers from this server are invalid
-//sync_status_loop_handle.notify_on_permanent_error(err);
-//break;
-//};
