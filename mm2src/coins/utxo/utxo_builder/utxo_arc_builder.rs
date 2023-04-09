@@ -337,12 +337,12 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
             Ok(res) => res,
             Err(err) => {
                 match err {
-                    UtxoLoopCtrStatement::Continue(err) => {
+                    UtxoLoopCtrlStatement::Continue(err) => {
                         sync_status_loop_handle.notify_on_temp_error(&err);
                         Timer::sleep(args.error_sleep).await;
                         continue;
                     },
-                    UtxoLoopCtrStatement::Break(err) => {
+                    UtxoLoopCtrlStatement::Break(err) => {
                         sync_status_loop_handle.notify_on_permanent_error(&err);
                         Timer::sleep(args.error_sleep).await;
                         break;
@@ -357,10 +357,7 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
 
             // Check for mis-matching header, retrieve and revalidate if any.
             if let SPVError::ParentHashMismatch { coin, height } = &err {
-                info!(
-                    "Parent hash mismatch detected for {coin} at height: {height} \n {:=>60}",
-                    ""
-                );
+                info!("Parent hash mismatch detected for {coin} at height: {height}");
                 if let Err(err) = retrieve_and_revalidate_mismatching_header(
                     &mut sync_status_loop_handle,
                     storage,
@@ -371,8 +368,8 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
                 .await
                 {
                     match err {
-                        UtxoLoopCtrStatement::Continue(_) => continue,
-                        UtxoLoopCtrStatement::Break(err) => {
+                        UtxoLoopCtrlStatement::Continue(_) => continue,
+                        UtxoLoopCtrlStatement::Break(err) => {
                             sync_status_loop_handle.notify_on_permanent_error(&err);
                             Timer::sleep(args.error_sleep).await;
                             break;
@@ -392,7 +389,7 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
 }
 
 /// Represents a control statement that can be used to break or continue a UTXO loop.
-pub enum UtxoLoopCtrStatement {
+pub enum UtxoLoopCtrlStatement {
     /// Signals that the UTXO loop should be terminated immediately, with the specified error message.
     Break(String),
     /// Signals that the current iteration of the UTXO loop should be skipped over, with the specified error message.
@@ -406,7 +403,7 @@ async fn retrieve_headers_helper(
     to_block_height: u64,
     chunk_size: &mut u64,
     fetch_blocker_headers_attempts: &mut u64,
-) -> Result<(HashMap<u64, BlockHeader>, Vec<BlockHeader>), UtxoLoopCtrStatement> {
+) -> Result<(HashMap<u64, BlockHeader>, Vec<BlockHeader>), UtxoLoopCtrlStatement> {
     let (block_registry, block_headers) = match client
         .retrieve_headers(from_block_height, to_block_height)
         .compat()
@@ -417,13 +414,13 @@ async fn retrieve_headers_helper(
             let err_inner = err.get_inner();
             if err_inner.is_network_error() {
                 log!("Network Error: Will try fetching {ticker} block headers again after 10 secs");
-                return Err(UtxoLoopCtrStatement::Continue(err.to_string()));
+                return Err(UtxoLoopCtrlStatement::Continue(err.to_string()));
             };
 
             // If electrum returns response too large error, we will reduce the requested headers by CHUNK_SIZE_REDUCER_VALUE in every loop until we arrive at a reasonable value.
             if err_inner.is_response_too_large() && *chunk_size > CHUNK_SIZE_REDUCER_VALUE {
                 *chunk_size -= CHUNK_SIZE_REDUCER_VALUE;
-                return Err(UtxoLoopCtrStatement::Continue(err.to_string()));
+                return Err(UtxoLoopCtrlStatement::Continue(err.to_string()));
             }
 
             if *fetch_blocker_headers_attempts > 0 {
@@ -433,7 +430,7 @@ async fn retrieve_headers_helper(
                     {fetch_blocker_headers_attempts} attempts left"
                 );
                 // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
-                return Err(UtxoLoopCtrStatement::Continue(err.to_string()));
+                return Err(UtxoLoopCtrlStatement::Continue(err.to_string()));
             };
 
             error!(
@@ -441,7 +438,7 @@ async fn retrieve_headers_helper(
                     attempts"
             );
             // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
-            return Err(UtxoLoopCtrStatement::Break(err.to_string()));
+            return Err(UtxoLoopCtrlStatement::Break(err.to_string()));
         },
     };
 
@@ -470,19 +467,19 @@ async fn retrieve_headers_helper(
 ///
 /// # Returns
 ///
-/// A Result `Ok(())` or `UtxoLoopCtrStatement` if there was a break or continue instruction.
+/// A Result `Ok(())` or `UtxoLoopCtrlStatement` if there was a break or continue instruction.
 async fn retrieve_and_revalidate_mismatching_header(
     sync_status_loop_handle: &mut UtxoSyncStatusLoopHandle,
     storage: &dyn BlockHeaderStorageOps,
     (client, spv_conf): (&ElectrumClient, &SPVConf),
     (coin, mut from_height): (&str, u64),
     chunk_size: &mut u64,
-) -> Result<(), UtxoLoopCtrStatement> {
+) -> Result<(), UtxoLoopCtrlStatement> {
     loop {
         let args = BlockHeaderUtxoLoopExtraArgs::default();
         let to_height = from_height + *chunk_size;
         if from_height == spv_conf.starting_block_header.height {
-            log!("Invalid chain for {coin} starting block height {from_height}");
+            info!("Parent hash mismatch detected for {coin} at height: {from_height}");
             break;
         };
 
@@ -500,13 +497,13 @@ async fn retrieve_and_revalidate_mismatching_header(
             Ok(res) => res,
             Err(err) => {
                 match err {
-                    UtxoLoopCtrStatement::Continue(err) => {
+                    UtxoLoopCtrlStatement::Continue(err) => {
                         sync_status_loop_handle.notify_on_temp_error(err);
                         Timer::sleep(args.error_sleep).await;
                         continue;
                     },
-                    UtxoLoopCtrStatement::Break(err) => {
-                        return Err(UtxoLoopCtrStatement::Break(err));
+                    UtxoLoopCtrlStatement::Break(err) => {
+                        return Err(UtxoLoopCtrlStatement::Break(err));
                     },
                 };
             },
@@ -515,6 +512,7 @@ async fn retrieve_and_revalidate_mismatching_header(
         match validate_headers(coin, from_height, &block_headers, storage, spv_conf).await {
             Ok(_) => {
                 if let Err(err) = storage.remove_headers_from_storage(from_height, to_height).await {
+                    error!("{err}");
                     sync_status_loop_handle.notify_on_temp_error(err);
                     Timer::sleep(args.error_sleep).await;
                 };
@@ -523,14 +521,14 @@ async fn retrieve_and_revalidate_mismatching_header(
             Err(err) => {
                 // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
                 if let SPVError::ParentHashMismatch { coin: _, height } = &err {
-                    error!("Mis-matching parent hash detected for block height: {height}, coin: {coin}");
+                    error!("Mis matching parent hash detected for block height: {height}, coin: {coin}");
                     from_height = *height;
                     sync_status_loop_handle.notify_on_temp_error(&err);
                     Timer::sleep(args.error_sleep).await;
                     continue;
                 } else {
                     error!("Error {err:?} on validating the latest headers for {coin}!");
-                    return Err(UtxoLoopCtrStatement::Break(err.to_string()));
+                    return Err(UtxoLoopCtrlStatement::Break(err.to_string()));
                 };
             },
         }

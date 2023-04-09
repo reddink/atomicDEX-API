@@ -346,7 +346,7 @@ pub async fn validate_headers(
             let header = storage.get_block_header(previous_height).await?.ok_or(
                 BlockHeaderStorageError::GetFromStorageError {
                     coin: coin.to_string(),
-                    reason: format!("Header with height {} is not found in storage", previous_height),
+                    reason: format!("Header with height {previous_height} is not found in storage"),
                 },
             )?;
             SPVBlockHeader::from_block_header_and_height(&header, previous_height)
@@ -357,7 +357,7 @@ pub async fn validate_headers(
 
     for header in headers.iter() {
         if !validate_header_prev_hash(&header.previous_header_hash, &previous_hash) {
-            // Detect for chain reorganization and return the last header(previous_header).
+            // Detect for chain reorganization and return the last header(previous_height + 1).
             return Err(SPVError::ParentHashMismatch {
                 coin: coin.to_string(),
                 height: previous_height + 1,
