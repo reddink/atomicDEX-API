@@ -15,17 +15,18 @@ use crate::utxo::sat_from_big_decimal;
 use crate::utxo::utxo_common::big_decimal_from_sat;
 use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal, CheckIfMyPaymentSentArgs,
             CoinBalance, CoinFutSpawner, ConfirmPaymentInput, FeeApproxStage, FoundSwapTxSpend, HistorySyncState,
-            MakerSwapTakerCoin, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, PaymentInstructions,
-            PaymentInstructionsErr, PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed, RawTransactionError,
-            RawTransactionFut, RawTransactionRequest, RawTransactionRes, RefundError, RefundPaymentArgs, RefundResult,
-            RpcCommonOps, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs,
-            SignatureError, SignatureResult, SpendPaymentArgs, SwapOps, TakerSwapMakerCoin, TradeFee,
-            TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails,
-            TransactionEnum, TransactionErr, TransactionFut, TransactionType, TxFeeDetails, TxMarshalingErr,
-            UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr,
-            ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput, VerificationError, VerificationResult,
-            WaitForHTLCTxSpendArgs, WatcherOps, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
-            WatcherValidateTakerFeeInput, WithdrawError, WithdrawFut, WithdrawRequest};
+            MakerSwapTakerCoin, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, PaymentInstructionArgs,
+            PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed,
+            RawTransactionError, RawTransactionFut, RawTransactionRequest, RawTransactionRes, RefundError,
+            RefundPaymentArgs, RefundResult, RpcCommonOps, SearchForSwapTxSpendInput,
+            SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignatureError, SignatureResult, SpendPaymentArgs,
+            SwapOps, TakerSwapMakerCoin, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
+            TradePreimageValue, TransactionDetails, TransactionEnum, TransactionErr, TransactionFut, TransactionType,
+            TxFeeDetails, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs,
+            ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput,
+            VerificationError, VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps,
+            WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput,
+            WithdrawError, WithdrawFut, WithdrawRequest};
 use async_std::prelude::FutureExt as AsyncStdFutureExt;
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
@@ -2480,19 +2481,14 @@ impl SwapOps for TendermintCoin {
 
     async fn maker_payment_instructions(
         &self,
-        _secret_hash: &[u8],
-        _amount: &BigDecimal,
-        _maker_lock_duration: u64,
-        _expires_in: u64,
+        args: PaymentInstructionArgs<'_>,
     ) -> Result<Option<Vec<u8>>, MmError<PaymentInstructionsErr>> {
         Ok(None)
     }
 
     async fn taker_payment_instructions(
         &self,
-        _secret_hash: &[u8],
-        _amount: &BigDecimal,
-        _expires_in: u64,
+        args: PaymentInstructionArgs<'_>,
     ) -> Result<Option<Vec<u8>>, MmError<PaymentInstructionsErr>> {
         Ok(None)
     }
@@ -2500,9 +2496,7 @@ impl SwapOps for TendermintCoin {
     fn validate_maker_payment_instructions(
         &self,
         _instructions: &[u8],
-        _secret_hash: &[u8],
-        _amount: BigDecimal,
-        _maker_lock_duration: u64,
+        args: PaymentInstructionArgs,
     ) -> Result<PaymentInstructions, MmError<ValidateInstructionsErr>> {
         MmError::err(ValidateInstructionsErr::UnsupportedCoin(self.ticker().to_string()))
     }
@@ -2510,8 +2504,7 @@ impl SwapOps for TendermintCoin {
     fn validate_taker_payment_instructions(
         &self,
         _instructions: &[u8],
-        _secret_hash: &[u8],
-        _amount: BigDecimal,
+        args: PaymentInstructionArgs,
     ) -> Result<PaymentInstructions, MmError<ValidateInstructionsErr>> {
         MmError::err(ValidateInstructionsErr::UnsupportedCoin(self.ticker().to_string()))
     }
@@ -3167,7 +3160,7 @@ pub mod tendermint_coin_tests {
             try_spv_proof_until: 0,
             confirmations: 0,
             unique_swap_data: Vec::new(),
-            min_watcher_reward: None,
+            watcher_reward: None,
         };
         let validate_err = coin.validate_taker_payment(input).wait().unwrap_err();
         match validate_err.into_inner() {
@@ -3193,7 +3186,7 @@ pub mod tendermint_coin_tests {
             try_spv_proof_until: 0,
             confirmations: 0,
             unique_swap_data: Vec::new(),
-            min_watcher_reward: None,
+            watcher_reward: None,
         };
         let validate_err = block_on(
             coin.validate_payment_for_denom(input, "nim".parse().unwrap(), 6)

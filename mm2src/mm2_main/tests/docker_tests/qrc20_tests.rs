@@ -222,7 +222,7 @@ fn test_taker_spends_maker_payment() {
         try_spv_proof_until: wait_until + 30,
         confirmations,
         unique_swap_data: Vec::new(),
-        min_watcher_reward: None,
+        watcher_reward: None,
     };
     taker_coin.validate_maker_payment(input).wait().unwrap();
     let taker_spends_payment_args = SpendPaymentArgs {
@@ -327,7 +327,7 @@ fn test_maker_spends_taker_payment() {
         try_spv_proof_until: wait_until + 30,
         confirmations,
         unique_swap_data: Vec::new(),
-        min_watcher_reward: None,
+        watcher_reward: None,
     };
     maker_coin.validate_taker_payment(input).wait().unwrap();
     let maker_spends_payment_args = SpendPaymentArgs {

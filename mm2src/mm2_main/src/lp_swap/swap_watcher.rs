@@ -1,8 +1,7 @@
-use super::{broadcast_p2p_tx_msg, get_payment_locktime, lp_coinfind, min_watcher_reward, taker_payment_spend_deadline,
+use super::{broadcast_p2p_tx_msg, get_payment_locktime, get_watcher_reward, lp_coinfind, taker_payment_spend_deadline,
             tx_helper_topic, H256Json, SwapsContext, WAIT_CONFIRM_INTERVAL};
 use crate::mm2::MmError;
 use async_trait::async_trait;
-use coins::WatcherReward;
 use coins::{CanRefundHtlc, ConfirmPaymentInput, FoundSwapTxSpend, MmCoinEnum, RefundPaymentArgs,
             SendMakerPaymentSpendPreimageInput, WaitForHTLCTxSpendArgs, WatcherSearchForSwapTxSpendInput,
             WatcherValidatePaymentInput, WatcherValidateTakerFeeInput};
@@ -237,17 +236,15 @@ impl State for ValidateTakerPayment {
             )));
         }
 
-        let min_watcher_reward = if watcher_ctx.watcher_reward {
-            let amount = match min_watcher_reward(&watcher_ctx.taker_coin, &watcher_ctx.maker_coin, None, None).await {
-                Ok(reward) => reward,
+        let watcher_reward = if watcher_ctx.watcher_reward {
+            match get_watcher_reward(&watcher_ctx.taker_coin, &watcher_ctx.maker_coin, None, None, true, None).await {
+                Ok(reward) => Some(reward),
                 Err(err) => {
                     return Self::change_state(Stopped::from_reason(StopReason::Error(
                         WatcherError::InternalError(err.into_inner().to_string()).into(),
                     )))
                 },
-            };
-            let is_refund_only = watcher_ctx.taker_coin.is_eth() && !watcher_ctx.maker_coin.is_eth();
-            Some(WatcherReward { amount, is_refund_only })
+            }
         } else {
             None
         };
@@ -264,7 +261,7 @@ impl State for ValidateTakerPayment {
             secret_hash: watcher_ctx.data.secret_hash.clone(),
             try_spv_proof_until: taker_payment_spend_deadline,
             confirmations,
-            min_watcher_reward,
+            watcher_reward,
         };
 
         let validated_f = watcher_ctx

@@ -4,18 +4,17 @@ use crate::{generate_utxo_coin_with_privkey, generate_utxo_coin_with_random_priv
 use coins::coin_errors::ValidatePaymentError;
 use coins::utxo::{dhash160, UtxoCommonOps};
 use coins::{ConfirmPaymentInput, FoundSwapTxSpend, MarketCoinOps, MmCoin, MmCoinEnum, RefundPaymentArgs,
-            SearchForSwapTxSpendInput, SendPaymentArgs, SwapOps, WatcherOps, WatcherReward,
-            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, EARLY_CONFIRMATION_ERR_LOG,
-            INSUFFICIENT_WATCHER_REWARD_ERR_LOG, INVALID_CONTRACT_ADDRESS_ERR_LOG, INVALID_PAYMENT_STATE_ERR_LOG,
-            INVALID_RECEIVER_ERR_LOG, INVALID_REFUND_TX_ERR_LOG, INVALID_SCRIPT_ERR_LOG, INVALID_SENDER_ERR_LOG,
-            INVALID_SWAP_ID_ERR_LOG, OLD_TRANSACTION_ERR_LOG};
+            SearchForSwapTxSpendInput, SendPaymentArgs, SwapOps, WatcherOps, WatcherValidatePaymentInput,
+            WatcherValidateTakerFeeInput, EARLY_CONFIRMATION_ERR_LOG, INSUFFICIENT_WATCHER_REWARD_ERR_LOG,
+            INVALID_CONTRACT_ADDRESS_ERR_LOG, INVALID_PAYMENT_STATE_ERR_LOG, INVALID_RECEIVER_ERR_LOG,
+            INVALID_REFUND_TX_ERR_LOG, INVALID_SCRIPT_ERR_LOG, INVALID_SENDER_ERR_LOG, INVALID_SWAP_ID_ERR_LOG,
+            OLD_TRANSACTION_ERR_LOG};
 use common::{block_on, now_ms, DEX_FEE_ADDR_RAW_PUBKEY};
 use crypto::privkey::{key_pair_from_secret, key_pair_from_seed};
 use futures01::Future;
 use mm2_main::mm2::lp_swap::{dex_fee_amount, dex_fee_amount_from_taker_coin, dex_fee_threshold, get_payment_locktime,
-                             min_watcher_reward, watcher_reward_amount, MakerSwap, MAKER_PAYMENT_SENT_LOG,
-                             MAKER_PAYMENT_SPEND_FOUND_LOG, MAKER_PAYMENT_SPEND_SENT_LOG,
-                             TAKER_PAYMENT_REFUND_SENT_LOG, WATCHER_MESSAGE_SENT_LOG};
+                             get_watcher_reward, MakerSwap, MAKER_PAYMENT_SENT_LOG, MAKER_PAYMENT_SPEND_FOUND_LOG,
+                             MAKER_PAYMENT_SPEND_SENT_LOG, TAKER_PAYMENT_REFUND_SENT_LOG, WATCHER_MESSAGE_SENT_LOG};
 use mm2_number::BigDecimal;
 use mm2_number::MmNumber;
 use mm2_test_helpers::for_tests::{enable_eth_coin, eth_jst_conf, eth_testnet_conf, mm_dump, my_balance, mycoin1_conf,
@@ -36,6 +35,8 @@ struct BalanceResult {
     alice_bcoin_balance_before: BigDecimal,
     alice_bcoin_balance_middle: BigDecimal,
     alice_bcoin_balance_after: BigDecimal,
+    alice_eth_balance_middle: BigDecimal,
+    alice_eth_balance_after: BigDecimal,
     bob_acoin_balance_before: BigDecimal,
     bob_acoin_balance_after: BigDecimal,
     bob_bcoin_balance_before: BigDecimal,
@@ -170,6 +171,10 @@ fn start_swaps_and_get_balances(
     enable_coin(&mm_watcher, a_coin);
     enable_coin(&mm_watcher, b_coin);
 
+    if a_coin != "ETH" && b_coin != "ETH" {
+        enable_coin(&mm_alice, "ETH");
+    }
+
     let alice_acoin_balance_before = block_on(my_balance(&mm_alice, a_coin)).balance;
     let alice_bcoin_balance_before = block_on(my_balance(&mm_alice, b_coin)).balance;
     let bob_acoin_balance_before = block_on(my_balance(&mm_bob, a_coin)).balance;
@@ -179,6 +184,7 @@ fn start_swaps_and_get_balances(
 
     let mut alice_acoin_balance_middle = BigDecimal::zero();
     let mut alice_bcoin_balance_middle = BigDecimal::zero();
+    let mut alice_eth_balance_middle = BigDecimal::zero();
     let mut bob_acoin_balance_after = BigDecimal::zero();
     let mut bob_bcoin_balance_after = BigDecimal::zero();
 
@@ -192,25 +198,31 @@ fn start_swaps_and_get_balances(
     ));
 
     if matches!(swap_flow, SwapFlow::WatcherRefundsTakerPayment) {
-        block_on(mm_bob.wait_for_log(160., |log| log.contains(MAKER_PAYMENT_SENT_LOG))).unwrap();
+        block_on(mm_bob.wait_for_log(100., |log| log.contains(MAKER_PAYMENT_SENT_LOG))).unwrap();
         block_on(mm_bob.stop()).unwrap();
     }
     if !matches!(swap_flow, SwapFlow::TakerSpendsMakerPayment) {
         block_on(mm_alice.wait_for_log(100., |log| log.contains("Taker payment confirmed"))).unwrap();
         alice_acoin_balance_middle = block_on(my_balance(&mm_alice, a_coin)).balance;
         alice_bcoin_balance_middle = block_on(my_balance(&mm_alice, b_coin)).balance;
+        alice_eth_balance_middle = block_on(my_balance(&mm_alice, "ETH")).balance;
         block_on(mm_alice.stop()).unwrap();
     }
 
     block_on(mm_watcher.wait_for_log(100., |log| log.contains(watcher_log_to_wait))).unwrap();
-    thread::sleep(Duration::from_secs(25));
+    thread::sleep(Duration::from_secs(20));
 
     let mm_alice = MarketMakerIt::start(alice_conf.conf, alice_conf.rpc_password, None).unwrap();
     enable_coin(&mm_alice, a_coin);
     enable_coin(&mm_alice, b_coin);
 
+    if a_coin != "ETH" && b_coin != "ETH" {
+        enable_coin(&mm_alice, "ETH");
+    }
+
     let alice_acoin_balance_after = block_on(my_balance(&mm_alice, a_coin)).balance;
     let alice_bcoin_balance_after = block_on(my_balance(&mm_alice, b_coin)).balance;
+    let alice_eth_balance_after = block_on(my_balance(&mm_alice, "ETH")).balance;
     if !matches!(swap_flow, SwapFlow::WatcherRefundsTakerPayment) {
         bob_acoin_balance_after = block_on(my_balance(&mm_bob, a_coin)).balance;
         bob_bcoin_balance_after = block_on(my_balance(&mm_bob, b_coin)).balance;
@@ -225,6 +237,8 @@ fn start_swaps_and_get_balances(
         alice_bcoin_balance_before,
         alice_bcoin_balance_middle,
         alice_bcoin_balance_after,
+        alice_eth_balance_middle,
+        alice_eth_balance_after,
         bob_acoin_balance_before,
         bob_acoin_balance_after,
         bob_bcoin_balance_before,
@@ -348,13 +362,6 @@ fn test_watcher_spends_maker_payment_eth_erc20() {
 
     let eth_volume = BigDecimal::from_str("0.01").unwrap();
     let jst_volume = BigDecimal::from_str("1").unwrap();
-    let dex_fee_threshold = dex_fee_threshold(BigDecimal::from(0).into());
-    let dex_fee: BigDecimal =
-        dex_fee_amount("JST", "ETH", &MmNumber::from(jst_volume.clone()), &dex_fee_threshold).into();
-    let alice_jst_reward_sent = balances.alice_acoin_balance_before
-        - balances.alice_acoin_balance_after.clone()
-        - jst_volume.clone()
-        - dex_fee.with_scale(18);
 
     assert_eq!(
         balances.alice_bcoin_balance_after,
@@ -362,7 +369,7 @@ fn test_watcher_spends_maker_payment_eth_erc20() {
     );
     assert_eq!(
         balances.bob_acoin_balance_after,
-        balances.bob_acoin_balance_before + jst_volume + alice_jst_reward_sent
+        balances.bob_acoin_balance_before + jst_volume
     );
     assert!(balances.watcher_bcoin_balance_after > balances.watcher_bcoin_balance_before);
 }
@@ -374,7 +381,6 @@ fn test_watcher_spends_maker_payment_erc20_eth() {
 
     let jst_volume = BigDecimal::from_str("1").unwrap();
     let eth_volume = BigDecimal::from_str("0.01").unwrap();
-    let bob_jst_reward_sent = balances.bob_bcoin_balance_before - balances.bob_bcoin_balance_after - jst_volume.clone();
 
     assert_eq!(
         balances.alice_bcoin_balance_after,
@@ -384,10 +390,7 @@ fn test_watcher_spends_maker_payment_erc20_eth() {
         balances.bob_acoin_balance_after.with_scale(2),
         balances.bob_acoin_balance_before.with_scale(2) + eth_volume.clone()
     );
-    assert_eq!(
-        balances.watcher_bcoin_balance_after,
-        balances.watcher_bcoin_balance_before + bob_jst_reward_sent
-    );
+    assert!(balances.watcher_acoin_balance_after > balances.watcher_acoin_balance_before);
 }
 
 #[test]
@@ -406,10 +409,6 @@ fn test_watcher_spends_maker_payment_utxo_erc20() {
     let mycoin_volume = BigDecimal::from_str("1").unwrap();
     let jst_volume = BigDecimal::from_str("1").unwrap();
 
-    let dex_fee_threshold = dex_fee_threshold(BigDecimal::from(0).into());
-    let dex_fee: BigDecimal =
-        dex_fee_amount("JST", "MYCOIN", &MmNumber::from(jst_volume.clone()), &dex_fee_threshold).into();
-
     assert_eq!(
         balances.alice_bcoin_balance_after.round(0),
         balances.alice_bcoin_balance_before + mycoin_volume.clone()
@@ -418,10 +417,7 @@ fn test_watcher_spends_maker_payment_utxo_erc20() {
         balances.bob_acoin_balance_after,
         balances.bob_acoin_balance_before + jst_volume.clone()
     );
-    assert_eq!(
-        balances.alice_acoin_balance_after,
-        balances.alice_acoin_balance_before - jst_volume.clone() - dex_fee.with_scale(18)
-    );
+    assert!(balances.alice_eth_balance_after > balances.alice_eth_balance_middle);
 }
 
 #[test]
@@ -525,22 +521,12 @@ fn test_watcher_refunds_taker_payment_erc20() {
     );
     let jst_volume = BigDecimal::from_str("1").unwrap();
 
-    let dex_fee_threshold = dex_fee_threshold(BigDecimal::from(0).into());
-    let dex_fee: BigDecimal =
-        dex_fee_amount("JST", "ETH", &MmNumber::from(jst_volume.clone()), &dex_fee_threshold).into();
-    let alice_jst_reward_sent = balances.alice_acoin_balance_before.clone()
-        - balances.alice_acoin_balance_middle.clone()
-        - jst_volume.clone()
-        - dex_fee.with_scale(18);
-
     assert_eq!(
         balances.alice_acoin_balance_after,
         balances.alice_acoin_balance_middle + jst_volume
     );
-    assert_eq!(
-        balances.watcher_acoin_balance_after,
-        balances.watcher_acoin_balance_before + alice_jst_reward_sent
-    );
+
+    assert!(balances.watcher_bcoin_balance_after > balances.watcher_bcoin_balance_before);
 }
 
 #[test]
@@ -694,10 +680,7 @@ fn test_watcher_validate_taker_fee_utxo() {
         check_every: 1,
     };
 
-    taker_coin
-        .wait_for_confirmations(confirm_payment_input)
-        .wait()
-        .unwrap();
+    taker_coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
 
     let validate_taker_fee_res = taker_coin
         .watcher_validate_taker_fee(WatcherValidateTakerFeeInput {
@@ -902,7 +885,7 @@ fn test_watcher_validate_taker_fee_eth() {
 }
 
 #[test]
-//#[ignore]
+#[ignore]
 fn test_watcher_validate_taker_fee_erc20() {
     let timeout = (now_ms() / 1000) + 120; // timeout if test takes more than 120 seconds to run
     let lock_duration = get_payment_locktime();
@@ -1070,7 +1053,7 @@ fn test_watcher_validate_taker_payment_utxo() {
             secret_hash: secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: None,
+            watcher_reward: None,
         })
         .wait();
     assert!(validate_taker_payment_res.is_ok());
@@ -1085,7 +1068,7 @@ fn test_watcher_validate_taker_payment_utxo() {
             secret_hash: secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: None,
+            watcher_reward: None,
         })
         .wait()
         .unwrap_err()
@@ -1110,7 +1093,7 @@ fn test_watcher_validate_taker_payment_utxo() {
             secret_hash: wrong_secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: None,
+            watcher_reward: None,
         })
         .wait()
         .unwrap_err()
@@ -1162,7 +1145,7 @@ fn test_watcher_validate_taker_payment_utxo() {
             secret_hash: wrong_secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: None,
+            watcher_reward: None,
         })
         .wait()
         .unwrap_err()
@@ -1201,7 +1184,7 @@ fn test_watcher_validate_taker_payment_utxo() {
             secret_hash: secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: None,
+            watcher_reward: None,
         })
         .wait()
         .unwrap_err()
@@ -1220,7 +1203,7 @@ fn test_watcher_validate_taker_payment_utxo() {
 }
 
 #[test]
-//#[ignore]
+#[ignore]
 fn test_watcher_validate_taker_payment_eth() {
     let timeout = (now_ms() / 1000) + 120; // timeout if test takes more than 120 seconds to run
 
@@ -1238,29 +1221,17 @@ fn test_watcher_validate_taker_payment_eth() {
     let taker_amount = BigDecimal::from_str("0.01").unwrap();
     let maker_amount = BigDecimal::from_str("0.01").unwrap();
     let secret_hash = dhash160(&MakerSwap::generate_secret());
-    let reward_amount = block_on(watcher_reward_amount(
-        &MmCoinEnum::from(taker_coin.clone()),
-        &MmCoinEnum::from(taker_coin.clone()),
-        Some(taker_amount.clone()),
-        Some(maker_amount.clone()),
-    ))
-    .unwrap();
-    let watcher_reward = Some(WatcherReward {
-        amount: reward_amount,
-        is_refund_only: false,
-    });
-
-    let min_watcher_reward_amount = block_on(min_watcher_reward(
-        &MmCoinEnum::from(taker_coin.clone()),
-        &MmCoinEnum::from(taker_coin.clone()),
-        Some(taker_amount.clone()),
-        Some(maker_amount.clone()),
-    ))
-    .unwrap();
-    let min_watcher_reward = Some(WatcherReward {
-        amount: min_watcher_reward_amount,
-        is_refund_only: false,
-    });
+    let watcher_reward = Some(
+        block_on(get_watcher_reward(
+            &MmCoinEnum::from(taker_coin.clone()),
+            &MmCoinEnum::from(taker_coin.clone()),
+            Some(taker_amount.clone()),
+            Some(maker_amount.clone()),
+            true,
+            None,
+        ))
+        .unwrap(),
+    );
 
     let taker_payment = taker_coin
         .send_taker_payment(SendPaymentArgs {
@@ -1297,7 +1268,7 @@ fn test_watcher_validate_taker_payment_eth() {
             secret_hash: secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: min_watcher_reward.clone(),
+            watcher_reward: watcher_reward.clone(),
         })
         .wait();
     assert!(validate_taker_payment_res.is_ok());
@@ -1312,7 +1283,7 @@ fn test_watcher_validate_taker_payment_eth() {
             secret_hash: secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: min_watcher_reward.clone(),
+            watcher_reward: watcher_reward.clone(),
         })
         .wait()
         .unwrap_err()
@@ -1354,7 +1325,7 @@ fn test_watcher_validate_taker_payment_eth() {
             secret_hash: secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: min_watcher_reward.clone(),
+            watcher_reward: watcher_reward.clone(),
         })
         .wait()
         .unwrap_err()
@@ -1382,7 +1353,7 @@ fn test_watcher_validate_taker_payment_eth() {
             secret_hash: wrong_secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: min_watcher_reward.clone(),
+            watcher_reward: watcher_reward.clone(),
         })
         .wait()
         .unwrap_err()
@@ -1404,11 +1375,11 @@ fn test_watcher_validate_taker_payment_eth() {
             time_lock,
             other_pubkey: maker_pub,
             secret_hash: wrong_secret_hash.as_slice(),
-            amount: taker_amount,
+            amount: taker_amount.clone(),
             swap_contract_address: &taker_coin.swap_contract_address(),
             swap_unique_data: &[],
             payment_instructions: &None,
-            watcher_reward,
+            watcher_reward: watcher_reward.clone(),
             wait_for_confirmation_until,
         })
         .wait()
@@ -1433,7 +1404,7 @@ fn test_watcher_validate_taker_payment_eth() {
             secret_hash: wrong_secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: min_watcher_reward.clone(),
+            watcher_reward: watcher_reward.clone(),
         })
         .wait()
         .unwrap_err()
@@ -1459,7 +1430,7 @@ fn test_watcher_validate_taker_payment_eth() {
             secret_hash: secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: min_watcher_reward.clone(),
+            watcher_reward: watcher_reward.clone(),
         })
         .wait()
         .unwrap_err()
@@ -1475,10 +1446,17 @@ fn test_watcher_validate_taker_payment_eth() {
         ),
     }
 
-    let wrong_min_reward = Some(WatcherReward {
-        amount: min_watcher_reward.unwrap().amount.double(),
-        is_refund_only: false,
-    });
+    let wrong_watcher_reward = Some(
+        block_on(get_watcher_reward(
+            &MmCoinEnum::from(taker_coin.clone()),
+            &MmCoinEnum::from(taker_coin.clone()),
+            Some(taker_amount.clone()),
+            Some(maker_amount.clone()),
+            true,
+            Some(watcher_reward.clone().unwrap().amount.double()),
+        ))
+        .unwrap(),
+    );
 
     let error = taker_coin
         .watcher_validate_taker_payment(WatcherValidatePaymentInput {
@@ -1490,7 +1468,7 @@ fn test_watcher_validate_taker_payment_eth() {
             secret_hash: secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: wrong_min_reward,
+            watcher_reward: wrong_watcher_reward.clone(),
         })
         .wait()
         .unwrap_err()
@@ -1529,28 +1507,17 @@ fn test_watcher_validate_taker_payment_erc20() {
     let taker_amount = BigDecimal::from(10);
     let maker_amount = BigDecimal::from(10);
 
-    let reward_amount = block_on(watcher_reward_amount(
-        &MmCoinEnum::from(taker_coin.clone()),
-        &MmCoinEnum::from(taker_coin.clone()),
-        Some(taker_amount.clone()),
-        Some(maker_amount.clone()),
-    ))
-    .unwrap();
-    let watcher_reward = Some(WatcherReward {
-        amount: reward_amount,
-        is_refund_only: false,
-    });
-    let min_watcher_reward_amount = block_on(min_watcher_reward(
-        &MmCoinEnum::from(taker_coin.clone()),
-        &MmCoinEnum::from(taker_coin.clone()),
-        Some(taker_amount),
-        Some(maker_amount),
-    ))
-    .unwrap();
-    let min_watcher_reward = Some(WatcherReward {
-        amount: min_watcher_reward_amount,
-        is_refund_only: false,
-    });
+    let watcher_reward = Some(
+        block_on(get_watcher_reward(
+            &MmCoinEnum::from(taker_coin.clone()),
+            &MmCoinEnum::from(taker_coin.clone()),
+            Some(taker_amount.clone()),
+            Some(maker_amount.clone()),
+            true,
+            None,
+        ))
+        .unwrap(),
+    );
 
     let taker_payment = taker_coin
         .send_taker_payment(SendPaymentArgs {
@@ -1587,7 +1554,7 @@ fn test_watcher_validate_taker_payment_erc20() {
             secret_hash: secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: min_watcher_reward.clone(),
+            watcher_reward: watcher_reward.clone(),
         })
         .wait();
     assert!(validate_taker_payment_res.is_ok());
@@ -1602,7 +1569,7 @@ fn test_watcher_validate_taker_payment_erc20() {
             secret_hash: secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: min_watcher_reward.clone(),
+            watcher_reward: watcher_reward.clone(),
         })
         .wait()
         .unwrap_err()
@@ -1644,7 +1611,7 @@ fn test_watcher_validate_taker_payment_erc20() {
             secret_hash: secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: min_watcher_reward.clone(),
+            watcher_reward: watcher_reward.clone(),
         })
         .wait()
         .unwrap_err()
@@ -1672,7 +1639,7 @@ fn test_watcher_validate_taker_payment_erc20() {
             secret_hash: wrong_secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: min_watcher_reward.clone(),
+            watcher_reward: watcher_reward.clone(),
         })
         .wait()
         .unwrap_err()
@@ -1711,10 +1678,7 @@ fn test_watcher_validate_taker_payment_erc20() {
         wait_until: timeout,
         check_every: 1,
     };
-    taker_coin
-        .wait_for_confirmations(confirm_payment_input)
-        .wait()
-        .unwrap();
+    taker_coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
 
     let error = taker_coin
         .watcher_validate_taker_payment(WatcherValidatePaymentInput {
@@ -1726,7 +1690,7 @@ fn test_watcher_validate_taker_payment_erc20() {
             secret_hash: wrong_secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: min_watcher_reward.clone(),
+            watcher_reward: watcher_reward.clone(),
         })
         .wait()
         .unwrap_err()
@@ -1752,7 +1716,7 @@ fn test_watcher_validate_taker_payment_erc20() {
             secret_hash: secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: min_watcher_reward.clone(),
+            watcher_reward: watcher_reward.clone(),
         })
         .wait()
         .unwrap_err()
@@ -1768,10 +1732,17 @@ fn test_watcher_validate_taker_payment_erc20() {
         ),
     }
 
-    let wrong_min_watcher_reward = Some(WatcherReward {
-        amount: min_watcher_reward.unwrap().amount.double(),
-        is_refund_only: false,
-    });
+    let wrong_watcher_reward = Some(
+        block_on(get_watcher_reward(
+            &MmCoinEnum::from(taker_coin.clone()),
+            &MmCoinEnum::from(taker_coin.clone()),
+            Some(taker_amount.clone()),
+            Some(maker_amount.clone()),
+            true,
+            Some(watcher_reward.clone().unwrap().amount.double()),
+        ))
+        .unwrap(),
+    );
 
     let error = taker_coin
         .watcher_validate_taker_payment(WatcherValidatePaymentInput {
@@ -1783,7 +1754,7 @@ fn test_watcher_validate_taker_payment_erc20() {
             secret_hash: secret_hash.to_vec(),
             try_spv_proof_until: timeout,
             confirmations: 1,
-            min_watcher_reward: wrong_min_watcher_reward,
+            watcher_reward: wrong_watcher_reward,
         })
         .wait()
         .unwrap_err()

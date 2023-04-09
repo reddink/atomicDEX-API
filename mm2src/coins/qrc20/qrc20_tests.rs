@@ -170,7 +170,7 @@ fn test_validate_maker_payment() {
         try_spv_proof_until: now_ms() / 1000 + 30,
         confirmations: 1,
         unique_swap_data: Vec::new(),
-        min_watcher_reward: None,
+        watcher_reward: None,
     };
 
     coin.validate_maker_payment(input.clone()).wait().unwrap();
@@ -1071,7 +1071,7 @@ fn test_validate_maker_payment_malicious() {
         confirmations: 1,
         other_pub: maker_pub,
         unique_swap_data: Vec::new(),
-        min_watcher_reward: None,
+        watcher_reward: None,
     };
     let error = coin
         .validate_maker_payment(input)

@@ -1195,11 +1195,6 @@ pub fn send_maker_payment<T>(coin: T, args: SendPaymentArgs) -> TransactionFut
 where
     T: UtxoCommonOps + GetUtxoListOps + SwapOps,
 {
-    let total_amount = match args.watcher_reward {
-        Some(reward) => args.amount + reward.amount,
-        None => args.amount,
-    };
-
     let maker_htlc_key_pair = coin.derive_htlc_key_pair(args.swap_unique_data);
     let SwapPaymentOutputsResult {
         payment_address,
@@ -1210,7 +1205,7 @@ where
         maker_htlc_key_pair.public_slice(),
         args.other_pubkey,
         args.secret_hash,
-        total_amount
+        args.amount
     ));
     let send_fut = match &coin.as_ref().rpc_client {
         UtxoRpcClientEnum::Electrum(_) => Either::A(send_outputs_from_my_address(coin, outputs)),
@@ -1973,7 +1968,7 @@ pub fn validate_maker_payment<T: UtxoCommonOps + SwapOps>(
         htlc_keypair.public(),
         &input.secret_hash,
         input.amount,
-        input.min_watcher_reward,
+        input.watcher_reward,
         input.time_lock,
         input.try_spv_proof_until,
         input.confirmations,
@@ -2075,7 +2070,7 @@ pub fn validate_taker_payment<T: UtxoCommonOps + SwapOps>(
         htlc_keypair.public(),
         &input.secret_hash,
         input.amount,
-        input.min_watcher_reward,
+        input.watcher_reward,
         input.time_lock,
         input.try_spv_proof_until,
         input.confirmations,
@@ -3761,7 +3756,7 @@ pub fn validate_payment<T: UtxoCommonOps>(
     second_pub0: &Public,
     priv_bn_hash: &[u8],
     amount: BigDecimal,
-    min_watcher_reward: Option<WatcherReward>,
+    watcher_reward: Option<WatcherReward>,
     time_lock: u32,
     try_spv_proof_until: u64,
     confirmations: u64,
@@ -3810,9 +3805,9 @@ pub fn validate_payment<T: UtxoCommonOps>(
             )));
         }
 
-        if let Some(min_watcher_reward) = min_watcher_reward {
-            let min_watcher_reward = sat_from_big_decimal(&min_watcher_reward.amount, coin.as_ref().decimals)?;
-            let min_expected_amount = min_watcher_reward + amount;
+        if let Some(watcher_reward) = watcher_reward {
+            let watcher_reward = sat_from_big_decimal(&watcher_reward.amount, coin.as_ref().decimals)?;
+            let min_expected_amount = (watcher_reward / 100) * 95 + amount;
             if actual_output.value < min_expected_amount {
                 return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
                     "Provided payment tx output value is less than expected {:?} {:?}",

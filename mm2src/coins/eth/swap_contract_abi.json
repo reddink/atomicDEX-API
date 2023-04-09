@@ -1,10 +1,5 @@
 [
 	{
-		"inputs": [],
-		"stateMutability": "nonpayable",
-		"type": "constructor"
-	},
-	{
 		"anonymous": false,
 		"inputs": [
 			{
@@ -126,7 +121,7 @@
 			},
 			{
 				"internalType": "bool",
-				"name": "_sendsReward",
+				"name": "_sendsContractRewardOnSpend",
 				"type": "bool"
 			},
 			{
@@ -197,7 +192,7 @@
 			},
 			{
 				"internalType": "bool",
-				"name": "_sendsReward",
+				"name": "_sendsContractRewardOnSpend",
 				"type": "bool"
 			},
 			{
@@ -209,35 +204,6 @@
 		"name": "ethPaymentReward",
 		"outputs": [],
 		"stateMutability": "payable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "bytes32",
-				"name": "",
-				"type": "bytes32"
-			}
-		],
-		"name": "payments",
-		"outputs": [
-			{
-				"internalType": "bytes20",
-				"name": "paymentHash",
-				"type": "bytes20"
-			},
-			{
-				"internalType": "uint64",
-				"name": "lockTime",
-				"type": "uint64"
-			},
-			{
-				"internalType": "enum EtomicSwap.PaymentState",
-				"name": "state",
-				"type": "uint8"
-			}
-		],
-		"stateMutability": "view",
 		"type": "function"
 	},
 	{
@@ -312,7 +278,7 @@
 			},
 			{
 				"internalType": "bool",
-				"name": "_sendsReward",
+				"name": "_sendsContractRewardOnSpend",
 				"type": "bool"
 			},
 			{
@@ -410,6 +376,40 @@
 		"name": "senderRefundReward",
 		"outputs": [],
 		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"stateMutability": "nonpayable",
+		"type": "constructor"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes32",
+				"name": "",
+				"type": "bytes32"
+			}
+		],
+		"name": "payments",
+		"outputs": [
+			{
+				"internalType": "bytes20",
+				"name": "paymentHash",
+				"type": "bytes20"
+			},
+			{
+				"internalType": "uint64",
+				"name": "lockTime",
+				"type": "uint64"
+			},
+			{
+				"internalType": "enum EtomicSwap.PaymentState",
+				"name": "state",
+				"type": "uint8"
+			}
+		],
+		"stateMutability": "view",
 		"type": "function"
 	}
 ]

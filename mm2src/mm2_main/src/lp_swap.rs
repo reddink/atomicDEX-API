@@ -60,7 +60,9 @@
 use crate::mm2::lp_network::{broadcast_p2p_msg, Libp2pPeerId};
 use bitcrypto::{dhash160, sha256};
 use coins::eth::u256_to_big_decimal;
-use coins::{lp_coinfind, lp_coinfind_or_err, CoinFindError, MmCoinEnum, TradeFee, TransactionEnum};
+use coins::{lp_coinfind, lp_coinfind_or_err, CoinFindError, MmCoinEnum, RewardTarget, TradeFee, TransactionEnum,
+            WatcherReward};
+use common::custom_futures::repeatable::{Ready, Retry};
 use common::log::{debug, warn};
 use common::time_cache::DuplicateCache;
 use common::{bits256, calc_total_pages,
@@ -75,6 +77,7 @@ use mm2_core::mm_ctx::{from_ctx, MmArc};
 use mm2_err_handle::prelude::*;
 use mm2_libp2p::{decode_signed, encode_and_sign, pub_sub_topic, PeerId, TopicPrefix};
 use mm2_number::{BigDecimal, BigRational, MmNumber, MmNumberMultiRepr};
+use num_traits::One;
 use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
 use serde::Serialize;
@@ -694,111 +697,130 @@ pub enum WatcherRewardError {
     InternalError(String),
 }
 
+pub async fn get_watcher_reward(
+    coin: &MmCoinEnum,
+    other_coin: &MmCoinEnum,
+    coin_amount: Option<BigDecimal>,
+    other_coin_amount: Option<BigDecimal>,
+    is_taker: bool,
+    reward_amount: Option<BigDecimal>,
+) -> Result<WatcherReward, MmError<WatcherRewardError>> {
+    if !coin.is_supported_by_watchers() {
+        return Err(WatcherRewardError::InvalidCoinType(format!(
+            "Coin {} does not have watcher support",
+            coin.ticker(),
+        ))
+        .into());
+    }
+
+    let reward_target = if is_taker {
+        if !coin.is_eth() {
+            RewardTarget::PaymentReceiver
+        } else if other_coin.is_eth() {
+            RewardTarget::Contract
+        } else {
+            RewardTarget::PaymentSender
+        }
+    } else if other_coin.is_eth() {
+        RewardTarget::None
+    } else {
+        RewardTarget::PaymentSpender
+    };
+
+    let is_exact_amount = reward_amount.is_some();
+    let amount = match reward_amount {
+        Some(amount) => amount,
+        None => watcher_reward_amount(coin, other_coin, coin_amount, other_coin_amount, reward_target).await?,
+    };
+
+    let send_contract_reward_on_spend = coin.is_eth() && other_coin.is_eth() && !is_taker;
+
+    Ok(WatcherReward {
+        amount,
+        is_exact_amount,
+        reward_target,
+        send_contract_reward_on_spend,
+    })
+}
+
 pub async fn watcher_reward_amount(
     coin: &MmCoinEnum,
     other_coin: &MmCoinEnum,
     coin_amount: Option<BigDecimal>,
     other_coin_amount: Option<BigDecimal>,
+    reward_target: RewardTarget,
 ) -> Result<BigDecimal, MmError<WatcherRewardError>> {
-    const WATCHER_REWARD_GAS: u64 = 100_000;
-    watcher_reward_from_gas(coin, other_coin, coin_amount, other_coin_amount, WATCHER_REWARD_GAS).await
+    const REWARD_GAS_AMOUNT: u64 = 70000;
+
+    let eth_coin = match (coin, other_coin) {
+        (MmCoinEnum::EthCoin(coin), _) | (_, MmCoinEnum::EthCoin(coin)) => coin,
+        _ => {
+            return Err(WatcherRewardError::InvalidCoinType(
+                "At least one coin must be ETH to use watcher reward".to_string(),
+            )
+            .into())
+        },
+    };
+
+    let gas_price = repeatable!(async {
+        match eth_coin.get_gas_price().compat().await {
+            Ok(gas_price) => Ready(gas_price),
+            Err(err) => {
+                error!("Error getting the gas price: {}", err);
+                Timer::sleep(10.).await;
+                Retry(())
+            },
+        }
+    })
+    .attempts(3)
+    .await
+    .map_err(|_| WatcherRewardError::RPCError("Error getting the gas price".to_string()))?;
+
+    let gas_cost_wei = U256::from(REWARD_GAS_AMOUNT) * gas_price;
+    let gas_cost_eth =
+        u256_to_big_decimal(gas_cost_wei, 18).map_err(|e| WatcherRewardError::InternalError(e.to_string()))?;
+
+    let price_in_eth = get_price_in_eth(coin, other_coin, coin_amount, other_coin_amount, reward_target).await?;
+    Ok(gas_cost_eth.div(price_in_eth))
 }
 
-pub async fn min_watcher_reward(
+async fn get_price_in_eth(
     coin: &MmCoinEnum,
     other_coin: &MmCoinEnum,
     coin_amount: Option<BigDecimal>,
     other_coin_amount: Option<BigDecimal>,
-) -> Result<BigDecimal, MmError<WatcherRewardError>> {
-    const MIN_WATCHER_REWARD_GAS: u64 = 70_000;
-    watcher_reward_from_gas(coin, other_coin, coin_amount, other_coin_amount, MIN_WATCHER_REWARD_GAS).await
+    reward_target: RewardTarget,
+) -> Result<BigDecimal, WatcherRewardError> {
+    if matches!(reward_target, RewardTarget::PaymentReceiver)
+        || (matches!(reward_target, RewardTarget::PaymentSpender) && coin.ticker() != "ETH")
+    {
+        if other_coin.ticker() == "ETH" {
+            if let (Some(coin_amount), Some(other_coin_amount)) = (coin_amount, other_coin_amount) {
+                Ok(other_coin_amount.div(coin_amount))
+            } else {
+                Ok(get_cex_price_in_eth(coin).await?)
+            }
+        } else {
+            Ok(get_cex_price_in_eth(coin).await?)
+        }
+    } else {
+        Ok(BigDecimal::one())
+    }
 }
 
-// TODO: Refactor this
-pub async fn watcher_reward_from_gas(
-    first_coin: &MmCoinEnum,
-    other_coin: &MmCoinEnum,
-    first_coin_amount: Option<BigDecimal>,
-    other_coin_amount: Option<BigDecimal>,
-    gas: u64,
-) -> Result<BigDecimal, MmError<WatcherRewardError>> {
-    let gas_cost = match (first_coin, other_coin) {
-        (MmCoinEnum::EthCoin(coin), _) | (_, MmCoinEnum::EthCoin(coin)) => {
-            let mut attempts = 0;
-            loop {
-                match coin.get_gas_price().compat().await {
-                    Ok(gas_price) => {
-                        let gas_cost_wei = U256::from(gas) * gas_price;
-                        let gas_cost_eth = u256_to_big_decimal(gas_cost_wei, 18)
-                            .map_err(|e| WatcherRewardError::InternalError(e.to_string()))?;
-                        if first_coin.ticker() == "ETH" {
-                            return Ok(gas_cost_eth);
-                        } else if other_coin.ticker() == "ETH" {
-                            if let (Some(first_coin_amount), Some(other_coin_amount)) =
-                                (first_coin_amount, other_coin_amount)
-                            {
-                                let price_in_eth = other_coin_amount.div(first_coin_amount);
-                                return Ok(gas_cost_eth.div(price_in_eth));
-                            } else {
-                                // Special case for integration tests
-                                if let Ok(test_coin_price) = std::env::var("TEST_COIN_PRICE") {
-                                    let test_coin_price = BigDecimal::from_str(&test_coin_price)
-                                        .map_err(|e| WatcherRewardError::InternalError(e.to_string()))?;
-                                    return Ok(gas_cost_eth.div(test_coin_price));
-                                }
-                                let cex_rates = fetch_swap_coins_price(
-                                    Some(first_coin.ticker().to_string()),
-                                    Some("ETH".to_string()),
-                                )
-                                .await
-                                .ok_or_else(|| {
-                                    WatcherRewardError::RPCError(format!(
-                                        "Price of coin {} in ETH could not be found",
-                                        first_coin.ticker()
-                                    ))
-                                })?;
-
-                                let price_in_eth = cex_rates.base / cex_rates.rel;
-                                return Ok(gas_cost_eth.div(price_in_eth));
-                            }
-                        } else {
-                            // Special case for integration tests
-                            if let Ok(test_coin_price) = std::env::var("TEST_COIN_PRICE") {
-                                let test_coin_price = BigDecimal::from_str(&test_coin_price)
-                                    .map_err(|e| WatcherRewardError::InternalError(e.to_string()))?;
-                                return Ok(gas_cost_eth.div(test_coin_price));
-                            }
-                            let cex_rates =
-                                fetch_swap_coins_price(Some(first_coin.ticker().to_string()), Some("ETH".to_string()))
-                                    .await
-                                    .ok_or_else(|| {
-                                        WatcherRewardError::RPCError(format!(
-                                            "Price of coin {} in ETH could not be found",
-                                            first_coin.ticker()
-                                        ))
-                                    })?;
-                            let price_in_eth = cex_rates.base / cex_rates.rel;
-                            return Ok(gas_cost_eth.div(price_in_eth));
-                        }
-                    },
-                    Err(err) => {
-                        if attempts >= 3 {
-                            return MmError::err(WatcherRewardError::RPCError(err.to_string()));
-                        } else {
-                            attempts += 1;
-                            Timer::sleep(10.).await;
-                        }
-                    },
-                };
-            }
-        },
-        _ => Err(WatcherRewardError::InvalidCoinType(
-            "At least one coin must be ETH to use watcher reward".to_string(),
-        )
-        .into()),
-    };
-
-    gas_cost
+async fn get_cex_price_in_eth(coin: &MmCoinEnum) -> Result<BigDecimal, WatcherRewardError> {
+    // Special case for integration tests
+    if let Ok(test_coin_price) = std::env::var("TEST_COIN_PRICE") {
+        let test_coin_price =
+            BigDecimal::from_str(&test_coin_price).map_err(|e| WatcherRewardError::InternalError(e.to_string()))?;
+        return Ok(test_coin_price);
+    }
+    let cex_rates = fetch_swap_coins_price(Some(coin.ticker().to_string()), Some("ETH".to_string()))
+        .await
+        .ok_or_else(|| {
+            WatcherRewardError::RPCError(format!("Price of coin {} in ETH could not be found", coin.ticker()))
+        })?;
+    Ok(cex_rates.base / cex_rates.rel)
 }
 
 #[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]

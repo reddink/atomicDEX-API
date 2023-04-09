@@ -598,7 +598,7 @@ pub struct WatcherValidatePaymentInput {
     pub secret_hash: Vec<u8>,
     pub try_spv_proof_until: u64,
     pub confirmations: u64,
-    pub min_watcher_reward: Option<WatcherReward>,
+    pub watcher_reward: Option<WatcherReward>,
 }
 
 #[derive(Clone, Debug)]
@@ -613,7 +613,7 @@ pub struct ValidatePaymentInput {
     pub try_spv_proof_until: u64,
     pub confirmations: u64,
     pub unique_swap_data: Vec<u8>,
-    pub min_watcher_reward: Option<WatcherReward>,
+    pub watcher_reward: Option<WatcherReward>,
 }
 
 #[derive(Clone, Debug)]
@@ -647,10 +647,21 @@ pub struct SearchForSwapTxSpendInput<'a> {
     pub watcher_reward: bool,
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum RewardTarget {
+    None,
+    Contract,
+    PaymentSender,
+    PaymentSpender,
+    PaymentReceiver,
+}
+
 #[derive(Clone, Debug)]
 pub struct WatcherReward {
     pub amount: BigDecimal,
-    pub is_refund_only: bool,
+    pub is_exact_amount: bool,
+    pub reward_target: RewardTarget,
+    pub send_contract_reward_on_spend: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -748,11 +759,22 @@ pub struct WaitForHTLCTxSpendArgs<'a> {
 pub enum PaymentInstructions {
     #[cfg(not(target_arch = "wasm32"))]
     Lightning(Invoice),
+    WatcherReward(BigDecimal),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PaymentInstructionArgs<'a> {
+    pub secret_hash: &'a [u8],
+    pub amount: BigDecimal,
+    pub maker_lock_duration: u64,
+    pub expires_in: u64,
+    pub watcher_reward: Option<BigDecimal>,
 }
 
 #[derive(Display)]
 pub enum PaymentInstructionsErr {
     LightningInvoiceErr(String),
+    WatcherRewardErr(String),
     InternalError(String),
 }
 
@@ -764,6 +786,7 @@ impl From<NumConversError> for PaymentInstructionsErr {
 pub enum ValidateInstructionsErr {
     ValidateLightningInvoiceErr(String),
     UnsupportedCoin(String),
+    DeserializationErr(String),
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -862,33 +885,25 @@ pub trait SwapOps {
     /// Instructions from the taker on how the maker should send his payment.
     async fn maker_payment_instructions(
         &self,
-        secret_hash: &[u8],
-        amount: &BigDecimal,
-        maker_lock_duration: u64,
-        expires_in: u64,
+        args: PaymentInstructionArgs<'_>,
     ) -> Result<Option<Vec<u8>>, MmError<PaymentInstructionsErr>>;
 
     /// Instructions from the maker on how the taker should send his payment.
     async fn taker_payment_instructions(
         &self,
-        secret_hash: &[u8],
-        amount: &BigDecimal,
-        expires_in: u64,
+        args: PaymentInstructionArgs<'_>,
     ) -> Result<Option<Vec<u8>>, MmError<PaymentInstructionsErr>>;
 
     fn validate_maker_payment_instructions(
         &self,
         instructions: &[u8],
-        secret_hash: &[u8],
-        amount: BigDecimal,
-        maker_lock_duration: u64,
+        args: PaymentInstructionArgs<'_>,
     ) -> Result<PaymentInstructions, MmError<ValidateInstructionsErr>>;
 
     fn validate_taker_payment_instructions(
         &self,
         instructions: &[u8],
-        secret_hash: &[u8],
-        amount: BigDecimal,
+        args: PaymentInstructionArgs<'_>,
     ) -> Result<PaymentInstructions, MmError<ValidateInstructionsErr>>;
 
     fn is_supported_by_watchers(&self) -> bool { false }
