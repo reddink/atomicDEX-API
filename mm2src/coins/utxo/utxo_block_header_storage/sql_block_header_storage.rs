@@ -340,7 +340,6 @@ impl BlockHeaderStorageOps for SqliteBlockHeadersStorage {
             return Ok(());
         };
 
-        println!("{:?}", rows_count);
         Err(BlockHeaderStorageError::table_err(
             &self.ticker,
             "Table is not empty".to_string(),

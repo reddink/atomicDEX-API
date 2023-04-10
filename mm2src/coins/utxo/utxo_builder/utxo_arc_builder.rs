@@ -350,9 +350,9 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
 
         // Validate retrieved block headers.
         if let Err(err) = validate_headers(ticker, from_block_height, &block_headers, storage, &spv_conf).await {
-            error!("Error {err:?} on validating the latest headers for {ticker}!");
-
-            // Check for mis-matching header, retrieve and revalidate if any.
+            // This code block handles a specific error scenario where a parent hash mismatch(chain re-org) is
+            // detected in the SPV client.
+            // If this error occurs, the code retrieves and revalidates the mismatching header from the SPV client..
             if let SPVError::ParentHashMismatch { coin, height } = &err {
                 info!("Parent hash mismatch detected for {coin} at height: {height}");
                 if let Err(err) = retrieve_and_revalidate_mismatching_header(
@@ -376,6 +376,7 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
             }
 
             // Todo: remove this electrum server and use another in this case since the headers from this server are invalid
+            error!("Error {err:?} on validating the latest headers for {ticker}!");
             sync_status_loop_handle.notify_on_permanent_error(err);
             break;
         };
