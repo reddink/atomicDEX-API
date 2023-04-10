@@ -1,9 +1,11 @@
 use async_trait::async_trait;
 pub use mm2_db::indexed_db::InitDbResult;
-use mm2_db::indexed_db::{DbIdentifier, DbInstance, IndexedDb, IndexedDbBuilder};
+use mm2_db::indexed_db::{DbIdentifier, DbInstance, DbLocked, IndexedDb, IndexedDbBuilder};
 
 const DB_NAME: &str = "nft_cache";
 const DB_VERSION: u32 = 1;
+
+pub type NftCacheDBLocked<'a> = DbLocked<'a, NftCacheDb>;
 
 pub struct NftCacheDb {
     inner: IndexedDb,
