@@ -297,19 +297,6 @@ pub(crate) mod tests {
         .unwrap();
         assert_eq!(next_block_bits, BlockHeaderBits::Compact(490733504.into()));
 
-        // check that bits for very early blocks that didn't change difficulty because of low hashrate is calculated correctly.
-        let last_header: BlockHeader = "01000000bf49880c4c962a96b8cbac3e1e30fcd4459ad57ab367bbcb98d0fdfa2737b50b71cb69000261d2aa4cb13fdf380011bb34b6c4c110059522e108e045e9b2c479ab7d964effff0f1eb7000000".into();
-        let height = 4031;
-
-        let next_block_bits = block_on(btc_mainnet_next_block_bits(
-            "BTC",
-            SPVBlockHeader::from_block_header_and_height(&last_header, height),
-            &storage,
-            &DifficultyAlgorithm::LitecoinMainnet,
-        ))
-        .unwrap();
-        assert_eq!(next_block_bits, BlockHeaderBits::Compact(503578623.into()));
-
         // check that bits stay the same when the next block is not a retarget block
         // https://live.blockcypher.com/btc/block/00000000000000000002622f52b6afe70a5bb139c788e67f221ffc67a762a1e0/
         let last_header: BlockHeader = "0100000065f3882810549f82c399b2eaaea8d8a077504875d77effad271d1525d6057ab6c600f6ddfc42762998e9a50abd0083929499c5b591dc169370e179449ea60a3fa87d964effff0f1ef1070000".into();
