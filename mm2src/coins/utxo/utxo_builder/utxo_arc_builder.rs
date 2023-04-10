@@ -3,8 +3,8 @@ use crate::utxo::utxo_block_header_storage::BlockHeaderStorage;
 use crate::utxo::utxo_builder::{UtxoCoinBuildError, UtxoCoinBuilder, UtxoCoinBuilderCommonOps,
                                 UtxoFieldsWithGlobalHDBuilder, UtxoFieldsWithHardwareWalletBuilder,
                                 UtxoFieldsWithIguanaSecretBuilder};
-use crate::utxo::{generate_and_send_tx, FeePolicy, GetUtxoListOps, UtxoArc, UtxoCommonOps, UtxoSyncStatusLoopHandle,
-                  UtxoWeak};
+use crate::utxo::{generate_and_send_tx, FeePolicy, GetUtxoListOps, UtxoArc, UtxoCoinFields, UtxoCommonOps,
+                  UtxoSyncStatusLoopHandle, UtxoWeak};
 use crate::{DerivationMethod, PrivKeyBuildPolicy, UtxoActivationParams};
 use async_trait::async_trait;
 use chain::{BlockHeader, TransactionOutput};
@@ -266,43 +266,40 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
         };
 
         let storage = client.block_headers_storage();
-        let from_block_height = match storage.get_last_block_height().await {
-            Ok(Some(height)) => height,
-            Ok(None) => {
-                if let Err(err) = validate_and_store_starting_header(client, ticker, storage, &spv_conf).await {
+        let from_block_height = match from_block_height(client, &spv_conf, storage, ticker).await {
+            Ok(h) => h,
+            Err(err) => match err {
+                UtxoLoopCtrlStatement::Break(err) => {
                     error!("{err}");
                     sync_status_loop_handle.notify_on_permanent_error(err);
                     break;
-                }
-                spv_conf.starting_block_header.height
-            },
-            Err(err) => {
-                error!("Error {err:?} on getting the height of the last stored {ticker} header in DB!",);
-                sync_status_loop_handle.notify_on_temp_error(err);
-                Timer::sleep(args.error_sleep).await;
-                continue;
-            },
-        };
-
-        let mut to_block_height = from_block_height + chunk_size;
-        if to_block_height > block_count {
-            block_count = match coin.as_ref().rpc_client.get_block_count().compat().await {
-                Ok(h) => h,
-                Err(err) => {
-                    error!("Error {err:} on getting the height of the latest {ticker} block from rpc!");
+                },
+                UtxoLoopCtrlStatement::Continue(err) => {
+                    error!("Error {err:?} on getting the height of the last stored {ticker} header in DB!",);
                     sync_status_loop_handle.notify_on_temp_error(err);
                     Timer::sleep(args.error_sleep).await;
                     continue;
                 },
+            },
+        };
+        let to_block_height =
+            match to_block_height(coin.as_ref(), from_block_height, chunk_size, &mut block_count, ticker).await {
+                Ok(h) => h,
+                Err(err) => match err {
+                    UtxoLoopCtrlStatement::Break(err) => {
+                        error!("Error {err:} on getting the height of the latest {ticker} block from rpc!");
+                        sync_status_loop_handle.notify_on_temp_error(err);
+                        Timer::sleep(args.error_sleep).await;
+                        continue;
+                    },
+                    UtxoLoopCtrlStatement::Continue(err) => {
+                        error!("Error {err:} on getting the height of the latest {ticker} block from rpc!");
+                        sync_status_loop_handle.notify_on_temp_error(err);
+                        Timer::sleep(args.error_sleep).await;
+                        continue;
+                    },
+                },
             };
-
-            // More than `chunk_size` blocks could have appeared since the last `get_block_count` RPC.
-            // So reset `to_block_height` if only `from_block_height + chunk_size > actual_block_count`.
-            if to_block_height > block_count {
-                to_block_height = block_count;
-            }
-        }
-        drop_mutability!(to_block_height);
 
         // Todo: Add code for the case if a chain reorganization happens
         if from_block_height == block_count {
@@ -394,6 +391,54 @@ pub enum UtxoLoopCtrlStatement {
     Break(String),
     /// Signals that the current iteration of the UTXO loop should be skipped over, with the specified error message.
     Continue(String),
+}
+
+async fn from_block_height(
+    client: &ElectrumClient,
+    spv_conf: &SPVConf,
+    storage: &dyn BlockHeaderStorageOps,
+    ticker: &str,
+) -> Result<u64, UtxoLoopCtrlStatement> {
+    let height = match storage.get_last_block_height().await {
+        Ok(Some(height)) => height,
+        Ok(None) => {
+            if let Err(err) = validate_and_store_starting_header(client, ticker, storage, spv_conf).await {
+                return Err(UtxoLoopCtrlStatement::Break(err.to_string()));
+            }
+            spv_conf.starting_block_header.height
+        },
+        Err(err) => return Err(UtxoLoopCtrlStatement::Continue(err.to_string())),
+    };
+
+    Ok(height)
+}
+
+async fn to_block_height(
+    coin: &UtxoCoinFields,
+    from_block_height: u64,
+    chunk_size: u64,
+    block_count: &mut u64,
+    ticker: &str,
+) -> Result<u64, UtxoLoopCtrlStatement> {
+    let mut to_block_height = from_block_height + chunk_size;
+    if to_block_height > *block_count {
+        *block_count = match coin.rpc_client.get_block_count().compat().await {
+            Ok(h) => h,
+            Err(err) => {
+                error!("Error {err:} on getting the height of the latest {ticker} block from rpc!");
+                return Err(UtxoLoopCtrlStatement::Continue(err.to_string()));
+            },
+        };
+
+        // More than `chunk_size` blocks could have appeared since the last `get_block_count` RPC.
+        // So reset `to_block_height` if only `from_block_height + chunk_size > actual_block_count`.
+        if to_block_height > *block_count {
+            to_block_height = *block_count;
+        }
+    }
+
+    drop_mutability!(to_block_height);
+    Ok(to_block_height)
 }
 
 async fn retrieve_headers_helper(
@@ -556,7 +601,7 @@ enum StartingHeaderValidationError {
 async fn validate_and_store_starting_header(
     client: &ElectrumClient,
     ticker: &str,
-    storage: &BlockHeaderStorage,
+    storage: &dyn BlockHeaderStorageOps,
     spv_conf: &SPVConf,
 ) -> MmResult<(), StartingHeaderValidationError> {
     let height = spv_conf.starting_block_header.height;
