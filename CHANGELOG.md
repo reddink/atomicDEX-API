@@ -1,6 +1,9 @@
 ## {inc-release}
 
 **Features:**
+- Swap watcher nodes [#1750](https://github.com/KomodoPlatform/atomicDEX-API/pull/1750)
+  - PoC for ETH/UTXO and ERC20/UTXO swaps with rewards
+  - Improved protocol to let only the taker pay the reward
 
 **Enhancements/Fixes:**
 - CI/CD workflow logics are improved [#1736](https://github.com/KomodoPlatform/atomicDEX-API/pull/1736)
