@@ -1,6 +1,11 @@
+use crate::nft_storage::CreateNftStorageError;
+use crate::CoinsContext;
 use async_trait::async_trait;
+use mm2_core::mm_ctx::MmArc;
 pub use mm2_db::indexed_db::InitDbResult;
-use mm2_db::indexed_db::{DbIdentifier, DbInstance, DbLocked, IndexedDb, IndexedDbBuilder};
+use mm2_db::indexed_db::{DbIdentifier, DbInstance, DbLocked, IndexedDb, IndexedDbBuilder, SharedDb};
+use mm2_err_handle::map_to_mm::MapToMmResult;
+use mm2_err_handle::prelude::MmResult;
 
 const DB_NAME: &str = "nft_cache";
 const DB_VERSION: u32 = 1;
@@ -24,4 +29,21 @@ impl DbInstance for NftCacheDb {
 
 impl NftCacheDb {
     fn get_inner(&self) -> &IndexedDb { &self.inner }
+}
+
+#[derive(Clone)]
+pub struct IndexedDbNftStorage {
+    db: SharedDb<NftCacheDb>,
+}
+
+impl IndexedDbNftStorage {
+    pub fn new(ctx: &MmArc) -> MmResult<Self, CreateNftStorageError>
+    where
+        Self: Sized,
+    {
+        let coins_ctx = CoinsContext::from_ctx(ctx).map_to_mm(CreateNftStorageError::Internal)?;
+        Ok(IndexedDbNftStorage {
+            db: coins_ctx.nft_cache_db.clone(),
+        })
+    }
 }

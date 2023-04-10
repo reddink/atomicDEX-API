@@ -1,5 +1,4 @@
 use crate::nft::nft_structs::{Chain, Nft, NftTransferHistory};
-use crate::nft_storage::sql_storage::SqliteNftStorage;
 use async_trait::async_trait;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::mm_error::NotMmError;
@@ -53,7 +52,6 @@ pub enum CreateNftStorageError {
 
 /// `NftStorageBuilder` is used to create an instance that implements the `NftListStorageOps`
 /// and `NftTxHistoryStorageOps` traits.
-#[allow(dead_code)]
 pub struct NftStorageBuilder<'a> {
     ctx: &'a MmArc,
 }
@@ -64,7 +62,9 @@ impl<'a> NftStorageBuilder<'a> {
 
     #[inline]
     pub fn build(self) -> MmResult<impl NftListStorageOps + NftTxHistoryStorageOps, CreateNftStorageError> {
+        #[cfg(target_arch = "wasm32")]
+        return wasm_storage::IndexedDbNftStorage::new(self.ctx);
         #[cfg(not(target_arch = "wasm32"))]
-        SqliteNftStorage::new(self.ctx)
+        sql_storage::SqliteNftStorage::new(self.ctx)
     }
 }
