@@ -1,4 +1,4 @@
-use crate::nft_storage::{CreateNftStorageError, StorageFactory};
+use crate::nft_storage::CreateNftStorageError;
 use db_common::sqlite::rusqlite::Connection;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::mm_error::{MmError, MmResult};
@@ -16,8 +16,4 @@ impl SqliteNftStorage {
             )))?;
         Ok(SqliteNftStorage(sqlite_connection.clone()))
     }
-}
-
-impl StorageFactory for SqliteNftStorage {
-    fn create(ctx: &MmArc) -> MmResult<Self, CreateNftStorageError> { SqliteNftStorage::new(ctx) }
 }
