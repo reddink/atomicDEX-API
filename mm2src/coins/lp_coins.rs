@@ -1002,6 +1002,10 @@ pub trait MarketCoinOps {
     fn min_trading_vol(&self) -> MmNumber;
 
     fn is_privacy(&self) -> bool { false }
+
+    /// Whether the coin requires additional balance checks to be performed.
+    /// E.g. for Lightning, inbound balance needs to be checked when placing orders.
+    fn needs_additional_balance_checks(&self) -> bool { false }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]

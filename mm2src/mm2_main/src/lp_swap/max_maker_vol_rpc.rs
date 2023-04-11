@@ -85,6 +85,7 @@ impl From<CoinFindError> for MaxMakerVolRpcError {
 impl From<CheckBalanceError> for MaxMakerVolRpcError {
     fn from(e: CheckBalanceError) -> Self {
         match e {
+            CheckBalanceError::NoSuchCoin { coin } => MaxMakerVolRpcError::NoSuchCoin { coin },
             CheckBalanceError::NotSufficientBalance {
                 coin,
                 available,

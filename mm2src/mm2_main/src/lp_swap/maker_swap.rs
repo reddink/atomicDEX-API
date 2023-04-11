@@ -2281,13 +2281,9 @@ pub async fn calc_max_maker_vol(
     stage: FeeApproxStage,
 ) -> CheckBalanceResult<CoinVolumeInfo> {
     let ticker = coin.ticker();
-    let locked_by_swaps = get_locked_amount(ctx, ticker);
+    let locked_by_swaps = get_locked_amount(ctx, coin);
     // Todo: add test cases in the test document for how to test inbound in ordermatching, maybe add unit tests
     let available_to_send = &MmNumber::from(balance.spendable.clone()) - &locked_by_swaps.locked_spendable;
-    let available_to_receive = balance
-        .protocol_specific_balance
-        .as_ref()
-        .map(|b| &MmNumber::from(b.receivable_balance()) - &locked_by_swaps.locked_receivable);
     let mut sendable_volume = available_to_send.clone();
 
     let preimage_value = TradePreimageValue::UpperBound(sendable_volume.to_decimal());
@@ -2315,29 +2311,30 @@ pub async fn calc_max_maker_vol(
             locked_by_swaps: Some(locked_by_swaps.locked_spendable.to_decimal()),
         });
     }
-    // Todo: need to add LSP case where fee is subtracted from receivable amount
+    // Todo: need to add LSP case where fee is subtracted from receivable amount, also LSP on-demand liquidity should not be used if there is inbound liquidity and a route
     // Todo: fix nested if (if possible)
-    if let Some(receivable_volume) = available_to_receive {
-        if let Some(protocol_specific_balance) = &balance.protocol_specific_balance {
-            let required = protocol_specific_balance.min_receivable_balance();
-            if receivable_volume < required {
-                return MmError::err(CheckBalanceError::NotSufficientReceivableBalance {
-                    coin: ticker.to_owned(),
-                    available: receivable_volume.to_decimal(),
-                    required,
-                    locked_by_swaps: Some(locked_by_swaps.locked_receivable.to_decimal()),
-                });
-            }
+    if let Some(protocol_specific_balance) = &balance.protocol_specific_balance {
+        // Todo: is it right to unwrap here?
+        let receivable_volume = MmNumber::from(protocol_specific_balance.receivable_balance())
+            - locked_by_swaps.locked_receivable.clone().unwrap_or_default();
+        let required = protocol_specific_balance.min_receivable_balance();
+        if receivable_volume < required {
+            return MmError::err(CheckBalanceError::NotSufficientReceivableBalance {
+                coin: ticker.to_owned(),
+                available: receivable_volume.to_decimal(),
+                required,
+                locked_by_swaps: locked_by_swaps.locked_receivable.map(|l| l.to_decimal()),
+            });
         }
     }
     // Todo: check where this is used
     Ok(CoinVolumeInfo {
         volume: sendable_volume,
+        // Todo: add receivable volume
         // Todo: can this clone be removed
         balance: balance.clone(),
         locked_by_swaps: locked_by_swaps.locked_spendable,
-        // Todo: locked_by_swaps.1 should be an option
-        receivable_locked_by_swaps: Some(locked_by_swaps.locked_receivable),
+        receivable_locked_by_swaps: locked_by_swaps.locked_receivable,
     })
 }
 
@@ -2726,9 +2723,9 @@ mod maker_swap_tests {
         let maker_coin = MmCoinEnum::Test(TestCoin::default());
         let taker_coin = MmCoinEnum::Test(TestCoin::default());
         let (_maker_swap, _) =
-            MakerSwap::load_from_saved(ctx.clone(), maker_coin, taker_coin, maker_saved_swap).unwrap();
+            MakerSwap::load_from_saved(ctx.clone(), maker_coin.clone(), taker_coin, maker_saved_swap).unwrap();
 
-        let actual = get_locked_amount(&ctx, "ticker");
+        let actual = get_locked_amount(&ctx, &maker_coin);
         assert_eq!(actual.locked_spendable, MmNumber::from(0));
     }
 

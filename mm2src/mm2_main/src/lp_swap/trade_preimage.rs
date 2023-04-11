@@ -285,6 +285,7 @@ impl From<BalanceError> for TradePreimageRpcError {
 impl From<CheckBalanceError> for TradePreimageRpcError {
     fn from(e: CheckBalanceError) -> Self {
         match e {
+            CheckBalanceError::NoSuchCoin { coin } => TradePreimageRpcError::NoSuchCoin { coin },
             CheckBalanceError::NotSufficientBalance {
                 coin,
                 available,

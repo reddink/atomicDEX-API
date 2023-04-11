@@ -2469,12 +2469,13 @@ pub async fn calc_max_taker_vol(
     stage: FeeApproxStage,
 ) -> CheckBalanceResult<MmNumber> {
     let my_coin = coin.ticker();
-    let balance: MmNumber = coin.my_spendable_balance().compat().await?.into();
-    let locked = get_locked_amount(ctx, my_coin);
+    let balance = coin.my_balance().compat().await?;
+    // Todo: add receivable balance checks
+    let spendable_balance: MmNumber = balance.spendable.into();
+    let locked = get_locked_amount(ctx, coin);
     let min_tx_amount = MmNumber::from(coin.min_tx_amount());
 
-    // Todo: add code for receivable by checking where locked.0 is used
-    let max_possible = &balance - &locked.locked_spendable;
+    let max_possible = &spendable_balance - &locked.locked_spendable;
     let preimage_value = TradePreimageValue::UpperBound(max_possible.to_decimal());
     let max_trade_fee = coin
         .get_sender_trade_fee(preimage_value, stage.clone())
@@ -2494,7 +2495,7 @@ pub async fn calc_max_taker_vol(
         debug!(
             "max_taker_vol case 2: min_max_possible {:?}, balance {:?}, locked {:?}, max_trade_fee {:?}, max_dex_fee {:?}, max_fee_to_send_taker_fee {:?}",
             min_max_possible.to_fraction(),
-            balance.to_fraction(),
+            spendable_balance.to_fraction(),
             locked.locked_spendable.to_fraction(),
             max_trade_fee.amount.to_fraction(),
             max_dex_fee.to_fraction(),
@@ -2507,7 +2508,7 @@ pub async fn calc_max_taker_vol(
         // first case
         debug!(
             "max_taker_vol case 1: balance {:?}, locked {:?}",
-            balance.to_fraction(),
+            spendable_balance.to_fraction(),
             locked.locked_spendable.to_fraction()
         );
         max_taker_vol_from_available(max_possible, my_coin, other_coin, &min_tx_amount).mm_err(|e| {
@@ -3044,16 +3045,17 @@ mod taker_swap_tests {
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
         TestCoin::min_tx_amount.mock_safe(|_| MockResult::Return(BigDecimal::from(0)));
 
-        let (swap, _) = TakerSwap::load_from_saved(ctx.clone(), maker_coin, taker_coin, taker_saved_swap).unwrap();
+        let (swap, _) =
+            TakerSwap::load_from_saved(ctx.clone(), maker_coin.clone(), taker_coin, taker_saved_swap).unwrap();
         let swaps_ctx = SwapsContext::from_ctx(&ctx).unwrap();
         let arc = Arc::new(swap);
         let weak_ref = Arc::downgrade(&arc);
         swaps_ctx.running_swaps.lock().unwrap().push(weak_ref);
 
-        let actual = get_locked_amount(&ctx, "RICK");
-        assert_eq!(actual.locked_spendable, MmNumber::from(0));
+        let actual = get_locked_amount(&ctx, &maker_coin).locked_spendable;
+        assert_eq!(actual, MmNumber::from(0));
 
-        let actual = get_locked_amount_by_other_swaps(&ctx, &new_uuid(), "RICK");
+        let actual = get_locked_amount_by_other_swaps(&ctx, &new_uuid(), &maker_coin).locked_spendable;
         assert_eq!(actual, MmNumber::from(0));
     }
 }

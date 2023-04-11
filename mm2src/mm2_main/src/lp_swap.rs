@@ -458,6 +458,8 @@ pub struct GetLockedAmountReq {
 pub struct GetLockedAmountResp {
     coin: String,
     locked_amount: MmNumberMultiRepr,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    receivable_locked_amount: Option<MmNumberMultiRepr>,
 }
 
 #[derive(Debug, Display, Serialize, SerializeErrorType)]
@@ -487,39 +489,49 @@ pub async fn get_locked_amount_rpc(
     ctx: MmArc,
     req: GetLockedAmountReq,
 ) -> Result<GetLockedAmountResp, MmError<GetLockedAmountRpcError>> {
-    lp_coinfind_or_err(&ctx, &req.coin).await?;
-    let locked_amount = get_locked_amount(&ctx, &req.coin);
+    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
+    let locked_amount = get_locked_amount(&ctx, &coin);
 
     Ok(GetLockedAmountResp {
         coin: req.coin,
-        // Todo: add a field for receivable locked amount
         locked_amount: locked_amount.locked_spendable.into(),
+        receivable_locked_amount: locked_amount.locked_receivable.map(|amount| amount.into()),
     })
 }
 
-// Todo: make second amount optional in case of lightning
-#[derive(Default)]
 pub(crate) struct TotalLockedAmount {
     locked_spendable: MmNumber,
-    locked_receivable: MmNumber,
+    locked_receivable: Option<MmNumber>,
 }
 
 /// Get total amount of selected coin locked by all currently ongoing swaps
-pub(crate) fn get_locked_amount(ctx: &MmArc, coin: &str) -> TotalLockedAmount {
+pub(crate) fn get_locked_amount(ctx: &MmArc, coin: &MmCoinEnum) -> TotalLockedAmount {
     let swap_ctx = SwapsContext::from_ctx(ctx).unwrap();
     let swap_lock = swap_ctx.running_swaps.lock().unwrap();
+
+    let init_total_locked_amount = TotalLockedAmount {
+        locked_spendable: Default::default(),
+        locked_receivable: if coin.needs_additional_balance_checks() {
+            Some(Default::default())
+        } else {
+            None
+        },
+    };
+    let ticker = coin.ticker().to_string();
 
     swap_lock
         .iter()
         .filter_map(|swap| swap.upgrade())
         .flat_map(|swap| swap.locked_amount())
-        .fold(TotalLockedAmount::default(), |mut total_amount, locked| {
-            if locked.coin == coin {
+        .fold(init_total_locked_amount, |mut total_amount, locked| {
+            if locked.coin == ticker {
                 total_amount.locked_spendable += locked.amount;
-                total_amount.locked_receivable += locked.amount_to_receive;
+                if let Some(locked_receivable) = total_amount.locked_receivable.as_mut() {
+                    *locked_receivable += locked.amount_to_receive;
+                }
             }
             if let Some(trade_fee) = locked.trade_fee {
-                if trade_fee.coin == coin && !trade_fee.paid_from_trading_vol {
+                if trade_fee.coin == ticker && !trade_fee.paid_from_trading_vol {
                     total_amount.locked_spendable += trade_fee.amount;
                 }
             }
@@ -538,22 +550,36 @@ pub fn running_swaps_num(ctx: &MmArc) -> u64 {
 }
 
 /// Get total amount of selected coin locked by all currently ongoing swaps except the one with selected uuid
-fn get_locked_amount_by_other_swaps(ctx: &MmArc, except_uuid: &Uuid, coin: &str) -> MmNumber {
+// Todo: find a better way than using bool here
+fn get_locked_amount_by_other_swaps(ctx: &MmArc, except_uuid: &Uuid, coin: &MmCoinEnum) -> TotalLockedAmount {
     let swap_ctx = SwapsContext::from_ctx(ctx).unwrap();
     let swap_lock = swap_ctx.running_swaps.lock().unwrap();
+
+    let init_total_locked_amount = TotalLockedAmount {
+        locked_spendable: Default::default(),
+        locked_receivable: if coin.needs_additional_balance_checks() {
+            Some(Default::default())
+        } else {
+            None
+        },
+    };
+    let ticker = coin.ticker().to_string();
 
     swap_lock
         .iter()
         .filter_map(|swap| swap.upgrade())
         .filter(|swap| swap.uuid() != except_uuid)
         .flat_map(|swap| swap.locked_amount())
-        .fold(MmNumber::from(0), |mut total_amount, locked| {
-            if locked.coin == coin {
-                total_amount += locked.amount;
+        .fold(init_total_locked_amount, |mut total_amount, locked| {
+            if locked.coin == ticker {
+                total_amount.locked_spendable += locked.amount;
+                if let Some(locked_receivable) = total_amount.locked_receivable.as_mut() {
+                    *locked_receivable += locked.amount_to_receive;
+                }
             }
             if let Some(trade_fee) = locked.trade_fee {
-                if trade_fee.coin == coin && !trade_fee.paid_from_trading_vol {
-                    total_amount += trade_fee.amount;
+                if trade_fee.coin == ticker && !trade_fee.paid_from_trading_vol {
+                    total_amount.locked_spendable += trade_fee.amount;
                 }
             }
             total_amount

@@ -1,6 +1,6 @@
 use super::taker_swap::MaxTakerVolumeLessThanDust;
 use super::{get_locked_amount, get_locked_amount_by_other_swaps};
-use coins::{BalanceError, CoinBalance, MmCoinEnum, TradeFee, TradePreimageError};
+use coins::{lp_coinfind_or_err, BalanceError, CoinBalance, CoinFindError, MmCoinEnum, TradeFee, TradePreimageError};
 use common::log::debug;
 use derive_more::Display;
 use futures::compat::Future01CompatExt;
@@ -26,14 +26,13 @@ pub async fn check_my_coin_balance_for_swap(
     let ticker = coin.ticker();
     debug!("Check my_coin '{}' balance for swap", ticker);
     let balance = coin.my_balance().compat().await?;
-    // Todo: try to remove this clone
+    // Todo: try to remove this clone, add receivable balance checks
     let spendable_balance: MmNumber = balance.spendable.clone().into();
 
     // Todo: get locked inbound balance for lightning swaps
     let locked = match swap_uuid {
-        Some(u) => get_locked_amount_by_other_swaps(ctx, u, ticker),
-        // Todo: get_locked_amount(ctx, ticker).1
-        None => get_locked_amount(ctx, ticker).locked_spendable,
+        Some(u) => get_locked_amount_by_other_swaps(ctx, u, coin),
+        None => get_locked_amount(ctx, coin),
     };
 
     let dex_fee = match taker_fee {
@@ -67,21 +66,21 @@ pub async fn check_my_coin_balance_for_swap(
         "{} balance {:?}, locked {:?}, volume {:?}, fee {:?}, dex_fee {:?}",
         ticker,
         spendable_balance.to_fraction(),
-        locked.to_fraction(),
+        locked.locked_spendable.to_fraction(),
         volume.to_fraction(),
         total_trade_fee.to_fraction(),
         dex_fee.to_fraction()
     );
 
     let required = volume + total_trade_fee + dex_fee;
-    let available = &spendable_balance - &locked;
+    let available = &spendable_balance - &locked.locked_spendable;
 
     if available < required {
         return MmError::err(CheckBalanceError::NotSufficientBalance {
             coin: ticker.to_owned(),
             available: available.to_decimal(),
             required: required.to_decimal(),
-            locked_by_swaps: Some(locked.to_decimal()),
+            locked_by_swaps: Some(locked.locked_spendable.to_decimal()),
         });
     }
 
@@ -99,22 +98,23 @@ pub async fn check_other_coin_balance_for_swap(
     }
     let ticker = coin.ticker();
     debug!("Check other_coin '{}' balance for swap", ticker);
-    let balance: MmNumber = coin.my_spendable_balance().compat().await?.into();
+    let balance = coin.my_balance().compat().await?;
+    // Todo: add receivable balance checks
+    let spendable_balance: MmNumber = balance.spendable.into();
 
     let locked = match swap_uuid {
-        Some(u) => get_locked_amount_by_other_swaps(ctx, u, ticker),
-        // Todo: get_locked_amount(ctx, ticker).1
-        None => get_locked_amount(ctx, ticker).locked_spendable,
+        Some(u) => get_locked_amount_by_other_swaps(ctx, u, coin),
+        None => get_locked_amount(ctx, coin),
     };
 
     if ticker == trade_fee.coin {
-        let available = &balance - &locked;
+        let available = &spendable_balance - &locked.locked_spendable;
         let required = trade_fee.amount;
         debug!(
             "{} balance {:?}, locked {:?}, required {:?}",
             ticker,
-            balance.to_fraction(),
-            locked.to_fraction(),
+            spendable_balance.to_fraction(),
+            locked.locked_spendable.to_fraction(),
             required.to_fraction(),
         );
         if available < required {
@@ -122,7 +122,7 @@ pub async fn check_other_coin_balance_for_swap(
                 coin: ticker.to_owned(),
                 available: available.to_decimal(),
                 required: required.to_decimal(),
-                locked_by_swaps: Some(locked.to_decimal()),
+                locked_by_swaps: Some(locked.locked_spendable.to_decimal()),
             });
         }
     } else {
@@ -133,6 +133,7 @@ pub async fn check_other_coin_balance_for_swap(
     Ok(())
 }
 
+// Todo: will this be needed for LSP checks?
 pub async fn check_base_coin_balance_for_swap(
     ctx: &MmArc,
     balance: &MmNumber,
@@ -140,6 +141,7 @@ pub async fn check_base_coin_balance_for_swap(
     swap_uuid: Option<&Uuid>,
 ) -> CheckBalanceResult<()> {
     let ticker = trade_fee.coin.as_str();
+    let coin = lp_coinfind_or_err(ctx, ticker).await?;
     let trade_fee_fraction = trade_fee.amount.to_fraction();
     debug!(
         "Check if the base coin '{}' has sufficient balance to pay the trade fee {:?}",
@@ -148,9 +150,8 @@ pub async fn check_base_coin_balance_for_swap(
 
     let required = trade_fee.amount;
     let locked = match swap_uuid {
-        Some(uuid) => get_locked_amount_by_other_swaps(ctx, uuid, ticker),
-        // Todo: when return value is refactored, fix this
-        None => get_locked_amount(ctx, ticker).locked_spendable,
+        Some(uuid) => get_locked_amount_by_other_swaps(ctx, uuid, &coin).locked_spendable,
+        None => get_locked_amount(ctx, &coin).locked_spendable,
     };
     let available = balance - &locked;
 
@@ -180,6 +181,8 @@ pub struct TakerFeeAdditionalInfo {
 #[derive(Debug, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum CheckBalanceError {
+    #[display(fmt = "No such coin {}", coin)]
+    NoSuchCoin { coin: String },
     #[display(
         fmt = "Not enough {} for swap: available {}, required at least {}, locked by swaps {:?}",
         coin,
@@ -234,6 +237,14 @@ pub enum CheckBalanceError {
     Transport(String),
     #[display(fmt = "Internal error: {}", _0)]
     InternalError(String),
+}
+
+impl From<CoinFindError> for CheckBalanceError {
+    fn from(e: CoinFindError) -> Self {
+        match e {
+            CoinFindError::NoSuchCoin { coin } => CheckBalanceError::NoSuchCoin { coin },
+        }
+    }
 }
 
 impl From<BalanceError> for CheckBalanceError {
