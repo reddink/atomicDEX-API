@@ -1,10 +1,14 @@
 use crate::nft::nft_structs::{Chain, Nft, NftTransferHistory};
-use crate::nft_storage::{CreateNftStorageError, NftListStorageOps, NftTxHistoryStorageOps};
+use crate::nft_storage::{CreateNftStorageError, NftListStorageError, NftListStorageOps, NftTxHistoryStorageError,
+                         NftTxHistoryStorageOps};
 use async_trait::async_trait;
-use db_common::sqlite::rusqlite::Connection;
+use db_common::sqlite::rusqlite::{Connection, Error as SqlError};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::mm_error::{MmError, MmResult};
 use std::sync::{Arc, Mutex};
+
+impl NftListStorageError for SqlError {}
+impl NftTxHistoryStorageError for SqlError {}
 
 #[derive(Clone)]
 pub struct SqliteNftStorage(Arc<Mutex<Connection>>);
@@ -22,15 +26,15 @@ impl SqliteNftStorage {
 
 #[async_trait]
 impl NftListStorageOps for SqliteNftStorage {
-    type Error = ();
+    type Error = SqlError;
 
-    async fn init(&self, chain: Chain) -> MmResult<(), Self::Error> { todo!() }
+    async fn init(&self, _chain: Chain) -> MmResult<(), Self::Error> { todo!() }
 
-    async fn is_initialized_for(&self, chain: Chain) -> MmResult<(), Self::Error> { todo!() }
+    async fn is_initialized_for(&self, _chain: Chain) -> MmResult<bool, Self::Error> { todo!() }
 
-    async fn get_nft_list(&self, chain: Chain) -> MmResult<(), Self::Error> { todo!() }
+    async fn get_nft_list(&self, _chain: Chain) -> MmResult<(), Self::Error> { todo!() }
 
-    async fn add_nfts_to_list<I>(&self, chain: Chain, nfts: I) -> MmResult<(), Self::Error>
+    async fn add_nfts_to_list<I>(&self, _chain: Chain, _nfts: I) -> MmResult<(), Self::Error>
     where
         I: IntoIterator<Item = Nft> + Send + 'static,
         I::IntoIter: Send,
@@ -41,15 +45,15 @@ impl NftListStorageOps for SqliteNftStorage {
 
 #[async_trait]
 impl NftTxHistoryStorageOps for SqliteNftStorage {
-    type Error = ();
+    type Error = SqlError;
 
-    async fn init(&self, chain: Chain) -> MmResult<(), Self::Error> { todo!() }
+    async fn init(&self, _chain: Chain) -> MmResult<(), Self::Error> { todo!() }
 
-    async fn is_initialized_for(&self, chain: Chain) -> MmResult<(), Self::Error> { todo!() }
+    async fn is_initialized_for(&self, _chain: Chain) -> MmResult<bool, Self::Error> { todo!() }
 
-    async fn get_tx_history(&self, chain: Chain) -> MmResult<(), Self::Error> { todo!() }
+    async fn get_tx_history(&self, _chain: Chain) -> MmResult<(), Self::Error> { todo!() }
 
-    async fn add_txs_to_history<I>(&self, chain: Chain, nfts: I) -> MmResult<(), Self::Error>
+    async fn add_txs_to_history<I>(&self, _chain: Chain, _nfts: I) -> MmResult<(), Self::Error>
     where
         I: IntoIterator<Item = NftTransferHistory> + Send + 'static,
         I::IntoIter: Send,

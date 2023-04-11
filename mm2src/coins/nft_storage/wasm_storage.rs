@@ -1,7 +1,9 @@
 use crate::nft::nft_structs::{Chain, Nft, NftTransferHistory};
-use crate::nft_storage::{CreateNftStorageError, NftListStorageOps, NftTxHistoryStorageOps};
+use crate::nft_storage::{CreateNftStorageError, NftListStorageError, NftListStorageOps, NftTxHistoryStorageError,
+                         NftTxHistoryStorageOps};
 use crate::CoinsContext;
 use async_trait::async_trait;
+use derive_more::Display;
 use mm2_core::mm_ctx::MmArc;
 pub use mm2_db::indexed_db::InitDbResult;
 use mm2_db::indexed_db::{DbIdentifier, DbInstance, DbLocked, IndexedDb, IndexedDbBuilder, SharedDb};
@@ -12,6 +14,12 @@ const DB_NAME: &str = "nft_cache";
 const DB_VERSION: u32 = 1;
 
 pub type NftCacheDBLocked<'a> = DbLocked<'a, NftCacheDb>;
+
+#[derive(Debug, Display)]
+pub enum WasmNftCacheError {}
+
+impl NftListStorageError for WasmNftCacheError {}
+impl NftTxHistoryStorageError for WasmNftCacheError {}
 
 pub struct NftCacheDb {
     inner: IndexedDb,
@@ -48,15 +56,15 @@ impl IndexedDbNftStorage {
 
 #[async_trait]
 impl NftListStorageOps for IndexedDbNftStorage {
-    type Error = ();
+    type Error = WasmNftCacheError;
 
-    async fn init(&self, chain: Chain) -> MmResult<(), Self::Error> { todo!() }
+    async fn init(&self, _chain: Chain) -> MmResult<(), Self::Error> { todo!() }
 
-    async fn is_initialized_for(&self, chain: Chain) -> MmResult<(), Self::Error> { todo!() }
+    async fn is_initialized_for(&self, _chain: Chain) -> MmResult<bool, Self::Error> { todo!() }
 
-    async fn get_nft_list(&self, chain: Chain) -> MmResult<(), Self::Error> { todo!() }
+    async fn get_nft_list(&self, _chain: Chain) -> MmResult<(), Self::Error> { todo!() }
 
-    async fn add_nfts_to_list<I>(&self, chain: Chain, nfts: I) -> MmResult<(), Self::Error>
+    async fn add_nfts_to_list<I>(&self, _chain: Chain, _nfts: I) -> MmResult<(), Self::Error>
     where
         I: IntoIterator<Item = Nft> + Send + 'static,
         I::IntoIter: Send,
@@ -67,15 +75,15 @@ impl NftListStorageOps for IndexedDbNftStorage {
 
 #[async_trait]
 impl NftTxHistoryStorageOps for IndexedDbNftStorage {
-    type Error = ();
+    type Error = WasmNftCacheError;
 
-    async fn init(&self, chain: Chain) -> MmResult<(), Self::Error> { todo!() }
+    async fn init(&self, _chain: Chain) -> MmResult<(), Self::Error> { todo!() }
 
-    async fn is_initialized_for(&self, chain: Chain) -> MmResult<(), Self::Error> { todo!() }
+    async fn is_initialized_for(&self, _chain: Chain) -> MmResult<bool, Self::Error> { todo!() }
 
-    async fn get_tx_history(&self, chain: Chain) -> MmResult<(), Self::Error> { todo!() }
+    async fn get_tx_history(&self, _chain: Chain) -> MmResult<(), Self::Error> { todo!() }
 
-    async fn add_txs_to_history<I>(&self, chain: Chain, nfts: I) -> MmResult<(), Self::Error>
+    async fn add_txs_to_history<I>(&self, _chain: Chain, _nfts: I) -> MmResult<(), Self::Error>
     where
         I: IntoIterator<Item = NftTransferHistory> + Send + 'static,
         I::IntoIter: Send,

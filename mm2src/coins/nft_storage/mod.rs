@@ -18,7 +18,7 @@ pub trait NftListStorageOps {
     async fn init(&self, chain: Chain) -> MmResult<(), Self::Error>;
 
     /// Whether tables are initialized for the specified chain.
-    async fn is_initialized_for(&self, chain: Chain) -> MmResult<(), Self::Error>;
+    async fn is_initialized_for(&self, chain: Chain) -> MmResult<bool, Self::Error>;
 
     async fn get_nft_list(&self, chain: Chain) -> MmResult<(), Self::Error>;
 
@@ -36,7 +36,7 @@ pub trait NftTxHistoryStorageOps {
     async fn init(&self, chain: Chain) -> MmResult<(), Self::Error>;
 
     /// Whether tables are initialized for the specified chain.
-    async fn is_initialized_for(&self, chain: Chain) -> MmResult<(), Self::Error>;
+    async fn is_initialized_for(&self, chain: Chain) -> MmResult<bool, Self::Error>;
 
     async fn get_tx_history(&self, chain: Chain) -> MmResult<(), Self::Error>;
 
