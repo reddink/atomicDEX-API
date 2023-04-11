@@ -493,13 +493,19 @@ pub async fn get_locked_amount_rpc(
     Ok(GetLockedAmountResp {
         coin: req.coin,
         // Todo: add a field for receivable locked amount
-        locked_amount: locked_amount.0.into(),
+        locked_amount: locked_amount.locked_spendable.into(),
     })
 }
 
-/// Get total amount of selected coin locked by all currently ongoing swaps
 // Todo: make second amount optional in case of lightning
-pub fn get_locked_amount(ctx: &MmArc, coin: &str) -> (MmNumber, MmNumber) {
+#[derive(Default)]
+pub(crate) struct TotalLockedAmount {
+    locked_spendable: MmNumber,
+    locked_receivable: MmNumber,
+}
+
+/// Get total amount of selected coin locked by all currently ongoing swaps
+pub(crate) fn get_locked_amount(ctx: &MmArc, coin: &str) -> TotalLockedAmount {
     let swap_ctx = SwapsContext::from_ctx(ctx).unwrap();
     let swap_lock = swap_ctx.running_swaps.lock().unwrap();
 
@@ -507,14 +513,14 @@ pub fn get_locked_amount(ctx: &MmArc, coin: &str) -> (MmNumber, MmNumber) {
         .iter()
         .filter_map(|swap| swap.upgrade())
         .flat_map(|swap| swap.locked_amount())
-        .fold((MmNumber::from(0), MmNumber::from(0)), |mut total_amount, locked| {
+        .fold(TotalLockedAmount::default(), |mut total_amount, locked| {
             if locked.coin == coin {
-                total_amount.0 += locked.amount;
-                total_amount.1 += locked.amount_to_receive;
+                total_amount.locked_spendable += locked.amount;
+                total_amount.locked_receivable += locked.amount_to_receive;
             }
             if let Some(trade_fee) = locked.trade_fee {
                 if trade_fee.coin == coin && !trade_fee.paid_from_trading_vol {
-                    total_amount.0 += trade_fee.amount;
+                    total_amount.locked_spendable += trade_fee.amount;
                 }
             }
             total_amount

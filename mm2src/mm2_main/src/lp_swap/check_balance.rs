@@ -33,7 +33,7 @@ pub async fn check_my_coin_balance_for_swap(
     let locked = match swap_uuid {
         Some(u) => get_locked_amount_by_other_swaps(ctx, u, ticker),
         // Todo: get_locked_amount(ctx, ticker).1
-        None => get_locked_amount(ctx, ticker).0,
+        None => get_locked_amount(ctx, ticker).locked_spendable,
     };
 
     let dex_fee = match taker_fee {
@@ -104,7 +104,7 @@ pub async fn check_other_coin_balance_for_swap(
     let locked = match swap_uuid {
         Some(u) => get_locked_amount_by_other_swaps(ctx, u, ticker),
         // Todo: get_locked_amount(ctx, ticker).1
-        None => get_locked_amount(ctx, ticker).0,
+        None => get_locked_amount(ctx, ticker).locked_spendable,
     };
 
     if ticker == trade_fee.coin {
@@ -150,7 +150,7 @@ pub async fn check_base_coin_balance_for_swap(
     let locked = match swap_uuid {
         Some(uuid) => get_locked_amount_by_other_swaps(ctx, uuid, ticker),
         // Todo: when return value is refactored, fix this
-        None => get_locked_amount(ctx, ticker).0,
+        None => get_locked_amount(ctx, ticker).locked_spendable,
     };
     let available = balance - &locked;
 

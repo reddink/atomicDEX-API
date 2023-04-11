@@ -2474,7 +2474,7 @@ pub async fn calc_max_taker_vol(
     let min_tx_amount = MmNumber::from(coin.min_tx_amount());
 
     // Todo: add code for receivable by checking where locked.0 is used
-    let max_possible = &balance - &locked.0;
+    let max_possible = &balance - &locked.locked_spendable;
     let preimage_value = TradePreimageValue::UpperBound(max_possible.to_decimal());
     let max_trade_fee = coin
         .get_sender_trade_fee(preimage_value, stage.clone())
@@ -2495,22 +2495,24 @@ pub async fn calc_max_taker_vol(
             "max_taker_vol case 2: min_max_possible {:?}, balance {:?}, locked {:?}, max_trade_fee {:?}, max_dex_fee {:?}, max_fee_to_send_taker_fee {:?}",
             min_max_possible.to_fraction(),
             balance.to_fraction(),
-            locked.0.to_fraction(),
+            locked.locked_spendable.to_fraction(),
             max_trade_fee.amount.to_fraction(),
             max_dex_fee.to_fraction(),
             max_fee_to_send_taker_fee.amount.to_fraction()
         );
-        max_taker_vol_from_available(min_max_possible, my_coin, other_coin, &min_tx_amount)
-            .mm_err(|e| CheckBalanceError::from_max_taker_vol_error(e, my_coin.to_owned(), locked.0.to_decimal()))?
+        max_taker_vol_from_available(min_max_possible, my_coin, other_coin, &min_tx_amount).mm_err(|e| {
+            CheckBalanceError::from_max_taker_vol_error(e, my_coin.to_owned(), locked.locked_spendable.to_decimal())
+        })?
     } else {
         // first case
         debug!(
             "max_taker_vol case 1: balance {:?}, locked {:?}",
             balance.to_fraction(),
-            locked.0.to_fraction()
+            locked.locked_spendable.to_fraction()
         );
-        max_taker_vol_from_available(max_possible, my_coin, other_coin, &min_tx_amount)
-            .mm_err(|e| CheckBalanceError::from_max_taker_vol_error(e, my_coin.to_owned(), locked.0.to_decimal()))?
+        max_taker_vol_from_available(max_possible, my_coin, other_coin, &min_tx_amount).mm_err(|e| {
+            CheckBalanceError::from_max_taker_vol_error(e, my_coin.to_owned(), locked.locked_spendable.to_decimal())
+        })?
     };
     // do not check if `max_vol < min_tx_amount`, because it is checked within `max_taker_vol_from_available` already
     Ok(max_vol)
@@ -3049,7 +3051,7 @@ mod taker_swap_tests {
         swaps_ctx.running_swaps.lock().unwrap().push(weak_ref);
 
         let actual = get_locked_amount(&ctx, "RICK");
-        assert_eq!(actual.0, MmNumber::from(0));
+        assert_eq!(actual.locked_spendable, MmNumber::from(0));
 
         let actual = get_locked_amount_by_other_swaps(&ctx, &new_uuid(), "RICK");
         assert_eq!(actual, MmNumber::from(0));

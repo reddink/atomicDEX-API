@@ -2283,12 +2283,11 @@ pub async fn calc_max_maker_vol(
     let ticker = coin.ticker();
     let locked_by_swaps = get_locked_amount(ctx, ticker);
     // Todo: add test cases in the test document for how to test inbound in ordermatching, maybe add unit tests
-    // Todo: refactor get_locked_amount result to be a struct
-    let available_to_send = &MmNumber::from(balance.spendable.clone()) - &locked_by_swaps.0;
+    let available_to_send = &MmNumber::from(balance.spendable.clone()) - &locked_by_swaps.locked_spendable;
     let available_to_receive = balance
         .protocol_specific_balance
         .as_ref()
-        .map(|b| &MmNumber::from(b.receivable_balance()) - &locked_by_swaps.1);
+        .map(|b| &MmNumber::from(b.receivable_balance()) - &locked_by_swaps.locked_receivable);
     let mut sendable_volume = available_to_send.clone();
 
     let preimage_value = TradePreimageValue::UpperBound(sendable_volume.to_decimal());
@@ -2313,7 +2312,7 @@ pub async fn calc_max_maker_vol(
             coin: ticker.to_owned(),
             available: available_to_send.to_decimal(),
             required: required.to_decimal(),
-            locked_by_swaps: Some(locked_by_swaps.0.to_decimal()),
+            locked_by_swaps: Some(locked_by_swaps.locked_spendable.to_decimal()),
         });
     }
     // Todo: need to add LSP case where fee is subtracted from receivable amount
@@ -2326,7 +2325,7 @@ pub async fn calc_max_maker_vol(
                     coin: ticker.to_owned(),
                     available: receivable_volume.to_decimal(),
                     required,
-                    locked_by_swaps: Some(locked_by_swaps.1.to_decimal()),
+                    locked_by_swaps: Some(locked_by_swaps.locked_receivable.to_decimal()),
                 });
             }
         }
@@ -2336,9 +2335,9 @@ pub async fn calc_max_maker_vol(
         volume: sendable_volume,
         // Todo: can this clone be removed
         balance: balance.clone(),
-        locked_by_swaps: locked_by_swaps.0,
+        locked_by_swaps: locked_by_swaps.locked_spendable,
         // Todo: locked_by_swaps.1 should be an option
-        receivable_locked_by_swaps: Some(locked_by_swaps.1),
+        receivable_locked_by_swaps: Some(locked_by_swaps.locked_receivable),
     })
 }
 
@@ -2730,7 +2729,7 @@ mod maker_swap_tests {
             MakerSwap::load_from_saved(ctx.clone(), maker_coin, taker_coin, maker_saved_swap).unwrap();
 
         let actual = get_locked_amount(&ctx, "ticker");
-        assert_eq!(actual.0, MmNumber::from(0));
+        assert_eq!(actual.locked_spendable, MmNumber::from(0));
     }
 
     #[test]
