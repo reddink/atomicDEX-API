@@ -93,7 +93,10 @@ fn remove_headers_from_to_height_sql(
     to_height: &u64,
 ) -> Result<String, BlockHeaderStorageError> {
     let table_name = get_table_name_and_validate(for_coin)?;
-    let sql = format!("DELETE FROM {table_name} WHERE block_height >= {from_height} and block_height <= {to_height};");
+    let sql = format!(
+        "DELETE FROM {table_name} WHERE block_height BETWEEN {from_height} AND 
+    {to_height};"
+    );
 
     Ok(sql)
 }
