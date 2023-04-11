@@ -1,4 +1,4 @@
-use crate::nft::nft_structs::{Chain, Nft, NftTransferHistory};
+use crate::nft::nft_structs::{Chain, Nft, NftList, NftTransferHistory, NftsTransferHistoryList};
 use crate::nft_storage::{CreateNftStorageError, NftListStorageError, NftListStorageOps, NftTxHistoryStorageError,
                          NftTxHistoryStorageOps};
 use crate::CoinsContext;
@@ -62,7 +62,7 @@ impl NftListStorageOps for IndexedDbNftStorage {
 
     async fn is_initialized_for(&self, _chain: Chain) -> MmResult<bool, Self::Error> { todo!() }
 
-    async fn get_nft_list(&self, _chain: Chain) -> MmResult<(), Self::Error> { todo!() }
+    async fn get_nft_list(&self, _chain: Chain) -> MmResult<NftList, Self::Error> { todo!() }
 
     async fn add_nfts_to_list<I>(&self, _chain: Chain, _nfts: I) -> MmResult<(), Self::Error>
     where
@@ -71,6 +71,8 @@ impl NftListStorageOps for IndexedDbNftStorage {
     {
         todo!()
     }
+
+    async fn remove_nft_from_list(&self, _nft: Nft) -> MmResult<(), Self::Error> { todo!() }
 }
 
 #[async_trait]
@@ -81,7 +83,7 @@ impl NftTxHistoryStorageOps for IndexedDbNftStorage {
 
     async fn is_initialized_for(&self, _chain: Chain) -> MmResult<bool, Self::Error> { todo!() }
 
-    async fn get_tx_history(&self, _chain: Chain) -> MmResult<(), Self::Error> { todo!() }
+    async fn get_tx_history(&self, _chain: Chain) -> MmResult<NftsTransferHistoryList, Self::Error> { todo!() }
 
     async fn add_txs_to_history<I>(&self, _chain: Chain, _nfts: I) -> MmResult<(), Self::Error>
     where

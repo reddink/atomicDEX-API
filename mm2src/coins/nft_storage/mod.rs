@@ -1,4 +1,4 @@
-use crate::nft::nft_structs::{Chain, Nft, NftTransferHistory};
+use crate::nft::nft_structs::{Chain, Nft, NftList, NftTransferHistory, NftsTransferHistoryList};
 use async_trait::async_trait;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::mm_error::NotMmError;
@@ -20,12 +20,14 @@ pub trait NftListStorageOps {
     /// Whether tables are initialized for the specified chain.
     async fn is_initialized_for(&self, chain: Chain) -> MmResult<bool, Self::Error>;
 
-    async fn get_nft_list(&self, chain: Chain) -> MmResult<(), Self::Error>;
+    async fn get_nft_list(&self, chain: Chain) -> MmResult<NftList, Self::Error>;
 
     async fn add_nfts_to_list<I>(&self, chain: Chain, nfts: I) -> MmResult<(), Self::Error>
     where
         I: IntoIterator<Item = Nft> + Send + 'static,
         I::IntoIter: Send;
+
+    async fn remove_nft_from_list(&self, nft: Nft) -> MmResult<(), Self::Error>;
 }
 
 #[async_trait]
@@ -38,7 +40,7 @@ pub trait NftTxHistoryStorageOps {
     /// Whether tables are initialized for the specified chain.
     async fn is_initialized_for(&self, chain: Chain) -> MmResult<bool, Self::Error>;
 
-    async fn get_tx_history(&self, chain: Chain) -> MmResult<(), Self::Error>;
+    async fn get_tx_history(&self, chain: Chain) -> MmResult<NftsTransferHistoryList, Self::Error>;
 
     async fn add_txs_to_history<I>(&self, chain: Chain, nfts: I) -> MmResult<(), Self::Error>
     where
