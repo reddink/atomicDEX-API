@@ -333,7 +333,7 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
         .await
         {
             Ok(res) => res,
-            Err(err) => break,
+            Err(_err) => break,
         };
 
         // Validate retrieved block headers.
