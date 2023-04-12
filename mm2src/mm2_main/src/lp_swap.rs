@@ -550,7 +550,6 @@ pub fn running_swaps_num(ctx: &MmArc) -> u64 {
 }
 
 /// Get total amount of selected coin locked by all currently ongoing swaps except the one with selected uuid
-// Todo: find a better way than using bool here
 fn get_locked_amount_by_other_swaps(ctx: &MmArc, except_uuid: &Uuid, coin: &MmCoinEnum) -> TotalLockedAmount {
     let swap_ctx = SwapsContext::from_ctx(ctx).unwrap();
     let swap_lock = swap_ctx.running_swaps.lock().unwrap();

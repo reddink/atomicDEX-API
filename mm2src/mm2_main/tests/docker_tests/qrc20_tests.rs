@@ -917,6 +917,8 @@ fn test_check_balance_on_order_post_base_coin_locked() {
     let qick_contract_address = format!("{:#02x}", unsafe { QICK_TOKEN_ADDRESS.expect("!QICK_TOKEN_ADDRESS") });
     let coins = json!([
         {"coin":"MYCOIN","asset":"MYCOIN","required_confirmations":0,"txversion":4,"overwintered":1,"txfee":1000,"protocol":{"type":"UTXO"}},
+        {"coin":"QTUM","decimals":8,"pubtype":120,"p2shtype":110,"wiftype":128,"txfee":0,"txfee_volatility_percent":0.1,
+        "mm2":1,"mature_confirmations":500,"network":"regtest","confpath":confpath,"protocol":{"type":"UTXO"}},
         {"coin":"QICK","required_confirmations":1,"pubtype": 120,"p2shtype": 50,"wiftype": 128,"mm2": 1,"mature_confirmations": 500,"confpath": confpath,"network":"regtest",
          "protocol":{"type":"QRC20","protocol_data":{"platform":"QTUM","contract_address":qick_contract_address}}},
     ]);
@@ -941,6 +943,7 @@ fn test_check_balance_on_order_post_base_coin_locked() {
     log!("Log path: {}", mm_bob.log_path.display());
     block_on(mm_bob.wait_for_log(22., |log| log.contains(">>>>>>>>> DEX stats "))).unwrap();
     block_on(enable_native(&mm_bob, "MYCOIN", &[]));
+    block_on(enable_native(&mm_alice, "QTUM", &[]));
     block_on(enable_qrc20_native(&mm_bob, "QICK"));
 
     // start alice
@@ -964,6 +967,7 @@ fn test_check_balance_on_order_post_base_coin_locked() {
     log!("Log path: {}", mm_alice.log_path.display());
     block_on(mm_alice.wait_for_log(22., |log| log.contains(">>>>>>>>> DEX stats "))).unwrap();
     block_on(enable_native(&mm_alice, "MYCOIN", &[]));
+    block_on(enable_native(&mm_alice, "QTUM", &[]));
     block_on(enable_qrc20_native(&mm_alice, "QICK"));
 
     let rc = block_on(mm_alice.rpc(&json! ({
