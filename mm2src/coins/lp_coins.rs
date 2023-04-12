@@ -99,7 +99,7 @@ cfg_wasm32! {
     use tx_history_storage::wasm::{clear_tx_history, load_tx_history, save_tx_history, TxHistoryDb};
     pub type TxHistoryDbLocked<'a> = DbLocked<'a, TxHistoryDb>;
     #[cfg(feature = "enable-nft-integration")]
-    use nft_storage::wasm_storage::NftCacheDb;
+    use nft_storage::wasm_storage::NftCacheIDB;
 }
 
 // using custom copy of try_fus as futures crate was renamed to futures01
@@ -2454,7 +2454,7 @@ pub struct CoinsContext {
     hd_wallet_db: SharedDb<HDWalletDb>,
     #[cfg(feature = "enable-nft-integration")]
     #[cfg(target_arch = "wasm32")]
-    pub nft_cache_db: SharedDb<NftCacheDb>,
+    pub nft_cache_db: SharedDb<NftCacheIDB>,
 }
 
 #[derive(Debug)]
