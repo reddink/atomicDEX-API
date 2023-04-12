@@ -68,7 +68,7 @@ use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{self as json, Value as Json};
-use std::cmp::Ordering;
+use std::cmp::{min, Ordering};
 use std::collections::hash_map::{HashMap, RawEntryMut};
 use std::collections::HashSet;
 use std::fmt;
@@ -81,7 +81,7 @@ use std::time::Duration;
 use utxo_signer::with_key_pair::UtxoSignWithKeyPairError;
 
 cfg_native! {
-    use crate::lightning::{LightningCoin, LightningSpecificBalance};
+    use crate::lightning::LightningCoin;
     use crate::lightning::ln_conf::PlatformCoinConfirmationTargets;
     use ::lightning::ln::PaymentHash as LightningPayment;
     use async_std::fs;
@@ -1362,6 +1362,42 @@ pub struct TradeFee {
     pub coin: String,
     pub amount: MmNumber,
     pub paid_from_trading_vol: bool,
+}
+
+// Todo: need to think about this and maybe refactor it to include minimal information, can min/max amounts be bypass-able by sending multiple payments with the same hash and claiming all of them at once?
+// Todo: check also other config fields and other channel details field, e.g. max in flight htlcs
+// Todo: if this is refactored, remove #[allow(clippy::large_enum_variant)] in multiple structs
+// Todo: move this to lightning.rs when it can be compiled to wasm
+#[derive(Clone, Debug, PartialEq, PartialOrd, Serialize)]
+pub struct LightningSpecificBalance {
+    pub inbound: BigDecimal,
+    pub min_receivable_amount_per_payment: BigDecimal,
+    pub max_receivable_amount_per_payment: BigDecimal,
+    pub min_spendable_amount_per_payment: BigDecimal,
+    pub max_spendable_amount_per_payment: BigDecimal,
+}
+
+impl Add for LightningSpecificBalance {
+    type Output = LightningSpecificBalance;
+
+    // Todo: revise this
+    fn add(self, rhs: Self) -> Self::Output {
+        LightningSpecificBalance {
+            inbound: self.inbound + rhs.inbound,
+            min_receivable_amount_per_payment: min(
+                self.min_receivable_amount_per_payment,
+                rhs.min_receivable_amount_per_payment,
+            ),
+            max_receivable_amount_per_payment: self.max_receivable_amount_per_payment
+                + rhs.max_receivable_amount_per_payment,
+            min_spendable_amount_per_payment: min(
+                self.min_spendable_amount_per_payment,
+                rhs.min_spendable_amount_per_payment,
+            ),
+            max_spendable_amount_per_payment: self.max_spendable_amount_per_payment
+                + rhs.max_spendable_amount_per_payment,
+        }
+    }
 }
 
 // Todo: maybe rename this to additional balance info

@@ -16,7 +16,7 @@ use crate::utxo::rpc_clients::UtxoRpcClientEnum;
 use crate::utxo::utxo_common::{big_decimal_from_sat, big_decimal_from_sat_unsigned};
 use crate::utxo::{sat_from_big_decimal, utxo_common, BlockchainNetwork};
 use crate::{BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, CoinFutSpawner, ConfirmPaymentInput, FeeApproxStage,
-            FoundSwapTxSpend, HistorySyncState, MakerSwapTakerCoin, MarketCoinOps, MmCoin,
+            FoundSwapTxSpend, HistorySyncState, LightningSpecificBalance, MakerSwapTakerCoin, MarketCoinOps, MmCoin,
             NegotiateSwapContractAddrErr, PaymentInstructions, PaymentInstructionsErr, ProtocolSpecificBalance,
             RawTransactionError, RawTransactionFut, RawTransactionRequest, RefundError, RefundPaymentArgs,
             RefundResult, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs,
@@ -169,41 +169,7 @@ impl Add for LightningSpecificBalanceMsat {
     }
 }
 
-// Todo: need to think about this and maybe refactor it to include minimal information, can min/max amounts be bypass-able by sending multiple payments with the same hash and claiming all of them at once?
-// Todo: check also other config fields and other channel details field, e.g. max in flight htlcs
-// Todo: if this is refactored, remove #[allow(clippy::large_enum_variant)] in multiple structs
-#[derive(Clone, Debug, PartialEq, PartialOrd, Serialize)]
-pub struct LightningSpecificBalance {
-    pub inbound: BigDecimal,
-    pub min_receivable_amount_per_payment: BigDecimal,
-    pub max_receivable_amount_per_payment: BigDecimal,
-    pub min_spendable_amount_per_payment: BigDecimal,
-    pub max_spendable_amount_per_payment: BigDecimal,
-}
-
-impl Add for LightningSpecificBalance {
-    type Output = LightningSpecificBalance;
-
-    // Todo: revise this
-    fn add(self, rhs: Self) -> Self::Output {
-        LightningSpecificBalance {
-            inbound: self.inbound + rhs.inbound,
-            min_receivable_amount_per_payment: min(
-                self.min_receivable_amount_per_payment,
-                rhs.min_receivable_amount_per_payment,
-            ),
-            max_receivable_amount_per_payment: self.max_receivable_amount_per_payment
-                + rhs.max_receivable_amount_per_payment,
-            min_spendable_amount_per_payment: min(
-                self.min_spendable_amount_per_payment,
-                rhs.min_spendable_amount_per_payment,
-            ),
-            max_spendable_amount_per_payment: self.max_spendable_amount_per_payment
-                + rhs.max_spendable_amount_per_payment,
-        }
-    }
-}
-
+// Todo: this implements LightningSpecificBalance which is in lp_coin.rs to not move LightningSpecificBalanceMsat there
 impl LightningSpecificBalance {
     fn from_msat(msat: LightningSpecificBalanceMsat, decimals: u8) -> Self {
         LightningSpecificBalance {
