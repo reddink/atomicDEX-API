@@ -943,7 +943,7 @@ fn test_check_balance_on_order_post_base_coin_locked() {
     log!("Log path: {}", mm_bob.log_path.display());
     block_on(mm_bob.wait_for_log(22., |log| log.contains(">>>>>>>>> DEX stats "))).unwrap();
     block_on(enable_native(&mm_bob, "MYCOIN", &[]));
-    block_on(enable_native(&mm_alice, "QTUM", &[]));
+    block_on(enable_native(&mm_bob, "QTUM", &[]));
     block_on(enable_qrc20_native(&mm_bob, "QICK"));
 
     // start alice
