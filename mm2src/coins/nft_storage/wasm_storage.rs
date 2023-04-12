@@ -15,7 +15,7 @@ use mm2_err_handle::prelude::MmResult;
 const DB_NAME: &str = "nft_cache";
 const DB_VERSION: u32 = 1;
 
-pub type NftCacheIDBResult<T> = MmResult<T, WasmNftCacheError>;
+pub type WasmNftCacheResult<T> = MmResult<T, WasmNftCacheError>;
 pub type NftCacheIDBLocked<'a> = DbLocked<'a, NftCacheIDB>;
 
 impl NftListStorageError for WasmNftCacheError {}
@@ -102,7 +102,7 @@ impl IndexedDbNftStorage {
         })
     }
 
-    async fn lock_db(&self) -> NftCacheIDBResult<NftCacheIDBLocked<'_>> {
+    async fn lock_db(&self) -> WasmNftCacheResult<NftCacheIDBLocked<'_>> {
         self.db.get_or_initialize().await.mm_err(WasmNftCacheError::from)
     }
 }
