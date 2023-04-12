@@ -1,4 +1,4 @@
-use crate::nft::nft_structs::{Chain, Nft, NftList, NftTransferHistory, NftsTransferHistoryList};
+use crate::nft::nft_structs::{Chain, ConvertChain, Nft, NftList, NftTransferHistory, NftsTransferHistoryList};
 use crate::nft_storage::{CreateNftStorageError, NftListStorageError, NftListStorageOps, NftTxHistoryStorageError,
                          NftTxHistoryStorageOps};
 use async_trait::async_trait;
@@ -6,6 +6,10 @@ use db_common::sqlite::rusqlite::{Connection, Error as SqlError};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::mm_error::{MmError, MmResult};
 use std::sync::{Arc, Mutex};
+
+fn nft_list_table(chain: &Chain) -> String { chain.to_ticker() + "_nft_list" }
+
+fn nft_tx_history_table(chain: &Chain) -> String { chain.to_ticker() + "_nft_tx_history" }
 
 impl NftListStorageError for SqlError {}
 impl NftTxHistoryStorageError for SqlError {}
