@@ -7,9 +7,63 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::mm_error::{MmError, MmResult};
 use std::sync::{Arc, Mutex};
 
-fn nft_list_table(chain: &Chain) -> String { chain.to_ticker() + "_nft_list" }
+fn nft_list_table_name(chain: &Chain) -> String { chain.to_ticker() + "_nft_list" }
 
-fn nft_tx_history_table(chain: &Chain) -> String { chain.to_ticker() + "_nft_tx_history" }
+fn nft_tx_history_table_name(chain: &Chain) -> String { chain.to_ticker() + "_nft_tx_history" }
+
+fn create_nft_list_table_sql(chain: &Chain) -> MmResult<String, SqlError> {
+    let table_name = nft_list_table_name(chain);
+    let sql = format!(
+        "CREATE TABLE IF NOT EXISTS {} (
+    chain TEXT NOT NULL,
+    token_address TEXT NOT NULL,
+    token_id VARCHAR(256) NOT NULL,
+    amount VARCHAR(256) NOT NULL,
+    owner_of TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    block_number_minted INTEGER NOT NULL,
+    block_number INTEGER NOT NULL,
+    contract_type TEXT,
+    name TEXT,
+    symbol TEXT,
+    token_uri TEXT,
+    metadata BLOB,
+    last_token_uri_sync TEXT,
+    last_metadata_sync TEXT,
+    minter_address TEXT,
+    PRIMARY KEY (token_address, token_id)
+        );",
+        table_name
+    );
+    Ok(sql)
+}
+
+fn create_tx_history_table_sql(chain: &Chain) -> MmResult<String, SqlError> {
+    let table_name = nft_tx_history_table_name(chain);
+    let sql = format!(
+        "CREATE TABLE IF NOT EXISTS {} (
+    chain TEXT NOT NULL,
+    block_number INTEGER NOT NULL,
+    block_timestamp TEXT NOT NULL,
+    block_hash TEXT NOT NULL,
+    transaction_hash VARCHAR(256) PRIMARY KEY,
+    transaction_index INTEGER NOT NULL,
+    log_index INTEGER NOT NULL,
+    value VARCHAR(256) NOT NULL,
+    contract_type TEXT NOT NULL,
+    transaction_type TEXT NOT NULL,
+    token_address TEXT NOT NULL,
+    token_id VARCHAR(256) NOT NULL,
+    from_address TEXT NOT NULL,
+    to_address TEXT NOT NULL,
+    amount VARCHAR(256) NOT NULL,
+    verified INTEGER NOT NULL,
+    operator TEXT
+        );",
+        table_name
+    );
+    Ok(sql)
+}
 
 impl NftListStorageError for SqlError {}
 impl NftTxHistoryStorageError for SqlError {}
