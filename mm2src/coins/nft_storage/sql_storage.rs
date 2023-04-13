@@ -4,7 +4,7 @@ use crate::nft_storage::{CreateNftStorageError, NftListStorageError, NftListStor
 use async_trait::async_trait;
 use common::async_blocking;
 use db_common::sqlite::rusqlite::{Connection, Error as SqlError, NO_PARAMS};
-use db_common::sqlite::validate_table_name;
+use db_common::sqlite::{query_single_row, string_from_row, validate_table_name, CHECK_TABLE_EXISTS_SQL};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::mm_error::{MmError, MmResult};
 use std::sync::{Arc, Mutex};
@@ -105,7 +105,17 @@ impl NftListStorageOps for SqliteNftStorage {
         .await
     }
 
-    async fn is_initialized_for(&self, _chain: &Chain) -> MmResult<bool, Self::Error> { todo!() }
+    async fn is_initialized_for(&self, chain: &Chain) -> MmResult<bool, Self::Error> {
+        let table_name = nft_list_table_name(chain);
+        validate_table_name(&table_name)?;
+        let selfi = self.clone();
+        async_blocking(move || {
+            let conn = selfi.0.lock().unwrap();
+            let nft_list_initialized = query_single_row(&conn, CHECK_TABLE_EXISTS_SQL, [table_name], string_from_row)?;
+            Ok(nft_list_initialized.is_some())
+        })
+        .await
+    }
 
     async fn get_nft_list(&self, _chain: &Chain) -> MmResult<NftList, Self::Error> { todo!() }
 
@@ -135,7 +145,18 @@ impl NftTxHistoryStorageOps for SqliteNftStorage {
         .await
     }
 
-    async fn is_initialized_for(&self, _chain: &Chain) -> MmResult<bool, Self::Error> { todo!() }
+    async fn is_initialized_for(&self, chain: &Chain) -> MmResult<bool, Self::Error> {
+        let table_name = nft_list_table_name(chain);
+        validate_table_name(&table_name)?;
+        let selfi = self.clone();
+        async_blocking(move || {
+            let conn = selfi.0.lock().unwrap();
+            let tx_history_initialized =
+                query_single_row(&conn, CHECK_TABLE_EXISTS_SQL, [table_name], string_from_row)?;
+            Ok(tx_history_initialized.is_some())
+        })
+        .await
+    }
 
     async fn get_tx_history(&self, _chain: &Chain) -> MmResult<NftsTransferHistoryList, Self::Error> { todo!() }
 
