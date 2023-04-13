@@ -1,3 +1,12 @@
+## ${next-version} - ${release-date}
+
+**Features:**
+
+
+**Enhancements/Fixes:**
+- use OS generated secrets for cryptographically secure randomness in `maker_swap` and `tendermint_coin::get_sender_trade_fee_for_denom` [#1753](https://github.com/KomodoPlatform/atomicDEX-API/pull/1753)
+
+
 ## v1.0.2-beta - 2023-04-10
 
 **Features:**
