@@ -994,6 +994,7 @@ impl TakerSwap {
             &self.taker_coin,
             &self.maker_coin,
             self.taker_amount.clone(),
+            self.maker_amount.clone(),
             Some(&self.uuid),
             Some(params),
             stage,
@@ -2237,11 +2238,13 @@ pub struct TakerSwapPreparedParams {
     maker_payment_spend_trade_fee: TradeFee,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn check_balance_for_taker_swap(
     ctx: &MmArc,
     my_coin: &MmCoinEnum,
     other_coin: &MmCoinEnum,
     volume: MmNumber,
+    other_coin_volume: MmNumber,
     swap_uuid: Option<&Uuid>,
     prepared_params: Option<TakerSwapPreparedParams>,
     stage: FeeApproxStage,
@@ -2288,7 +2291,14 @@ pub async fn check_balance_for_taker_swap(
     )
     .await?;
     if !params.maker_payment_spend_trade_fee.paid_from_trading_vol {
-        check_other_coin_balance_for_swap(ctx, other_coin, swap_uuid, params.maker_payment_spend_trade_fee).await?;
+        check_other_coin_balance_for_swap(
+            ctx,
+            other_coin,
+            swap_uuid,
+            params.maker_payment_spend_trade_fee,
+            other_coin_volume,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -2332,9 +2342,9 @@ pub async fn taker_swap_trade_preimage(
     let rel_amount = &req.price * &req.volume;
 
     let stage = FeeApproxStage::TradePreimage;
-    let my_coin_volume = match action {
-        TakerAction::Sell => base_amount.clone(),
-        TakerAction::Buy => rel_amount.clone(),
+    let (my_coin_volume, other_coin_volume) = match action {
+        TakerAction::Sell => (base_amount.clone(), rel_amount.clone()),
+        TakerAction::Buy => (rel_amount.clone(), base_amount.clone()),
     };
 
     let dex_amount = dex_fee_amount_from_taker_coin(&my_coin, other_coin_ticker, &my_coin_volume);
@@ -2371,6 +2381,7 @@ pub async fn taker_swap_trade_preimage(
         &my_coin,
         &other_coin,
         my_coin_volume.clone(),
+        other_coin_volume,
         None,
         Some(prepared_params),
         stage,

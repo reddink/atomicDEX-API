@@ -14,7 +14,6 @@ pub type CheckBalanceResult<T> = Result<T, MmError<CheckBalanceError>>;
 /// Check the coin balance before the swap has started.
 ///
 /// `swap_uuid` is used if our swap is running already and we should except this swap locked amount from the following calculations.
-// Todo: add inbound balance checks
 pub async fn check_my_coin_balance_for_swap(
     ctx: &MmArc,
     coin: &MmCoinEnum,
@@ -26,10 +25,8 @@ pub async fn check_my_coin_balance_for_swap(
     let ticker = coin.ticker();
     debug!("Check my_coin '{}' balance for swap", ticker);
     let balance = coin.my_balance().compat().await?;
-    // Todo: try to remove this clone, add receivable balance checks
     let spendable_balance: MmNumber = balance.spendable.clone().into();
 
-    // Todo: get locked inbound balance for lightning swaps
     let locked = match swap_uuid {
         Some(u) => get_locked_amount_by_other_swaps(ctx, u, coin),
         None => get_locked_amount(ctx, coin),
@@ -92,6 +89,7 @@ pub async fn check_other_coin_balance_for_swap(
     coin: &MmCoinEnum,
     swap_uuid: Option<&Uuid>,
     trade_fee: TradeFee,
+    required_receivable_volume: MmNumber,
 ) -> CheckBalanceResult<()> {
     if trade_fee.paid_from_trading_vol {
         return Ok(());
@@ -99,7 +97,6 @@ pub async fn check_other_coin_balance_for_swap(
     let ticker = coin.ticker();
     debug!("Check other_coin '{}' balance for swap", ticker);
     let balance = coin.my_balance().compat().await?;
-    // Todo: add receivable balance checks
     let spendable_balance: MmNumber = balance.spendable.into();
 
     let locked = match swap_uuid {
@@ -128,6 +125,20 @@ pub async fn check_other_coin_balance_for_swap(
     } else {
         let base_coin_balance: MmNumber = coin.base_coin_balance().compat().await?.into();
         check_base_coin_balance_for_swap(ctx, &base_coin_balance, trade_fee, swap_uuid).await?;
+    }
+
+    // Todo: LSP on-demand liquidity case
+    if let Some(protocol_specific_balance) = &balance.protocol_specific_balance {
+        let receivable_volume = MmNumber::from(protocol_specific_balance.receivable_balance())
+            - locked.locked_receivable.clone().unwrap_or_default();
+        if receivable_volume < required_receivable_volume {
+            return MmError::err(CheckBalanceError::NotSufficientReceivableBalance {
+                coin: ticker.to_owned(),
+                available: receivable_volume.to_decimal(),
+                required: required_receivable_volume.to_decimal(),
+                locked_by_swaps: locked.locked_receivable.map(|l| l.to_decimal()),
+            });
+        }
     }
 
     Ok(())

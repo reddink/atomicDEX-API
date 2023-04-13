@@ -385,7 +385,6 @@ pub struct LockedAmount {
     coin: String,
     amount: MmNumber,
     trade_fee: Option<TradeFee>,
-    // Todo: make this optional to return none in case this is not lightning
     amount_to_receive: MmNumber,
 }
 

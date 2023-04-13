@@ -1368,6 +1368,7 @@ pub struct TradeFee {
 // Todo: check also other config fields and other channel details field, e.g. max in flight htlcs
 // Todo: if this is refactored, remove #[allow(clippy::large_enum_variant)] in multiple structs
 // Todo: move this to lightning.rs when it can be compiled to wasm
+// Todo: add more checks in order matching related to min/max spendable/receivable amounts per payment, take into account max in flight htlcs, max_inbound_in_flight_htlc_percent, etc..
 #[derive(Clone, Debug, PartialEq, PartialOrd, Serialize)]
 pub struct LightningSpecificBalance {
     pub inbound: BigDecimal,
@@ -1380,7 +1381,6 @@ pub struct LightningSpecificBalance {
 impl Add for LightningSpecificBalance {
     type Output = LightningSpecificBalance;
 
-    // Todo: revise this
     fn add(self, rhs: Self) -> Self::Output {
         LightningSpecificBalance {
             inbound: self.inbound + rhs.inbound,
@@ -1400,7 +1400,6 @@ impl Add for LightningSpecificBalance {
     }
 }
 
-// Todo: maybe rename this to additional balance info
 #[derive(Clone, Debug, PartialEq, PartialOrd, Serialize)]
 pub enum ProtocolSpecificBalance {
     Lightning(LightningSpecificBalance),

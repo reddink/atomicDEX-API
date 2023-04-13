@@ -149,7 +149,6 @@ impl Default for LightningSpecificBalanceMsat {
 impl Add for LightningSpecificBalanceMsat {
     type Output = LightningSpecificBalanceMsat;
 
-    // Todo: revise this
     fn add(self, rhs: Self) -> Self::Output {
         LightningSpecificBalanceMsat {
             inbound: self.inbound + rhs.inbound,
@@ -1477,6 +1476,7 @@ impl MmCoin for LightningCoin {
     }
 
     // Todo: should take in consideration JIT routing and using LSPs in next PRs
+    // Todo: check how this affects swaps later, and how we match by in GUIs
     fn is_coin_protocol_supported(
         &self,
         info: &Option<Vec<u8>>,
@@ -1508,6 +1508,7 @@ impl MmCoin for LightningCoin {
             let hint = log_err_and_return_false!(Readable::read(&mut Cursor::new(h)));
             route_hints.push(hint);
         }
+        // Todo: mpp swaps fail after latest rust-lightning update because invoice features that enable mpp needs to be included in payment params
         let mut payment_params =
             PaymentParameters::from_node_id(protocol_info.node_id.into()).with_route_hints(route_hints);
         let final_cltv_expiry_delta = if is_maker {

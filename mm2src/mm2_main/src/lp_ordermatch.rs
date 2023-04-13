@@ -3679,6 +3679,7 @@ pub async fn buy(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
             &rel_coin,
             &base_coin,
             my_amount,
+            input.volume.clone(),
             None,
             None,
             FeeApproxStage::OrderIssue
@@ -3710,6 +3711,7 @@ pub async fn sell(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
             &base_coin,
             &rel_coin,
             input.volume.clone(),
+            &input.volume / &input.price,
             None,
             None,
             FeeApproxStage::OrderIssue
@@ -4480,13 +4482,14 @@ pub async fn check_other_coin_balance_for_order_issue(
     ctx: &MmArc,
     other_coin: &MmCoinEnum,
     my_coin_volume: BigDecimal,
+    other_coin_volume: MmNumber,
 ) -> CheckBalanceResult<()> {
     let trade_fee = other_coin
         .get_receiver_trade_fee(my_coin_volume, FeeApproxStage::OrderIssue)
         .compat()
         .await
         .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, other_coin.ticker()))?;
-    check_other_coin_balance_for_swap(ctx, other_coin, None, trade_fee).await
+    check_other_coin_balance_for_swap(ctx, other_coin, None, trade_fee, other_coin_volume).await
 }
 
 pub async fn check_balance_update_loop(ctx: MmWeak, ticker: String, balance: Option<CoinBalance>) {
@@ -4536,7 +4539,9 @@ pub async fn create_maker_order(ctx: &MmArc, req: SetPriceReq) -> Result<MakerOr
                 .or_else(|e| cancel_orders_on_error(ctx, &req, e))
                 .await
         );
-        try_s!(check_other_coin_balance_for_order_issue(ctx, &rel_coin, volume.to_decimal()).await);
+        try_s!(
+            check_other_coin_balance_for_order_issue(ctx, &rel_coin, volume.to_decimal(), &volume * &req.price).await
+        );
         (volume, balance)
     } else {
         let balance = try_s!(
@@ -4545,6 +4550,7 @@ pub async fn create_maker_order(ctx: &MmArc, req: SetPriceReq) -> Result<MakerOr
                 &base_coin,
                 &rel_coin,
                 req.volume.clone(),
+                &req.volume * &req.price,
                 None,
                 None,
                 FeeApproxStage::OrderIssue
@@ -4710,7 +4716,10 @@ pub async fn update_maker_order(ctx: &MmArc, req: MakerOrderUpdateReq) -> Result
     // Calculate order volume and add to update_msg if new_volume is found in the request
     let new_volume = if req.max.unwrap_or(false) {
         let max_volume = try_s!(get_max_maker_vol(ctx, &base_coin).await).volume + reserved_amount.clone();
-        try_s!(check_other_coin_balance_for_order_issue(ctx, &rel_coin, max_volume.to_decimal()).await);
+        try_s!(
+            check_other_coin_balance_for_order_issue(ctx, &rel_coin, max_volume.to_decimal(), &max_volume * &new_price)
+                .await
+        );
         update_msg.with_new_max_volume(max_volume.clone().into());
         max_volume
     } else if Option::is_some(&req.volume_delta) {
@@ -4724,6 +4733,7 @@ pub async fn update_maker_order(ctx: &MmArc, req: MakerOrderUpdateReq) -> Result
                 &base_coin,
                 &rel_coin,
                 volume.clone(),
+                &volume * &new_price,
                 None,
                 None,
                 FeeApproxStage::OrderIssue

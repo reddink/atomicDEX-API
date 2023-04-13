@@ -802,6 +802,7 @@ fn test_lightning_taker_swap_mpp() {
         0.0002,
         true,
     ));
+    // Todo: sometimes ntxn-mempool-conflict error is returned when broadcasting this second transaction, zero conf channels should check if the transaction is in the mempool or not??? should check RBF and fee too???
     block_on(open_channel(
         &mut mm_node_2,
         "tBTC-TEST-lightning",

@@ -496,6 +496,7 @@ impl MakerSwap {
             &self.maker_coin,
             &self.taker_coin,
             self.maker_amount.clone().into(),
+            self.taker_amount.clone().into(),
             Some(&self.uuid),
             Some(params),
             stage,
@@ -2130,12 +2131,13 @@ pub struct MakerSwapPreparedParams {
     taker_payment_spend_trade_fee: TradeFee,
 }
 
-// Todo: add other checks here for receivable balance
+#[allow(clippy::too_many_arguments)]
 pub async fn check_balance_for_maker_swap(
     ctx: &MmArc,
     my_coin: &MmCoinEnum,
     other_coin: &MmCoinEnum,
     volume: MmNumber,
+    other_coin_volume: MmNumber,
     swap_uuid: Option<&Uuid>,
     prepared_params: Option<MakerSwapPreparedParams>,
     stage: FeeApproxStage,
@@ -2162,7 +2164,14 @@ pub async fn check_balance_for_maker_swap(
 
     let balance =
         check_my_coin_balance_for_swap(ctx, my_coin, swap_uuid, volume, maker_payment_trade_fee, None).await?;
-    check_other_coin_balance_for_swap(ctx, other_coin, swap_uuid, taker_payment_spend_trade_fee).await?;
+    check_other_coin_balance_for_swap(
+        ctx,
+        other_coin,
+        swap_uuid,
+        taker_payment_spend_trade_fee,
+        other_coin_volume,
+    )
+    .await?;
     Ok(balance)
 }
 
@@ -2214,7 +2223,7 @@ pub async fn maker_swap_trade_preimage(
     if req.max {
         // Note the `calc_max_maker_vol` returns [`CheckBalanceError::NotSufficientBalance`] error if the balance of `base_coin` is not sufficient.
         // So we have to check the balance of the other coin only.
-        check_other_coin_balance_for_swap(ctx, &rel_coin, None, rel_coin_fee.clone()).await?
+        check_other_coin_balance_for_swap(ctx, &rel_coin, None, rel_coin_fee.clone(), &volume * &req.price).await?
     } else {
         let prepared_params = MakerSwapPreparedParams {
             maker_payment_trade_fee: base_coin_fee.clone(),
@@ -2225,6 +2234,7 @@ pub async fn maker_swap_trade_preimage(
             &base_coin,
             &rel_coin,
             volume.clone(),
+            &volume * &req.price,
             None,
             Some(prepared_params),
             FeeApproxStage::TradePreimage,
@@ -2265,7 +2275,7 @@ pub struct CoinVolumeInfo {
 
 /// Requests the `coin` balance and calculates max Maker volume.
 /// Returns [`CheckBalanceError::NotSufficientBalance`] if the balance is insufficient.
-// todo: edit documentations for all changed functions
+// todo: edit documentations for all changed functions, also add notes to all added code
 pub async fn get_max_maker_vol(ctx: &MmArc, my_coin: &MmCoinEnum) -> CheckBalanceResult<CoinVolumeInfo> {
     let my_balance = my_coin.my_balance().compat().await?;
     calc_max_maker_vol(ctx, my_coin, &my_balance, FeeApproxStage::OrderIssue).await
@@ -2274,6 +2284,7 @@ pub async fn get_max_maker_vol(ctx: &MmArc, my_coin: &MmCoinEnum) -> CheckBalanc
 /// Calculates max Maker volume.
 /// Returns [`CheckBalanceError::NotSufficientBalance`] if the balance is not sufficient.
 /// Note the function checks base coin balance if the trade fee should be paid in base coin.
+// Todo: refactor my changes here since I need to add other coin option and check if it needs receivable balance or not
 pub async fn calc_max_maker_vol(
     ctx: &MmArc,
     coin: &MmCoinEnum,
@@ -2312,9 +2323,8 @@ pub async fn calc_max_maker_vol(
         });
     }
     // Todo: need to add LSP case where fee is subtracted from receivable amount, also LSP on-demand liquidity should not be used if there is inbound liquidity and a route
-    // Todo: fix nested if (if possible)
+    // Todo: this will probably be removed, see how inbound balance affect balance updates / max volume / etc..
     if let Some(protocol_specific_balance) = &balance.protocol_specific_balance {
-        // Todo: is it right to unwrap here?
         let receivable_volume = MmNumber::from(protocol_specific_balance.receivable_balance())
             - locked_by_swaps.locked_receivable.clone().unwrap_or_default();
         let required = protocol_specific_balance.min_receivable_balance();
@@ -2331,7 +2341,6 @@ pub async fn calc_max_maker_vol(
     Ok(CoinVolumeInfo {
         volume: sendable_volume,
         // Todo: add receivable volume
-        // Todo: can this clone be removed
         balance: balance.clone(),
         locked_by_swaps: locked_by_swaps.locked_spendable,
         receivable_locked_by_swaps: locked_by_swaps.locked_receivable,
