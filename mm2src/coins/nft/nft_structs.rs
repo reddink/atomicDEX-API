@@ -55,6 +55,27 @@ impl ConvertChain for Chain {
 }
 
 #[derive(Debug, Display)]
+pub enum ParseChainTypeError {
+    UnsupportedCainType,
+}
+
+impl FromStr for Chain {
+    type Err = ParseChainTypeError;
+
+    #[inline]
+    fn from_str(s: &str) -> Result<Chain, ParseChainTypeError> {
+        match s {
+            "avalanche" => Ok(Chain::Avalanche),
+            "bsc" => Ok(Chain::Bsc),
+            "eth" => Ok(Chain::Eth),
+            "fantom" => Ok(Chain::Fantom),
+            "polygon" => Ok(Chain::Polygon),
+            _ => Err(ParseChainTypeError::UnsupportedCainType),
+        }
+    }
+}
+
+#[derive(Debug, Display)]
 pub(crate) enum ParseContractTypeError {
     UnsupportedContractType,
 }

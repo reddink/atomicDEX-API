@@ -15,14 +15,14 @@ pub trait NftListStorageOps {
     type Error: NftListStorageError;
 
     /// Initializes tables in storage for the specified chain type.
-    async fn init(&self, chain: Chain) -> MmResult<(), Self::Error>;
+    async fn init(&self, chain: &Chain) -> MmResult<(), Self::Error>;
 
     /// Whether tables are initialized for the specified chain.
-    async fn is_initialized_for(&self, chain: Chain) -> MmResult<bool, Self::Error>;
+    async fn is_initialized_for(&self, chain: &Chain) -> MmResult<bool, Self::Error>;
 
-    async fn get_nft_list(&self, chain: Chain) -> MmResult<NftList, Self::Error>;
+    async fn get_nft_list(&self, chain: &Chain) -> MmResult<NftList, Self::Error>;
 
-    async fn add_nfts_to_list<I>(&self, chain: Chain, nfts: I) -> MmResult<(), Self::Error>
+    async fn add_nfts_to_list<I>(&self, chain: &Chain, nfts: I) -> MmResult<(), Self::Error>
     where
         I: IntoIterator<Item = Nft> + Send + 'static,
         I::IntoIter: Send;
@@ -35,14 +35,14 @@ pub trait NftTxHistoryStorageOps {
     type Error: NftTxHistoryStorageError;
 
     /// Initializes tables in storage for the specified chain type.
-    async fn init(&self, chain: Chain) -> MmResult<(), Self::Error>;
+    async fn init(&self, chain: &Chain) -> MmResult<(), Self::Error>;
 
     /// Whether tables are initialized for the specified chain.
-    async fn is_initialized_for(&self, chain: Chain) -> MmResult<bool, Self::Error>;
+    async fn is_initialized_for(&self, chain: &Chain) -> MmResult<bool, Self::Error>;
 
-    async fn get_tx_history(&self, chain: Chain) -> MmResult<NftsTransferHistoryList, Self::Error>;
+    async fn get_tx_history(&self, chain: &Chain) -> MmResult<NftsTransferHistoryList, Self::Error>;
 
-    async fn add_txs_to_history<I>(&self, chain: Chain, nfts: I) -> MmResult<(), Self::Error>
+    async fn add_txs_to_history<I>(&self, chain: &Chain, nfts: I) -> MmResult<(), Self::Error>
     where
         I: IntoIterator<Item = NftTransferHistory> + Send + 'static,
         I::IntoIter: Send;
