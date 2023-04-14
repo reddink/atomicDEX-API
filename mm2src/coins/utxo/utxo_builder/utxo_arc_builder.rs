@@ -334,9 +334,14 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
         {
             Ok(res) => res,
             Err(err) => match err {
-                RetrieveHeadersError::NetworkError(_)
-                | RetrieveHeadersError::ParentHashMismatch { .. }
-                | RetrieveHeadersError::ResponseTooLarge { .. } => {
+                RetrieveHeadersError::ParentHashMismatch { .. } => {
+                    // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
+                    error!("{err:?}");
+                    sync_status_loop_handle.notify_on_temp_error(err);
+                    Timer::sleep(args.error_sleep).await;
+                    continue;
+                },
+                RetrieveHeadersError::NetworkError(_) | RetrieveHeadersError::ResponseTooLarge { .. } => {
                     error!("{err:?}");
                     sync_status_loop_handle.notify_on_temp_error(err);
                     Timer::sleep(args.error_sleep).await;
@@ -374,9 +379,14 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
                 {
                     Ok(_) => continue,
                     Err(err) => match err {
-                        RetrieveHeadersError::NetworkError(_)
-                        | RetrieveHeadersError::ParentHashMismatch { .. }
-                        | RetrieveHeadersError::ResponseTooLarge { .. } => {
+                        RetrieveHeadersError::ParentHashMismatch { .. } => {
+                            // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
+                            error!("{err:?}");
+                            sync_status_loop_handle.notify_on_temp_error(err);
+                            Timer::sleep(args.error_sleep).await;
+                            continue;
+                        },
+                        RetrieveHeadersError::NetworkError(_) | RetrieveHeadersError::ResponseTooLarge { .. } => {
                             error!("{err:?}");
                             sync_status_loop_handle.notify_on_temp_error(err);
                             Timer::sleep(args.error_sleep).await;
@@ -466,7 +476,6 @@ async fn retrieve_headers_helper(
 
                 if *fetch_blocker_headers_attempts > 0 {
                     *fetch_blocker_headers_attempts -= 1;
-                    // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
                     return Err(RetrieveHeadersError::ResponseTooLarge {
                         err: err.to_string(),
                         ticker: ticker.to_string(),
@@ -516,6 +525,7 @@ async fn retrieve_and_revalidate_mismatching_header(
 ) -> Result<(), RetrieveHeadersError> {
     let to_height = from_height + args.chunk_size;
     if from_height == spv_conf.starting_block_header.height {
+        // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
         return Err(RetrieveHeadersError::BadStartingHeaderChain);
     };
 
