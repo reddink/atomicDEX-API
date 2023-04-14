@@ -28,8 +28,6 @@ pub enum SPVError {
     InsufficientWork,
     #[display(fmt = "Couldn't calculate the required difficulty for the block: {}", _0)]
     DifficultyCalculationError(NextBlockBitsError),
-    #[display(fmt = "Header {height} in chain does not correctly reference parent header, coin: {coin}")]
-    InvalidChain { coin: String, height: u64 },
     #[display(fmt = "When validating a `BitcoinHeader`, the `hash` field is not the digest of the raw header")]
     WrongDigest,
     #[display(
@@ -596,7 +594,6 @@ mod tests {
             starting_block_header: SPVBlockHeader {
                 height: 0,
                 hash: "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f".into(),
-                previous_header_hash: Default::default(),
                 time: 486604799,
                 bits: BlockHeaderBits::Compact(1231006505.into()),
             },
@@ -631,7 +628,6 @@ mod tests {
             starting_block_header: SPVBlockHeader {
                 height: 0,
                 hash: "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f".into(),
-                previous_header_hash: Default::default(),
                 time: 486604799,
                 bits: BlockHeaderBits::Compact(1231006505.into()),
             },

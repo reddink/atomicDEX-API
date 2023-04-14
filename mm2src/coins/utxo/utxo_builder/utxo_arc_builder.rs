@@ -255,8 +255,7 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
     mut block_count: u64,
     spv_conf: SPVConf,
 ) {
-    let args = BlockHeaderUtxoLoopExtraArgs::default();
-    let mut chunk_size = args.chunk_size;
+    let mut args = BlockHeaderUtxoLoopExtraArgs::default();
     while let Some(arc) = weak.upgrade() {
         let coin = constructor(arc);
         let ticker = coin.as_ref().conf.ticker.as_str();
@@ -283,7 +282,7 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
             },
         };
 
-        let mut to_block_height = from_block_height + chunk_size;
+        let mut to_block_height = from_block_height + args.chunk_size;
         if to_block_height > block_count {
             block_count = match coin.as_ref().rpc_client.get_block_count().compat().await {
                 Ok(h) => h,
@@ -322,18 +321,36 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
 
         sync_status_loop_handle.notify_blocks_headers_sync_status(from_block_height + 1, to_block_height);
 
+        let mut fetch_blocker_headers_attempts = FETCH_BLOCK_HEADERS_ATTEMPTS;
         let (block_registry, block_headers) = match retrieve_headers_helper(
-            &mut chunk_size,
+            &mut args,
             client,
             from_block_height + 1,
-            &mut sync_status_loop_handle,
             ticker,
             to_block_height,
+            &mut fetch_blocker_headers_attempts,
         )
         .await
         {
             Ok(res) => res,
-            Err(_err) => break,
+            Err(err) => match err {
+                RetrieveHeadersError::NetworkError(_)
+                | RetrieveHeadersError::ParentHashMismatch { .. }
+                | RetrieveHeadersError::ResponseTooLarge { .. } => {
+                    error!("{err:?}");
+                    sync_status_loop_handle.notify_on_temp_error(err);
+                    Timer::sleep(args.error_sleep).await;
+                    continue;
+                },
+                RetrieveHeadersError::ValidationError(_)
+                | RetrieveHeadersError::BadStartingHeaderChain
+                | RetrieveHeadersError::AttemptsExceeded { .. } => {
+                    error!("{err:?}");
+                    sync_status_loop_handle.notify_on_permanent_error(err);
+                    Timer::sleep(args.error_sleep).await;
+                    break;
+                },
+            },
         };
 
         // Validate retrieved block headers.
@@ -342,19 +359,38 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
             // detected in the SPV client.
             // If this error occurs, the code retrieves and revalidates the mismatching header from the SPV client..
             if let SPVError::ParentHashMismatch { coin, height } = &err {
-                info!("Parent hash mismatch detected for {coin} at height: {height}");
+                info!("Headers downloaded from current electrum are invalid at block height {height} for {coin}");
+                // Todo: Switch electrum and retry fetching and validating headers again.
                 match retrieve_and_revalidate_mismatching_header(
                     coin,
                     client,
+                    &mut args,
                     *height,
                     storage,
                     &spv_conf,
-                    &mut sync_status_loop_handle,
+                    &mut fetch_blocker_headers_attempts,
                 )
                 .await
                 {
                     Ok(_) => continue,
-                    Err(_) => break,
+                    Err(err) => match err {
+                        RetrieveHeadersError::NetworkError(_)
+                        | RetrieveHeadersError::ParentHashMismatch { .. }
+                        | RetrieveHeadersError::ResponseTooLarge { .. } => {
+                            error!("{err:?}");
+                            sync_status_loop_handle.notify_on_temp_error(err);
+                            Timer::sleep(args.error_sleep).await;
+                            continue;
+                        },
+                        RetrieveHeadersError::ValidationError(_)
+                        | RetrieveHeadersError::BadStartingHeaderChain
+                        | RetrieveHeadersError::AttemptsExceeded { .. } => {
+                            error!("{err:?}");
+                            sync_status_loop_handle.notify_on_permanent_error(err);
+                            Timer::sleep(args.error_sleep).await;
+                            break;
+                        },
+                    },
                 }
             }
 
@@ -369,18 +405,43 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
     }
 }
 
+#[derive(Debug, Display)]
+enum RetrieveHeadersError {
+    #[display(fmt = "Network Error: Will try fetching {} block headers again after 10 secs", _0)]
+    NetworkError(String),
+    #[display(
+        fmt = "Response Too Large: Error {} on retrieving latest {} headers from rpc! {} attempts left",
+        err,
+        ticker,
+        attempts
+    )]
+    ResponseTooLarge { err: String, ticker: String, attempts: u64 },
+    #[display(
+        fmt = "Unable To Retrieve Headers: Error {} on retrieving latest {} headers from rpc after {} attempts",
+        err,
+        ticker,
+        attempts
+    )]
+    AttemptsExceeded { err: String, ticker: String, attempts: u64 },
+    #[display(
+        fmt = "Header downloaded from current electrum are invalid at block height:{height} for {coin} - error: {err}"
+    )]
+    ParentHashMismatch { coin: String, height: u64, err: String },
+    #[display(fmt = "Validation Error: {}", _0)]
+    ValidationError(String),
+    #[display(fmt = "Preconfigured starting_block_header is bad or invalid. Please reconfigure.")]
+    BadStartingHeaderChain,
+}
+
 async fn retrieve_headers_helper(
-    chunk_size: &mut u64,
+    args: &mut BlockHeaderUtxoLoopExtraArgs,
     client: &ElectrumClient,
     from_block_height: u64,
-    sync_status_loop_handle: &mut UtxoSyncStatusLoopHandle,
     ticker: &str,
     to_block_height: u64,
-) -> Result<(HashMap<u64, BlockHeader>, Vec<BlockHeader>), String> {
-    let args = BlockHeaderUtxoLoopExtraArgs::default();
-    let mut fetch_blocker_headers_attempts = FETCH_BLOCK_HEADERS_ATTEMPTS;
-
-    while fetch_blocker_headers_attempts >= 1 {
+    fetch_blocker_headers_attempts: &mut u64,
+) -> Result<(HashMap<u64, BlockHeader>, Vec<BlockHeader>), RetrieveHeadersError> {
+    if *fetch_blocker_headers_attempts >= 1 {
         let (block_registry, block_headers) = match client
             .retrieve_headers(from_block_height, to_block_height)
             .compat()
@@ -390,36 +451,34 @@ async fn retrieve_headers_helper(
             Err(err) => {
                 let err_inner = err.get_inner();
                 if err_inner.is_network_error() {
-                    log!("Network Error: Will try fetching {ticker} block headers again after 10 secs");
-                    sync_status_loop_handle.notify_on_temp_error(err);
-                    Timer::sleep(args.error_sleep).await;
-                    continue;
+                    return Err(RetrieveHeadersError::NetworkError(err.to_string()));
                 };
 
                 // If electrum returns response too large error, we will reduce the requested headers by CHUNK_SIZE_REDUCER_VALUE in every loop until we arrive at a reasonable value.
-                if err_inner.is_response_too_large() && *chunk_size > CHUNK_SIZE_REDUCER_VALUE {
-                    error!("{err:?}");
-                    *chunk_size -= CHUNK_SIZE_REDUCER_VALUE;
-                    continue;
+                if err_inner.is_response_too_large() && args.chunk_size > CHUNK_SIZE_REDUCER_VALUE {
+                    args.chunk_size -= CHUNK_SIZE_REDUCER_VALUE;
+                    return Err(RetrieveHeadersError::ResponseTooLarge {
+                        err: err.to_string(),
+                        ticker: ticker.to_string(),
+                        attempts: *fetch_blocker_headers_attempts,
+                    });
                 }
 
-                if fetch_blocker_headers_attempts > 0 {
-                    fetch_blocker_headers_attempts -= 1;
-                    error!("Error {err:?} on retrieving latest {ticker} headers from rpc! {fetch_blocker_headers_attempts} attempts left");
+                if *fetch_blocker_headers_attempts > 0 {
+                    *fetch_blocker_headers_attempts -= 1;
                     // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
-                    sync_status_loop_handle.notify_on_temp_error(&err);
-                    Timer::sleep(args.error_sleep).await;
-                    continue;
+                    return Err(RetrieveHeadersError::ResponseTooLarge {
+                        err: err.to_string(),
+                        ticker: ticker.to_string(),
+                        attempts: *fetch_blocker_headers_attempts,
+                    });
                 };
-
-                error!(
-                    "Error {err:?} on retrieving latest {ticker} headers from rpc after {FETCH_BLOCK_HEADERS_ATTEMPTS} attempts"
-                );
                 // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
-                sync_status_loop_handle.notify_on_permanent_error(&err);
-                Timer::sleep(args.error_sleep).await;
-
-                return Err(err.to_string());
+                return Err(RetrieveHeadersError::AttemptsExceeded {
+                    err: err.to_string(),
+                    ticker: ticker.to_string(),
+                    attempts: *fetch_blocker_headers_attempts,
+                });
             },
         };
 
@@ -429,9 +488,11 @@ async fn retrieve_headers_helper(
     let err =
         format!("Error on retrieving latest {ticker} headers from rpc after {FETCH_BLOCK_HEADERS_ATTEMPTS} attempts");
     error!("{err}");
-    sync_status_loop_handle.notify_on_permanent_error(&err);
-    Timer::sleep(args.error_sleep).await;
-    Err(err)
+    Err(RetrieveHeadersError::AttemptsExceeded {
+        err,
+        ticker: ticker.to_string(),
+        attempts: *fetch_blocker_headers_attempts,
+    })
 }
 
 /// Retrieves block headers from the specified client within the given height range and revalidate against [`SPVError::ParentHashMismatch`] .
@@ -447,65 +508,51 @@ async fn retrieve_headers_helper(
 async fn retrieve_and_revalidate_mismatching_header(
     coin: &str,
     client: &ElectrumClient,
-    mut from_height: u64,
+    args: &mut BlockHeaderUtxoLoopExtraArgs,
+    from_height: u64,
     storage: &dyn BlockHeaderStorageOps,
     spv_conf: &SPVConf,
-    sync_status_loop_handle: &mut UtxoSyncStatusLoopHandle,
-) -> Result<(), String> {
-    let args = BlockHeaderUtxoLoopExtraArgs::default();
-    let mut chunk_size = args.chunk_size;
+    fetch_blocker_headers_attempts: &mut u64,
+) -> Result<(), RetrieveHeadersError> {
+    let to_height = from_height + args.chunk_size;
+    if from_height == spv_conf.starting_block_header.height {
+        return Err(RetrieveHeadersError::BadStartingHeaderChain);
+    };
 
-    loop {
-        let to_height = from_height + chunk_size;
-        if from_height == spv_conf.starting_block_header.height {
-            let err = format!("Parent hash mismatch detected for {coin} at height: {from_height}");
-            error!("{err}");
-            sync_status_loop_handle.notify_on_permanent_error(&err);
-            Timer::sleep(args.error_sleep).await;
-            return Err(err.to_string());
-        };
+    match retrieve_headers_helper(
+        args,
+        client,
+        from_height,
+        coin,
+        to_height,
+        fetch_blocker_headers_attempts,
+    )
+    .await
+    {
+        Ok((_, block_headers)) => {
+            return match validate_headers(coin, from_height, &block_headers, storage, spv_conf).await {
+                Ok(_) => {
+                    if let Err(err) = storage.remove_headers_from_storage(from_height, to_height).await {
+                        return Err(RetrieveHeadersError::NetworkError(err.to_string()));
+                    };
 
-        let (_, block_headers) = match retrieve_headers_helper(
-            &mut chunk_size,
-            client,
-            from_height,
-            sync_status_loop_handle,
-            coin,
-            to_height,
-        )
-        .await
-        {
-            Ok(res) => res,
-            Err(err) => return Err(err),
-        };
-
-        match validate_headers(coin, from_height, &block_headers, storage, spv_conf).await {
-            Ok(_) => {
-                if let Err(err) = storage.remove_headers_from_storage(from_height, to_height).await {
-                    error!("{err}");
-                    sync_status_loop_handle.notify_on_temp_error(err);
-                    Timer::sleep(args.error_sleep).await;
-                };
-
-                return Ok(());
-            },
-            Err(err) => {
-                // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
-                if let SPVError::ParentHashMismatch { coin: _, height } = &err {
-                    error!("Mis matching parent hash detected for block height: {height}, coin: {coin}");
-                    from_height = *height;
-                    sync_status_loop_handle.notify_on_temp_error(&err);
-                    Timer::sleep(args.error_sleep).await;
-                    continue;
-                } else {
-                    error!("Error {err:?} on validating the latest headers for {coin}!");
-                    sync_status_loop_handle.notify_on_permanent_error(&err);
-                    Timer::sleep(args.error_sleep).await;
-
-                    return Err(err.to_string());
-                };
-            },
-        }
+                    Ok(())
+                },
+                Err(err) => {
+                    // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
+                    if let SPVError::ParentHashMismatch { coin: _, height } = &err {
+                        Err(RetrieveHeadersError::ParentHashMismatch {
+                            coin: coin.to_string(),
+                            height: *height,
+                            err: err.to_string(),
+                        })
+                    } else {
+                        Err(RetrieveHeadersError::ValidationError(err.to_string()))
+                    }
+                },
+            };
+        },
+        Err(err) => Err(err),
     }
 }
 

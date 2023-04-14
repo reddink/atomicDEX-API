@@ -32,8 +32,6 @@ pub struct SPVBlockHeader {
     /// Valid block header `hash`.
     #[serde(deserialize_with = "from_hash_str")]
     pub hash: H256,
-    #[serde(deserialize_with = "from_hash_str")]
-    pub previous_header_hash: H256,
     /// Valid `u32` representation of the `date` the block is mined in epoch.
     pub time: u32,
     /// Valid block header `bits`.
@@ -42,11 +40,10 @@ pub struct SPVBlockHeader {
 }
 
 impl SPVBlockHeader {
-    pub fn from_block_header_and_height(header: &BlockHeader, height: u64) -> Self {
+    pub(crate) fn from_block_header_and_height(header: &BlockHeader, height: u64) -> Self {
         Self {
             height,
             hash: header.hash(),
-            previous_header_hash: header.previous_header_hash,
             time: header.time,
             bits: header.bits.clone(),
         }

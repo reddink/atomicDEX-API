@@ -516,7 +516,6 @@ pub fn btc_with_spv_conf() -> Json {
             "starting_block_header": {
                 "height": 0,
                 "hash": "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
-                "previous_header_hash": "0000000000000000000000000000000000000000000000000000000000000000",
                 "bits": 486604799,
                 "time": 1231006505,
             },
@@ -548,7 +547,6 @@ pub fn btc_with_sync_starting_header() -> Json {
             "starting_block_header": {
                 "height": 764064,
                 "hash": "00000000000000000006da48b920343944908861fa05b28824922d9e60aaa94d",
-                "previous_header_hash": "00000000000000000001348162a93f4734709f6a142b19aeefd8714f46d0b8f9",
                 "bits": 386375189,
                 "time": 1668986059,
             },
@@ -622,7 +620,6 @@ pub fn tbtc_with_spv_conf() -> Json {
             "starting_block_header": {
                 "height": 0,
                 "hash": "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943",
-                "previous_header_hash": "0000000000000000000000000000000000000000000000000000000000000000",
                 "bits": 486604799,
                 "time": 1296688602,
             },
