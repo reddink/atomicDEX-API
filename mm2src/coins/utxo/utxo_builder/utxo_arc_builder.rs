@@ -487,6 +487,7 @@ async fn retrieve_headers_helper(
                         attempts: *fetch_blocker_headers_attempts,
                     });
                 };
+
                 // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
                 return Err(RetrieveHeadersError::AttemptsExceeded {
                     err: err.to_string(),
@@ -529,7 +530,7 @@ async fn retrieve_and_revalidate_mismatching_header(
 ) -> Result<(), RetrieveHeadersError> {
     let to_height = from_height + args.chunk_size;
     if from_height == spv_conf.starting_block_header.height {
-        // Bad chain for preconfigured starting header detect, reconfigure.
+        // Bad chain for preconfigured starting header detected, reconfigure.
         return Err(RetrieveHeadersError::BadStartingHeaderChain);
     };
 
