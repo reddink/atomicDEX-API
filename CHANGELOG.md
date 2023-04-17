@@ -6,7 +6,6 @@
 - p2p stack is improved [#1755](https://github.com/KomodoPlatform/atomicDEX-API/pull/1755)
 - - Validate topics if they are mixed or not.
 - - Do early return if the message data is not valid (since no point to iterate over and over on the invalid message)
-- - Avoid decoding messages that have more than 25 topics
 - - Break the loop right after processing any of `SWAP_PREFIX`, `WATCHER_PREFIX`, `TX_HELPER_PREFIX` topic.
 
 

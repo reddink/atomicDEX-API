@@ -212,8 +212,6 @@ impl Decoder for GossipsubCodec {
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        const MAX_TOPICS: usize = 25;
-
         let packet = some_or_return_ok_none!(self.length_codec.decode(src)?);
 
         let rpc = rpc_proto::Rpc::decode(&packet[..])?;
@@ -230,25 +228,12 @@ impl Decoder for GossipsubCodec {
                     "sequence number has an incorrect size",
                 ));
             }
-
-            let topics = publish.topic_ids.into_iter().map(TopicHash::from_raw);
-            if topics.len() > MAX_TOPICS {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "Too many topics provided. Allowed topic count: {}, Received topic count: {}",
-                        MAX_TOPICS,
-                        topics.len()
-                    ),
-                ));
-            }
-
             messages.push(GossipsubMessage {
                 source: PeerId::from_bytes(&publish.from.unwrap_or_default())
                     .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid Peer Id"))?,
                 data: publish.data.unwrap_or_default(),
                 sequence_number: BigEndian::read_u64(&seq_no),
-                topics: topics.collect(),
+                topics: publish.topic_ids.into_iter().map(TopicHash::from_raw).collect(),
             });
         }
 
