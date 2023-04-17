@@ -42,7 +42,8 @@ use http::Response;
 use keys::{AddressFormat, KeyPair};
 use mm2_core::mm_ctx::{from_ctx, MmArc, MmWeak};
 use mm2_err_handle::prelude::*;
-use mm2_libp2p::{decode_signed, encode_and_sign, encode_message, pub_sub_topic, TopicPrefix, TOPIC_SEPARATOR};
+use mm2_libp2p::{decode_signed, encode_and_sign, encode_message, pub_sub_topic, TopicHash, TopicPrefix,
+                 TOPIC_SEPARATOR};
 use mm2_metrics::mm_gauge;
 use mm2_number::{construct_detailed, BigDecimal, BigRational, Fraction, MmNumber, MmNumberMultiRepr};
 #[cfg(test)] use mocktopus::macros::*;
@@ -90,7 +91,8 @@ pub use lp_bot::{start_simple_market_maker_bot, stop_simple_market_maker_bot, St
 
 #[path = "lp_ordermatch/my_orders_storage.rs"]
 mod my_orders_storage;
-#[path = "lp_ordermatch/new_protocol.rs"] mod new_protocol;
+#[path = "lp_ordermatch/new_protocol.rs"]
+pub(crate) mod new_protocol;
 #[path = "lp_ordermatch/order_requests_tracker.rs"]
 mod order_requests_tracker;
 #[path = "lp_ordermatch/orderbook_depth.rs"] mod orderbook_depth;
@@ -122,6 +124,22 @@ const TRIE_STATE_HISTORY_TIMEOUT: u64 = 3;
 const TRIE_ORDER_HISTORY_TIMEOUT: u64 = 300;
 #[cfg(test)]
 const TRIE_ORDER_HISTORY_TIMEOUT: u64 = 3;
+
+pub type OrderbookP2PHandlerResult = Result<(), MmError<OrderbookP2PHandlerError>>;
+
+#[derive(Display)]
+pub enum OrderbookP2PHandlerError {
+    #[display(fmt = "'{}' is an invalid topic for the orderbook handler.", _0)]
+    InvalidTopic(String),
+
+    #[display(fmt = "Message decoding was failed. Error: {}", _0)]
+    DecodeError(String),
+
+    #[display(fmt = "Pubkey '{}' is not allowed.", _0)]
+    PubkeyNotAllowed(String),
+
+    Internal(String),
+}
 
 /// Alphabetically ordered orderbook pair
 type AlbOrderedOrderbookPair = String;
@@ -468,56 +486,101 @@ fn remove_pubkey_pair_orders(orderbook: &mut Orderbook, pubkey: &str, alb_pair: 
     pubkey_state.trie_roots.remove(alb_pair);
 }
 
+pub async fn handle_orderbook_msg(
+    ctx: MmArc,
+    topics: &[TopicHash],
+    from_peer: String,
+    msg: &[u8],
+    i_am_relay: bool,
+) -> OrderbookP2PHandlerResult {
+    if let Err(e) = decode_signed::<new_protocol::OrdermatchMessage>(msg) {
+        return MmError::err(OrderbookP2PHandlerError::DecodeError(e.to_string()));
+    };
+
+    let mut orderbook_pairs = vec![];
+
+    for topic in topics {
+        let mut split = topic.as_str().split(TOPIC_SEPARATOR);
+        match (split.next(), split.next()) {
+            (Some(ORDERBOOK_PREFIX), Some(pair)) => {
+                orderbook_pairs.push(pair.to_string());
+            },
+            _ => {
+                return MmError::err(OrderbookP2PHandlerError::InvalidTopic(topic.as_str().to_owned()));
+            },
+        };
+    }
+
+    if !orderbook_pairs.is_empty() {
+        process_msg(ctx, orderbook_pairs, from_peer, msg, i_am_relay).await?;
+    }
+
+    Ok(())
+}
+
 /// Attempts to decode a message and process it returning whether the message is valid and worth rebroadcasting
-pub async fn process_msg(ctx: MmArc, _topics: Vec<String>, from_peer: String, msg: &[u8], i_am_relay: bool) -> bool {
+pub async fn process_msg(
+    ctx: MmArc,
+    _topics: Vec<String>,
+    from_peer: String,
+    msg: &[u8],
+    i_am_relay: bool,
+) -> OrderbookP2PHandlerResult {
     match decode_signed::<new_protocol::OrdermatchMessage>(msg) {
         Ok((message, _sig, pubkey)) => {
             if is_pubkey_banned(&ctx, &pubkey.unprefixed().into()) {
-                log::warn!("Pubkey {} is banned", pubkey.to_hex());
-                return false;
+                return MmError::err(OrderbookP2PHandlerError::PubkeyNotAllowed(pubkey.to_hex()));
             }
             match message {
                 new_protocol::OrdermatchMessage::MakerOrderCreated(created_msg) => {
                     let order: OrderbookItem = (created_msg, hex::encode(pubkey.to_bytes().as_slice())).into();
                     insert_or_update_order(&ctx, order);
-                    true
+                    Ok(())
                 },
                 new_protocol::OrdermatchMessage::PubkeyKeepAlive(keep_alive) => {
-                    process_orders_keep_alive(ctx, from_peer, pubkey.to_hex(), keep_alive, i_am_relay).await
+                    process_orders_keep_alive(ctx, from_peer, pubkey.to_hex(), keep_alive, i_am_relay)
+                        .await
+                        .then_some(())
+                        .ok_or_else(|| {
+                            OrderbookP2PHandlerError::Internal("`process_orders_keep_alive` was failed.".to_string())
+                                .into()
+                        })
                 },
                 new_protocol::OrdermatchMessage::TakerRequest(taker_request) => {
                     let msg = TakerRequest::from_new_proto_and_pubkey(taker_request, pubkey.unprefixed().into());
                     process_taker_request(ctx, pubkey.unprefixed().into(), msg).await;
-                    true
+                    Ok(())
                 },
                 new_protocol::OrdermatchMessage::MakerReserved(maker_reserved) => {
                     let msg = MakerReserved::from_new_proto_and_pubkey(maker_reserved, pubkey.unprefixed().into());
                     // spawn because process_maker_reserved may take significant time to run
                     let spawner = ctx.spawner();
                     spawner.spawn(process_maker_reserved(ctx, pubkey.unprefixed().into(), msg));
-                    true
+                    Ok(())
                 },
                 new_protocol::OrdermatchMessage::TakerConnect(taker_connect) => {
                     process_taker_connect(ctx, pubkey.unprefixed().into(), taker_connect.into()).await;
-                    true
+                    Ok(())
                 },
                 new_protocol::OrdermatchMessage::MakerConnected(maker_connected) => {
                     process_maker_connected(ctx, pubkey.unprefixed().into(), maker_connected.into()).await;
-                    true
+                    Ok(())
                 },
                 new_protocol::OrdermatchMessage::MakerOrderCancelled(cancelled_msg) => {
                     delete_order(&ctx, &pubkey.to_hex(), cancelled_msg.uuid.into());
-                    true
+                    Ok(())
                 },
                 new_protocol::OrdermatchMessage::MakerOrderUpdated(updated_msg) => {
                     process_maker_order_updated(ctx, pubkey.to_hex(), updated_msg)
+                        .then_some(())
+                        .ok_or_else(|| {
+                            OrderbookP2PHandlerError::Internal("`process_maker_order_updated` was failed.".to_string())
+                                .into()
+                        })
                 },
             }
         },
-        Err(e) => {
-            error!("Error {} while decoding signed message", e);
-            false
-        },
+        Err(e) => MmError::err(OrderbookP2PHandlerError::DecodeError(e.to_string())),
     }
 }
 
