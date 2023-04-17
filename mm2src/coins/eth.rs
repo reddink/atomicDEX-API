@@ -5055,7 +5055,11 @@ fn get_addr_nonce(
                     return ERR!("Couldn't get nonce after 5 errored attempts, aborting");
                 }
             } else {
-                let max = nonces.iter().map(|(n, _)| *n).max().unwrap();
+                let max = nonces
+                    .iter()
+                    .map(|(n, _)| *n)
+                    .max()
+                    .expect("nonces should not be empty!");
                 break Ok((
                     max,
                     nonces

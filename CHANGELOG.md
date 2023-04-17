@@ -3,7 +3,7 @@
 **Features:**
 
 **Enhancements/Fixes:**
-- An issue was fixed in [#1757](https://github.com/KomodoPlatform/atomicDEX-API/pull/1757) where we don't have to wait for all EVM nodes to sync the latest account nonce.
+- An issue was fixed where we don't have to wait for all EVM nodes to sync the latest account nonce [#1757](https://github.com/KomodoPlatform/atomicDEX-API/pull/1757)
 
 ## v1.0.2-beta - 2023-04-11
 
