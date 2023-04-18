@@ -62,7 +62,8 @@ use std::time::Duration;
 use trie_db::NodeCodec as NodeCodecT;
 use uuid::Uuid;
 
-use crate::mm2::lp_network::{broadcast_p2p_msg, request_any_relay, request_one_peer, subscribe_to_topic, P2PRequest};
+use crate::mm2::lp_network::{broadcast_p2p_msg, request_any_relay, request_one_peer, subscribe_to_topic, P2PRequest,
+                             P2PRequestError};
 use crate::mm2::lp_swap::{calc_max_maker_vol, check_balance_for_maker_swap, check_balance_for_taker_swap,
                           check_other_coin_balance_for_swap, get_max_maker_vol, insert_new_swap_to_db,
                           is_pubkey_banned, lp_atomic_locktime, p2p_keypair_and_peer_id_to_broadcast,
@@ -138,7 +139,24 @@ pub enum OrderbookP2PHandlerError {
     #[display(fmt = "Pubkey '{}' is not allowed.", _0)]
     PubkeyNotAllowed(String),
 
+    #[display(fmt = "P2P request error: {}", _0)]
+    P2PRequestError(String),
+
+    #[display(
+        fmt = "Couldn't find an order {}, ignoring, it will be synced upon pubkey keep alive",
+        _0
+    )]
+    OrderNotFound(Uuid),
+
     Internal(String),
+}
+
+impl OrderbookP2PHandlerError {
+    pub(crate) fn is_warning(&self) -> bool { matches!(self, OrderbookP2PHandlerError::OrderNotFound(_)) }
+}
+
+impl From<P2PRequestError> for OrderbookP2PHandlerError {
+    fn from(e: P2PRequestError) -> Self { OrderbookP2PHandlerError::P2PRequestError(e.to_string()) }
 }
 
 /// Alphabetically ordered orderbook pair
@@ -265,7 +283,7 @@ async fn process_orders_keep_alive(
     from_pubkey: String,
     keep_alive: new_protocol::PubkeyKeepAlive,
     i_am_relay: bool,
-) -> bool {
+) -> OrderbookP2PHandlerResult {
     let ordermatch_ctx = OrdermatchContext::from_ctx(&ctx).expect("from_ctx failed");
     let to_request = ordermatch_ctx
         .orderbook
@@ -275,17 +293,21 @@ async fn process_orders_keep_alive(
     let req = match to_request {
         Some(req) => req,
         // The message was processed, simply forward it
-        None => return true,
+        None => return Ok(()),
     };
 
-    let resp =
-        request_one_peer::<SyncPubkeyOrderbookStateRes>(ctx.clone(), P2PRequest::Ordermatch(req), propagated_from_peer)
-            .await;
-
-    let response = match resp {
-        Ok(Some(resp)) => resp,
-        _ => return false,
-    };
+    let response = request_one_peer::<SyncPubkeyOrderbookStateRes>(
+        ctx.clone(),
+        P2PRequest::Ordermatch(req),
+        propagated_from_peer.clone(),
+    )
+    .await?
+    .ok_or_else(|| {
+        MmError::new(OrderbookP2PHandlerError::P2PRequestError(format!(
+            "No response was received from peer {} for SyncPubkeyOrderbookState request!",
+            propagated_from_peer
+        )))
+    })?;
 
     let mut orderbook = ordermatch_ctx.orderbook.lock();
     for (pair, diff) in response.pair_orders_diff {
@@ -300,27 +322,27 @@ async fn process_orders_keep_alive(
             DeltaOrFullTrie::FullTrie(values) => process_pubkey_full_trie(&mut orderbook, values, params),
         };
     }
-    true
+
+    Ok(())
 }
 
-fn process_maker_order_updated(ctx: MmArc, from_pubkey: String, updated_msg: new_protocol::MakerOrderUpdated) -> bool {
+fn process_maker_order_updated(
+    ctx: MmArc,
+    from_pubkey: String,
+    updated_msg: new_protocol::MakerOrderUpdated,
+) -> OrderbookP2PHandlerResult {
     let ordermatch_ctx = OrdermatchContext::from_ctx(&ctx).expect("from_ctx failed");
     let uuid = updated_msg.uuid();
     let mut orderbook = ordermatch_ctx.orderbook.lock();
-    match orderbook.find_order_by_uuid_and_pubkey(&uuid, &from_pubkey) {
-        Some(mut order) => {
-            order.apply_updated(&updated_msg);
-            orderbook.insert_or_update_order_update_trie(order);
-            true
-        },
-        None => {
-            log::warn!(
-                "Couldn't find an order {}, ignoring, it will be synced upon pubkey keep alive",
-                uuid
-            );
-            false
-        },
-    }
+
+    let mut order = orderbook
+        .find_order_by_uuid_and_pubkey(&uuid, &from_pubkey)
+        .ok_or_else(|| MmError::new(OrderbookP2PHandlerError::OrderNotFound(uuid)))?;
+    order.apply_updated(&updated_msg);
+    drop_mutability!(order);
+    orderbook.insert_or_update_order_update_trie(order);
+
+    Ok(())
 }
 
 // fn verify_pubkey_orderbook(orderbook: &GetOrderbookPubkeyItem) -> Result<(), String> {
@@ -534,13 +556,7 @@ pub async fn process_msg(ctx: MmArc, from_peer: String, msg: &[u8], i_am_relay: 
                     Ok(())
                 },
                 new_protocol::OrdermatchMessage::PubkeyKeepAlive(keep_alive) => {
-                    process_orders_keep_alive(ctx, from_peer, pubkey.to_hex(), keep_alive, i_am_relay)
-                        .await
-                        .then_some(())
-                        .ok_or_else(|| {
-                            OrderbookP2PHandlerError::Internal("`process_orders_keep_alive` was failed.".to_string())
-                                .into()
-                        })
+                    process_orders_keep_alive(ctx, from_peer, pubkey.to_hex(), keep_alive, i_am_relay).await
                 },
                 new_protocol::OrdermatchMessage::TakerRequest(taker_request) => {
                     let msg = TakerRequest::from_new_proto_and_pubkey(taker_request, pubkey.unprefixed().into());
@@ -568,11 +584,6 @@ pub async fn process_msg(ctx: MmArc, from_peer: String, msg: &[u8], i_am_relay: 
                 },
                 new_protocol::OrdermatchMessage::MakerOrderUpdated(updated_msg) => {
                     process_maker_order_updated(ctx, pubkey.to_hex(), updated_msg)
-                        .then_some(())
-                        .ok_or_else(|| {
-                            OrderbookP2PHandlerError::Internal("`process_maker_order_updated` was failed.".to_string())
-                                .into()
-                        })
                 },
             }
         },

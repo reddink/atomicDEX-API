@@ -189,7 +189,11 @@ async fn process_p2p_message(
                 );
 
                 if let Err(e) = fut.await {
-                    log::error!("{}", e);
+                    if e.get_inner().is_warning() {
+                        log::warn!("{}", e);
+                    } else {
+                        log::error!("{}", e);
+                    }
                     return;
                 }
 
