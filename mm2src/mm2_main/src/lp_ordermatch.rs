@@ -511,21 +511,17 @@ pub async fn handle_orderbook_msg(
         };
     }
 
+    drop_mutability!(orderbook_pairs);
+
     if !orderbook_pairs.is_empty() {
-        process_msg(ctx, orderbook_pairs, from_peer, msg, i_am_relay).await?;
+        process_msg(ctx, from_peer, msg, i_am_relay).await?;
     }
 
     Ok(())
 }
 
 /// Attempts to decode a message and process it returning whether the message is valid and worth rebroadcasting
-pub async fn process_msg(
-    ctx: MmArc,
-    _topics: Vec<String>,
-    from_peer: String,
-    msg: &[u8],
-    i_am_relay: bool,
-) -> OrderbookP2PHandlerResult {
+pub async fn process_msg(ctx: MmArc, from_peer: String, msg: &[u8], i_am_relay: bool) -> OrderbookP2PHandlerResult {
     match decode_signed::<new_protocol::OrdermatchMessage>(msg) {
         Ok((message, _sig, pubkey)) => {
             if is_pubkey_banned(&ctx, &pubkey.unprefixed().into()) {
