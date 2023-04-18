@@ -7,6 +7,7 @@
 - - Validate topics if they are mixed or not.
 - - Do early return if the message data is not valid (since no point to iterate over and over on the invalid message)
 - - Break the loop right after processing any of `SWAP_PREFIX`, `WATCHER_PREFIX`, `TX_HELPER_PREFIX` topic.
+- An issue was fixed where we don't have to wait for all EVM nodes to sync the latest account nonce [#1757](https://github.com/KomodoPlatform/atomicDEX-API/pull/1757)
 
 
 ## v1.0.2-beta - 2023-04-11
