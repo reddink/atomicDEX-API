@@ -1,4 +1,5 @@
 use crate::integration_tests_common::*;
+#[cfg(all(feature = "zhtlc-native-tests", not(target_arch = "wasm32")))]
 use crate::mm2_tests;
 use common::executor::Timer;
 use common::{cfg_native, cfg_wasm32, get_utc_timestamp, log, new_uuid};
