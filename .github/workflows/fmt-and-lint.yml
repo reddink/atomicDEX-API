@@ -19,9 +19,12 @@ jobs:
         rustup toolchain install nightly-2022-10-29 --no-self-update --profile=minimal --component rustfmt clippy
         rustup default nightly-2022-10-29
 
-    - name: Install libudev
-      run: sudo apt-get update && sudo apt-get -y install libudev-dev
+    - name: Install OS dependencies
+      run: |
+        sudo apt-get update 
+        sudo apt-get -y install libudev-dev
       if: matrix.os == 'ubuntu-latest'
+
     - name: fmt check
       run: cargo fmt -- --check
 
