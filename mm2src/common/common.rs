@@ -749,7 +749,7 @@ pub fn writeln(line: &str) {
 pub fn small_rng() -> SmallRng { SmallRng::seed_from_u64(now_ms()) }
 
 #[inline(always)]
-pub fn os_rng(dest: &mut [u8]) { rand::rngs::OsRng.fill_bytes(dest); }
+pub fn os_rng(dest: &mut [u8]) -> Result<(), rand::Error> { rand::rngs::OsRng.try_fill_bytes(dest) }
 
 #[derive(Debug, Clone)]
 /// Ordered from low to height inclusive range.

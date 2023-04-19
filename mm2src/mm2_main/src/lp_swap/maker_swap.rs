@@ -237,10 +237,10 @@ impl MakerSwap {
     #[inline]
     fn r(&self) -> RwLockReadGuard<MakerSwapMut> { self.mutable.read().unwrap() }
 
-    pub fn generate_secret() -> [u8; 32] {
+    pub fn generate_secret() -> Result<[u8; 32], rand::Error> {
         let mut sec = [0u8; 32];
-        common::os_rng(&mut sec);
-        sec
+        common::os_rng(&mut sec)?;
+        Ok(sec)
     }
 
     #[inline]

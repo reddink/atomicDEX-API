@@ -1462,7 +1462,7 @@ impl TendermintCoin {
         const TIME_LOCK: u64 = 1750;
 
         let mut sec = [0u8; 32];
-        common::os_rng(&mut sec);
+        common::os_rng(&mut sec).unwrap();
         drop_mutability!(sec);
 
         let to_address = account_id_from_pubkey_hex(&self.account_prefix, DEX_FEE_ADDR_PUBKEY)
@@ -2735,7 +2735,7 @@ pub mod tendermint_coin_tests {
         let amount_dec = big_decimal_from_sat_unsigned(UAMOUNT, coin.decimals);
 
         let mut sec = [0u8; 32];
-        common::os_rng(&mut sec);
+        common::os_rng(&mut sec).unwrap();
         drop_mutability!(sec);
 
         let time_lock = 1000;
