@@ -18,6 +18,7 @@ jobs:
       run: |
         rustup toolchain install nightly-2022-10-29 --no-self-update --profile=minimal --component rustfmt clippy
         rustup default nightly-2022-10-29
+        apt-get update && apt-get -y install libudev-dev
 
     - name: fmt check
       run: cargo fmt -- --check
