@@ -21,6 +21,7 @@ jobs:
 
     - name: Install libudev
       run: sudo apt-get update && sudo apt-get -y install libudev-dev
+      if: matrix.os == 'ubuntu-latest'
     - name: fmt check
       run: cargo fmt -- --check
 
