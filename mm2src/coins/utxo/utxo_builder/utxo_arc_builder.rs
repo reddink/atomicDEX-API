@@ -333,26 +333,20 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
         .await
         {
             Ok(res) => res,
-            Err(err) => match err {
-                RetrieveHeadersError::ParentHashMismatch { .. } | RetrieveHeadersError::ValidationError(_) => {
-                    // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
+            Err(err) => match err.kind() {
+                RetrieveHeadersErrorKind::PossibleBadElectrum => {
                     error!("{err:?}");
                     sync_status_loop_handle.notify_on_temp_error(err);
                     Timer::sleep(args.error_sleep).await;
                     continue;
                 },
-                RetrieveHeadersError::NetworkError(_)
-                | RetrieveHeadersError::ResponseTooLarge { .. }
-                | RetrieveHeadersError::BlockHeaderStorageError(_) => {
-                    // Theses errors are all retryable so we can retry fetching block headers
-                    // again from same electrum.
+                RetrieveHeadersErrorKind::Temporary => {
                     error!("{err:?}");
                     sync_status_loop_handle.notify_on_temp_error(err);
                     Timer::sleep(args.error_sleep).await;
                     continue;
                 },
-                RetrieveHeadersError::BadStartingHeaderChain | RetrieveHeadersError::AttemptsExceeded { .. } => {
-                    // Non retryable errors, hence, we break the loop and notify_on_permanent_error.
+                RetrieveHeadersErrorKind::Permanent => {
                     error!("{err:?}");
                     sync_status_loop_handle.notify_on_permanent_error(err);
                     Timer::sleep(args.error_sleep).await;
@@ -381,29 +375,20 @@ pub(crate) async fn block_header_utxo_loop<T: UtxoCommonOps>(
                 .await
                 {
                     Ok(_) => continue,
-                    Err(err) => match err {
-                        RetrieveHeadersError::ParentHashMismatch { .. } | RetrieveHeadersError::ValidationError(_) => {
-                            // Retryable error with different electrum.
-                            // Todo: remove this electrum server and use another in this case since the headers from this server can't be retrieved
+                    Err(err) => match err.kind() {
+                        RetrieveHeadersErrorKind::PossibleBadElectrum => {
                             error!("{err:?}");
                             sync_status_loop_handle.notify_on_temp_error(err);
                             Timer::sleep(args.error_sleep).await;
                             continue;
                         },
-                        RetrieveHeadersError::NetworkError(_)
-                        | RetrieveHeadersError::ResponseTooLarge { .. }
-                        | RetrieveHeadersError::BlockHeaderStorageError(_) => {
-                            // Theses errors are all retryable from same electrum so we can retry
-                            // fetching block headers again.
+                        RetrieveHeadersErrorKind::Temporary => {
                             error!("{err:?}");
                             sync_status_loop_handle.notify_on_temp_error(err);
                             Timer::sleep(args.error_sleep).await;
                             continue;
                         },
-                        RetrieveHeadersError::BadStartingHeaderChain
-                        | RetrieveHeadersError::AttemptsExceeded { .. } => {
-                            // Todo: move `RetrieveHeadersError::AttemptsExceeded` to list of retryable error with different electrum.
-                            // Non retryable errors, hence, we break the loop and notify_on_permanent_error.
+                        RetrieveHeadersErrorKind::Permanent => {
                             error!("{err:?}");
                             sync_status_loop_handle.notify_on_permanent_error(err);
                             Timer::sleep(args.error_sleep).await;
@@ -446,6 +431,34 @@ enum RetrieveHeadersError {
     BlockHeaderStorageError(String),
     #[display(fmt = "Validation Error: {}", _0)]
     ValidationError(String),
+}
+
+#[derive(Debug, Display)]
+enum RetrieveHeadersErrorKind {
+    // Theses errors are all retryable from same electrum so we can retry
+    // fetching block headers again.
+    Temporary,
+    // Non retryable errors, hence, we break the loop and notify_on_permanent_error.
+    Permanent,
+    // Theses errors are all retryable but with different electrum so we can retry
+    // fetching block headers again.
+    PossibleBadElectrum,
+}
+
+impl RetrieveHeadersError {
+    fn kind(&self) -> RetrieveHeadersErrorKind {
+        match self {
+            RetrieveHeadersError::ParentHashMismatch { .. } | RetrieveHeadersError::ValidationError(_) => {
+                RetrieveHeadersErrorKind::PossibleBadElectrum
+            },
+            RetrieveHeadersError::NetworkError(_)
+            | RetrieveHeadersError::ResponseTooLarge { .. }
+            | RetrieveHeadersError::BlockHeaderStorageError(_) => RetrieveHeadersErrorKind::Temporary,
+            RetrieveHeadersError::BadStartingHeaderChain | RetrieveHeadersError::AttemptsExceeded { .. } => {
+                RetrieveHeadersErrorKind::Permanent
+            },
+        }
+    }
 }
 
 async fn retrieve_headers_helper(

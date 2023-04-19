@@ -7,7 +7,7 @@
 - Project root is simplified/refactored [#1738](https://github.com/KomodoPlatform/atomicDEX-API/pull/1738)
 - Created base image to provide more glibc compatible pre-built binaries for linux [#1741](https://github.com/KomodoPlatform/atomicDEX-API/pull/1741)
 - Set default log level as "info" [#1747](https://github.com/KomodoPlatform/atomicDEX-API/pull/1747)
-- Detect and resolve chain-reorg [#1728](https://github.com/KomodoPlatform/atomicDEX-API/pull/1728)
+- Detect a chain reorganization, if it occurs, redownload and revalidate the new best chain headers for SPV  [#1728](https://github.com/KomodoPlatform/atomicDEX-API/pull/1728)
 
 ## v1.0.1-beta - 2023-03-17
 

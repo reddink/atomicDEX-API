@@ -265,15 +265,14 @@ mod block_headers_storage_tests {
         storage.add_block_headers_to_storage(headers).await.unwrap();
         assert!(storage.is_table_empty().await.is_err());
 
-        // Remove 2 headers from storage.(201596 - 201597)
-        storage.remove_headers_from_storage(201596, 201597).await.unwrap();
-
         // Remove 2 headers from storage.(201593 - 201594)
-        storage.remove_headers_from_storage(201593, 201594).await.unwrap();
+        storage.remove_headers_from_storage(201593, 201596).await.unwrap();
 
-        // get last block height should return 201595 since we already removed the first and last two.
-        let last_block_height = storage.get_last_block_height().await.unwrap();
-        assert_eq!(last_block_height.unwrap(), 201595);
+        // Validate that blockers 201593..201597 are removed from storage.
+        for h in 201593..201597 {
+            let block_header = storage.get_block_header(h).await.unwrap();
+            assert!(block_header.is_none());
+        }
     }
 }
 
