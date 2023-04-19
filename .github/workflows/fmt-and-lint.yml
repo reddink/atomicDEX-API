@@ -43,4 +43,4 @@ jobs:
         rustup target add wasm32-unknown-unknown
 
     - name: wasm code lint
-      run: cargo clippy --target wasm32-unknown-unknown --profile ci -- --D warnings
+      run: cargo clippy --target wasm32-unknown-unknown -- --D warnings
