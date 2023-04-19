@@ -1046,10 +1046,7 @@ fn zhtlc_best_orders() {
             "i_am_seed": true,
         }),
         "pass".into(),
-        match env::var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "bob" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 
@@ -1091,10 +1088,7 @@ fn zhtlc_best_orders() {
             "rpc_password": "pass",
         }),
         "pass".into(),
-        match env::var("LOCAL_THREAD_MM") {
-            Ok(ref e) if e == "alice" => Some(local_start()),
-            _ => None,
-        },
+        None,
     )
     .unwrap();
 

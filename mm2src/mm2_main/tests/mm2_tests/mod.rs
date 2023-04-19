@@ -12,7 +12,7 @@ mod z_coin_tests;
 
 use mm2_test_helpers::for_tests::MarketMakerIt;
 use mm2_test_helpers::structs::CoinActivationResult;
-use serde_json::{self as json, json, Value as Json};
+use serde_json::{self as json};
 
 // dummy test helping IDE to recognize this as test module
 #[test]
