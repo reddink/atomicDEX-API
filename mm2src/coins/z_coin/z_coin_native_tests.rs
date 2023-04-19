@@ -4,31 +4,24 @@ use common::block_on;
 use common::now_ms;
 use mm2_core::mm_ctx::MmCtxBuilder;
 use mm2_test_helpers::for_tests::zombie_conf;
+use std::path::PathBuf;
 use std::time::Duration;
 use zcash_client_backend::encoding::decode_extended_spending_key;
 
-use super::*;
-use crate::z_coin::{z_htlc::z_send_dex_fee, ZcoinActivationParams};
+use super::{z_coin_from_conf_and_params_with_z_key, z_mainnet_constants, Future, PrivKeyBuildPolicy,
+            RefundPaymentArgs, SendPaymentArgs, SpendPaymentArgs, SwapOps, ValidateFeeArgs, ValidatePaymentError,
+            ZTransaction};
+use crate::z_coin::{z_htlc::z_send_dex_fee, ZcoinActivationParams, ZcoinRpcMode};
 
 #[test]
 fn zombie_coin_send_and_refund_maker_payment() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
-    let priv_key = PrivKeyBuildPolicy::IguanaPrivKey(IguanaPrivKey::default());
-    let z_key = decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, "secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").unwrap().unwrap();
-
-    let db_dir = PathBuf::from("./for_tests");
-
-    let params = ZcoinActivationParams {
-        mode: ZcoinRpcMode::Native,
-        required_confirmations: None,
-        requires_notarization: None,
-        zcash_params_path: None,
-        scan_blocks_per_iteration: 0,
-        scan_interval_ms: 0,
-    };
-
     let mut conf = zombie_conf();
-    let CoinProtocol::ZHTLC(protocol_info) = serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() else { todo!() };
+    let params = default_zcoin_activation_params();
+    let priv_key = PrivKeyBuildPolicy::IguanaPrivKey(IguanaPrivKey::default());
+    let db_dir = PathBuf::from("./for_tests");
+    let z_key = decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, "secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").unwrap().unwrap();
+    let CoinProtocol::ZHTLC(protocol_info) = serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() else { unimplemented!() };
 
     let coin = block_on(z_coin_from_conf_and_params_with_z_key(
         &ctx,
@@ -60,7 +53,7 @@ fn zombie_coin_send_and_refund_maker_payment() {
     };
     let tx = coin.send_maker_payment(args).wait().unwrap();
     println!("swap tx {}", hex::encode(tx.tx_hash().0));
-    let PrivKeyBuildPolicy::IguanaPrivKey(private_key_data) = priv_key else { todo!() };
+    let PrivKeyBuildPolicy::IguanaPrivKey(private_key_data) = priv_key else { unimplemented!() };
 
     let refund_args = RefundPaymentArgs {
         payment_tx: &tx.tx_hex(),
@@ -78,21 +71,13 @@ fn zombie_coin_send_and_refund_maker_payment() {
 #[test]
 fn zombie_coin_send_and_spend_maker_payment() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
-    let z_key = decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, "secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").unwrap().unwrap();
-
-    let db_dir = PathBuf::from("./for_tests");
-
     let mut conf = zombie_conf();
-    let CoinProtocol::ZHTLC(protocol_info) = serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() else { todo!() };
-    let params = ZcoinActivationParams {
-        mode: ZcoinRpcMode::Native,
-        required_confirmations: None,
-        requires_notarization: None,
-        zcash_params_path: None,
-        scan_blocks_per_iteration: 0,
-        scan_interval_ms: 0,
-    };
+    let params = default_zcoin_activation_params();
     let priv_key = PrivKeyBuildPolicy::IguanaPrivKey(IguanaPrivKey::default());
+    let db_dir = PathBuf::from("./for_tests");
+    let z_key = decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, "secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").unwrap().unwrap();
+    let CoinProtocol::ZHTLC(protocol_info) = serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() else { unimplemented!() };
+
     let coin = block_on(z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
@@ -128,7 +113,7 @@ fn zombie_coin_send_and_spend_maker_payment() {
 
     let maker_pub = taker_pub;
 
-    let PrivKeyBuildPolicy::IguanaPrivKey(private_key_data) = priv_key else { todo!() };
+    let PrivKeyBuildPolicy::IguanaPrivKey(private_key_data) = priv_key else { unimplemented!() };
 
     let spends_payment_args = SpendPaymentArgs {
         other_payment_tx: &tx.tx_hex(),
@@ -150,21 +135,13 @@ fn zombie_coin_send_and_spend_maker_payment() {
 #[test]
 fn zombie_coin_send_dex_fee() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
-    let z_key = decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, "secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").unwrap().unwrap();
-
-    let db_dir = PathBuf::from("./for_tests");
-
     let mut conf = zombie_conf();
-    let CoinProtocol::ZHTLC(protocol_info) = serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() else { todo!() };
-    let params = ZcoinActivationParams {
-        mode: ZcoinRpcMode::Native,
-        required_confirmations: None,
-        requires_notarization: None,
-        zcash_params_path: None,
-        scan_blocks_per_iteration: 0,
-        scan_interval_ms: 0,
-    };
+    let params = default_zcoin_activation_params();
     let priv_key = PrivKeyBuildPolicy::IguanaPrivKey(IguanaPrivKey::default());
+    let db_dir = PathBuf::from("./for_tests");
+    let z_key = decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, "secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").unwrap().unwrap();
+    let CoinProtocol::ZHTLC(protocol_info) = serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() else { unimplemented!() };
+
     let coin = block_on(z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
@@ -184,20 +161,13 @@ fn zombie_coin_send_dex_fee() {
 #[test]
 fn prepare_zombie_sapling_cache() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
-    let z_key = decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, "secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").unwrap().unwrap();
-
-    let db_dir = PathBuf::from("./for_tests");
     let mut conf = zombie_conf();
-    let CoinProtocol::ZHTLC(protocol_info) = serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() else { todo!() };
-    let params = ZcoinActivationParams {
-        mode: ZcoinRpcMode::Native,
-        required_confirmations: None,
-        requires_notarization: None,
-        zcash_params_path: None,
-        scan_blocks_per_iteration: 0,
-        scan_interval_ms: 0,
-    };
+    let params = default_zcoin_activation_params();
     let priv_key = PrivKeyBuildPolicy::IguanaPrivKey(IguanaPrivKey::default());
+    let db_dir = PathBuf::from("./for_tests");
+    let z_key = decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, "secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").unwrap().unwrap();
+    let CoinProtocol::ZHTLC(protocol_info) = serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() else { unimplemented!() };
+
     let coin = block_on(z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
@@ -218,21 +188,13 @@ fn prepare_zombie_sapling_cache() {
 #[test]
 fn zombie_coin_validate_dex_fee() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
-    let z_key = decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, "secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").unwrap().unwrap();
-
-    let db_dir = PathBuf::from("./for_tests");
-
     let mut conf = zombie_conf();
-    let CoinProtocol::ZHTLC(protocol_info) = serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() else { todo!() };
-    let params = ZcoinActivationParams {
-        mode: ZcoinRpcMode::Native,
-        required_confirmations: None,
-        requires_notarization: None,
-        zcash_params_path: None,
-        scan_blocks_per_iteration: 0,
-        scan_interval_ms: 0,
-    };
+    let params = default_zcoin_activation_params();
     let priv_key = PrivKeyBuildPolicy::IguanaPrivKey(IguanaPrivKey::default());
+    let db_dir = PathBuf::from("./for_tests");
+    let z_key = decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, "secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").unwrap().unwrap();
+    let CoinProtocol::ZHTLC(protocol_info) = serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() else { unimplemented!() };
+
     let coin = block_on(z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
@@ -306,4 +268,15 @@ fn zombie_coin_validate_dex_fee() {
         uuid: &[1; 16],
     };
     coin.validate_fee(validate_fee_args).wait().unwrap();
+}
+
+fn default_zcoin_activation_params() -> ZcoinActivationParams {
+    ZcoinActivationParams {
+        mode: ZcoinRpcMode::Native,
+        required_confirmations: None,
+        requires_notarization: None,
+        zcash_params_path: None,
+        scan_blocks_per_iteration: 0,
+        scan_interval_ms: 0,
+    }
 }
