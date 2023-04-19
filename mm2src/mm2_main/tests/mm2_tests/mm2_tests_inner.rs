@@ -18,6 +18,9 @@ use mm2_test_helpers::for_tests::{btc_segwit_conf, btc_with_spv_conf, btc_with_s
                                   MarketMakerIt, Mm2InitPrivKeyPolicy, Mm2TestConf, Mm2TestConfForSwap, RaiiDump,
                                   ETH_DEV_NODES, ETH_DEV_SWAP_CONTRACT, ETH_MAINNET_NODE, ETH_MAINNET_SWAP_CONTRACT,
                                   MORTY, QRC20_ELECTRUMS, RICK, RICK_ELECTRUM_ADDRS};
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "zhtlc-native-tests")))]
+use mm2_test_helpers::for_tests::{check_stats_swap_status, MAKER_SUCCESS_EVENTS, TAKER_SUCCESS_EVENTS};
+
 use mm2_test_helpers::get_passphrase;
 use mm2_test_helpers::structs::*;
 use serde_json::{self as json, json, Value as Json};

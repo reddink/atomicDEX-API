@@ -2,7 +2,6 @@ use crate::integration_tests_common::*;
 use common::{block_on, log};
 use http::StatusCode;
 use mm2_number::BigDecimal;
-use mm2_test_helpers::electrums::rick_electrums;
 use mm2_test_helpers::for_tests::{best_orders_v2, best_orders_v2_by_number, eth_jst_testnet_conf, eth_testnet_conf,
                                   get_passphrase, morty_conf, rick_conf, tbtc_conf, tbtc_segwit_conf, MarketMakerIt,
                                   Mm2TestConf, RICK_ELECTRUM_ADDRS, TBTC_ELECTRUMS};
@@ -13,8 +12,6 @@ use serde_json::{self as json, json};
 use std::env::{self};
 use std::thread;
 use std::time::Duration;
-
-use super::enable_z_coin;
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
@@ -1026,6 +1023,8 @@ fn best_orders_must_return_duplicate_for_orderbook_tickers() {
 #[cfg(feature = "zhtlc-native-tests")]
 #[test]
 fn zhtlc_best_orders() {
+    use crate::mm2_tests::enable_z_coin;
+    use mm2_test_helpers::electrums::rick_electrums;
     use mm2_test_helpers::for_tests::zombie_conf;
 
     let bob_passphrase = get_passphrase!(".env.seed", "BOB_PASSPHRASE").unwrap();

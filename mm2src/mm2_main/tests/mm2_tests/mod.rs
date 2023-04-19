@@ -12,7 +12,6 @@ mod z_coin_tests;
 
 use mm2_test_helpers::for_tests::MarketMakerIt;
 use mm2_test_helpers::structs::CoinActivationResult;
-use serde_json::{self as json};
 
 // dummy test helping IDE to recognize this as test module
 #[test]
@@ -27,7 +26,7 @@ async fn enable_z_coin(mm: &MarketMakerIt, coin: &str) -> CoinActivationResult {
     use mm2_test_helpers::structs::{InitTaskResult, InitZcoinStatus, RpcV2Response};
 
     let init = init_z_coin_native(mm, coin).await;
-    let init: RpcV2Response<InitTaskResult> = json::from_value(init).unwrap();
+    let init: RpcV2Response<InitTaskResult> = serde_json::from_value(init).unwrap();
     let timeout = now_ms() + 120000;
 
     loop {
