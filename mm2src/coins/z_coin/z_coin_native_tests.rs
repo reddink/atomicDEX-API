@@ -1,7 +1,5 @@
-use crate::{CoinProtocol, IguanaPrivKey};
 use bitcrypto::dhash160;
-use common::block_on;
-use common::now_ms;
+use common::{block_on, now_ms};
 use mm2_core::mm_ctx::MmCtxBuilder;
 use mm2_test_helpers::for_tests::zombie_conf;
 use std::path::PathBuf;
@@ -12,6 +10,7 @@ use super::{z_coin_from_conf_and_params_with_z_key, z_mainnet_constants, Future,
             RefundPaymentArgs, SendPaymentArgs, SpendPaymentArgs, SwapOps, ValidateFeeArgs, ValidatePaymentError,
             ZTransaction};
 use crate::z_coin::{z_htlc::z_send_dex_fee, ZcoinActivationParams, ZcoinRpcMode};
+use crate::{CoinProtocol, IguanaPrivKey};
 
 #[test]
 fn zombie_coin_send_and_refund_maker_payment() {
