@@ -254,12 +254,13 @@ pub async fn process_swap_msg(ctx: MmArc, topic: &str, msg: &[u8]) -> P2PRequest
                 },
                 Err(swap_status_err) => {
                     let error = format!(
-                        "Couldn't deserialize swap msg to either 'SwapMsg': {}  or to 'SwapStatus': {}",
+                        "Couldn't deserialize swap msg to either 'SwapMsg': {} or to 'SwapStatus': {}",
                         swap_msg_err, swap_status_err
                     );
                     MmError::err(P2PRequestError::DecodeError(error))
                 },
             };
+
             #[cfg(target_arch = "wasm32")]
             return MmError::err(P2PRequestError::DecodeError(format!(
                 "Couldn't deserialize 'SwapMsg': {}",
