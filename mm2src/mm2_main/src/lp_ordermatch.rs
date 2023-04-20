@@ -2923,6 +2923,15 @@ fn lp_connect_start_bob(ctx: MmArc, maker_match: MakerMatch, maker_order: MakerO
         if let Err(e) = insert_new_swap_to_db(ctx.clone(), maker_coin.ticker(), taker_coin.ticker(), uuid, now).await {
             error!("Error {} on new swap insertion", e);
         }
+
+        let secret = match MakerSwap::generate_secret() {
+            Ok(s) => s.into(),
+            Err(e) => {
+                error!("Error {} on secret generation", e);
+                return;
+            },
+        };
+
         let maker_swap = MakerSwap::new(
             ctx.clone(),
             alice,
@@ -2936,7 +2945,7 @@ fn lp_connect_start_bob(ctx: MmArc, maker_match: MakerMatch, maker_order: MakerO
             taker_coin,
             lock_time,
             maker_order.p2p_privkey.map(SerializableSecp256k1Keypair::into_inner),
-            MakerSwap::generate_secret().unwrap().into(),
+            secret,
         );
         run_maker_swap(RunMakerSwapInput::StartNew(maker_swap), ctx).await;
     };
