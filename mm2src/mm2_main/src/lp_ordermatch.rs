@@ -92,8 +92,7 @@ pub use lp_bot::{start_simple_market_maker_bot, stop_simple_market_maker_bot, St
 
 #[path = "lp_ordermatch/my_orders_storage.rs"]
 mod my_orders_storage;
-#[path = "lp_ordermatch/new_protocol.rs"]
-pub(crate) mod new_protocol;
+#[path = "lp_ordermatch/new_protocol.rs"] mod new_protocol;
 #[path = "lp_ordermatch/order_requests_tracker.rs"]
 mod order_requests_tracker;
 #[path = "lp_ordermatch/orderbook_depth.rs"] mod orderbook_depth;
