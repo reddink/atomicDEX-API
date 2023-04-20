@@ -237,26 +237,30 @@ pub fn broadcast_p2p_tx_msg(ctx: &MmArc, topic: String, msg: &TransactionEnum, p
     broadcast_p2p_msg(ctx, vec![topic], encoded_msg, from);
 }
 
-pub async fn process_msg(ctx: MmArc, topic: &str, msg: &[u8]) -> P2PRequestResult<()> {
+pub async fn process_swap_msg(ctx: MmArc, topic: &str, msg: &[u8]) -> P2PRequestResult<()> {
     let uuid = Uuid::from_str(topic).map_to_mm(|e| P2PRequestError::DecodeError(e.to_string()))?;
 
     let msg = match decode_signed::<SwapMsg>(msg) {
         Ok(m) => m,
-        Err(swap_msg_err) => {
+        Err(swap_msg_err) =>
+        {
             #[cfg(not(target_arch = "wasm32"))]
-            match json::from_slice::<SwapStatus>(msg) {
+            return match json::from_slice::<SwapStatus>(msg) {
                 Ok(mut status) => {
                     status.data.fetch_and_set_usd_prices().await;
                     if let Err(e) = save_stats_swap(&ctx, &status.data).await {
                         error!("Error saving the swap {} status: {}", status.data.uuid(), e);
                     }
+                    Ok(())
                 },
                 Err(swap_status_err) => {
-                    error!("Couldn't deserialize 'SwapMsg': {:?}", swap_msg_err);
-                    error!("Couldn't deserialize 'SwapStatus': {:?}", swap_status_err);
+                    let error = format!(
+                        "Couldn't deserialize swap msg to either 'SwapMsg': {}  or to 'SwapStatus': {}",
+                        swap_msg_err, swap_status_err
+                    );
+                    MmError::err(P2PRequestError::DecodeError(error))
                 },
-            };
-            return MmError::err(P2PRequestError::DecodeError(swap_msg_err.to_string()));
+            }
         },
     };
 
