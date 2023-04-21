@@ -285,15 +285,7 @@ impl ZCoin {
     pub fn consensus_params_ref(&self) -> &ZcoinConsensusParams { &self.z_fields.consensus_params }
 
     pub async fn is_sapling_state_synced(&self) -> bool {
-        matches!(
-            self.z_fields
-                .sync_state_connector
-                .lock()
-                .await
-                .current_sync_status()
-                .await,
-            Ok(SyncStatus::Finished { block_number: _ })
-        )
+        matches!(self.sync_status().await, Ok(SyncStatus::Finished { block_number: _ }))
     }
 
     #[inline]

@@ -162,7 +162,7 @@ fn test_search_for_swap_tx_spend_native_was_refunded_maker() {
 
     let search_input = SearchForSwapTxSpendInput {
         time_lock,
-        other_pub: coin.my_public_key().unwrap().as_ref(),
+        other_pub: coin.my_public_key().unwrap(),
         secret_hash: &[0; 20],
         tx: &tx.tx_hex(),
         search_from_block: 0,
