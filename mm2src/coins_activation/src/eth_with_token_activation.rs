@@ -11,6 +11,7 @@ use coins::{eth::{v2_activation::{eth_coin_from_conf_and_request_v2, Erc20Protoc
                   Erc20TokenInfo, EthCoin, EthCoinType},
             my_tx_history_v2::TxHistoryStorage,
             CoinBalance, CoinProtocol, MarketCoinOps, MmCoin};
+use common::true_f;
 use common::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
@@ -122,6 +123,8 @@ pub struct EthWithTokensActivationRequest {
     #[serde(flatten)]
     platform_request: EthActivationV2Request,
     erc20_tokens_requests: Vec<TokenActivationRequest<Erc20TokenActivationRequest>>,
+    #[serde(default = "true_f")]
+    pub get_balances: bool,
 }
 
 impl TxHistory for EthWithTokensActivationRequest {
@@ -198,7 +201,10 @@ impl PlatformWithTokensActivationOps for EthCoin {
         })]
     }
 
-    async fn get_activation_result(&self) -> Result<EthWithTokensActivationResult, MmError<EthActivationV2Error>> {
+    async fn get_activation_result(
+        &self,
+        activation_request: &Self::ActivationRequest,
+    ) -> Result<EthWithTokensActivationResult, MmError<EthActivationV2Error>> {
         let my_address = self.my_address()?;
         let pubkey = self.get_public_key()?;
 
@@ -208,37 +214,39 @@ impl PlatformWithTokensActivationOps for EthCoin {
             .await
             .map_err(EthActivationV2Error::InternalError)?;
 
-        let eth_balance = self
-            .my_balance()
-            .compat()
-            .await
-            .map_err(|e| EthActivationV2Error::CouldNotFetchBalance(e.to_string()))?;
-        let token_balances = self
-            .get_tokens_balance_list()
-            .await
-            .map_err(|e| EthActivationV2Error::CouldNotFetchBalance(e.to_string()))?;
-
         let mut result = EthWithTokensActivationResult {
             current_block,
             eth_addresses_infos: HashMap::new(),
             erc20_addresses_infos: HashMap::new(),
         };
 
-        result
-            .eth_addresses_infos
-            .insert(my_address.to_string(), CoinAddressInfo {
-                derivation_method: DerivationMethod::Iguana,
-                pubkey: pubkey.clone(),
-                balances: eth_balance,
-            });
+        if activation_request.get_balances {
+            let eth_balance = self
+                .my_balance()
+                .compat()
+                .await
+                .map_err(|e| EthActivationV2Error::CouldNotFetchBalance(e.to_string()))?;
+            let token_balances = self
+                .get_tokens_balance_list()
+                .await
+                .map_err(|e| EthActivationV2Error::CouldNotFetchBalance(e.to_string()))?;
 
-        result
-            .erc20_addresses_infos
-            .insert(my_address.to_string(), CoinAddressInfo {
-                derivation_method: DerivationMethod::Iguana,
-                pubkey,
-                balances: token_balances,
-            });
+            result
+                .eth_addresses_infos
+                .insert(my_address.to_string(), CoinAddressInfo {
+                    derivation_method: DerivationMethod::Iguana,
+                    pubkey: pubkey.clone(),
+                    balances: eth_balance,
+                });
+
+            result
+                .erc20_addresses_infos
+                .insert(my_address.to_string(), CoinAddressInfo {
+                    derivation_method: DerivationMethod::Iguana,
+                    pubkey,
+                    balances: token_balances,
+                });
+        }
 
         Ok(result)
     }

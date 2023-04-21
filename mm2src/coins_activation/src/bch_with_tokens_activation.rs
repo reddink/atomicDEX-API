@@ -11,6 +11,7 @@ use coins::utxo::UtxoCommonOps;
 use coins::{CoinBalance, CoinProtocol, MarketCoinOps, MmCoin, PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed,
             UnexpectedDerivationMethod};
 use common::executor::{AbortSettings, SpawnAbortable};
+use common::true_f;
 use common::Future01CompatExt;
 use crypto::CryptoCtxError;
 use mm2_core::mm_ctx::MmArc;
@@ -119,6 +120,8 @@ pub struct BchWithTokensActivationRequest {
     #[serde(flatten)]
     platform_request: BchActivationRequest,
     slp_tokens_requests: Vec<TokenActivationRequest<SlpActivationRequest>>,
+    #[serde(default = "true_f")]
+    pub get_balances: bool,
 }
 
 impl TxHistory for BchWithTokensActivationRequest {
@@ -244,6 +247,7 @@ impl PlatformWithTokensActivationOps for BchCoin {
 
     async fn get_activation_result(
         &self,
+        activation_request: &Self::ActivationRequest,
     ) -> Result<BchWithTokensActivationResult, MmError<BchWithTokensActivationError>> {
         let my_address = self.as_ref().derivation_method.single_addr_or_err()?;
         let my_slp_address = self
@@ -254,34 +258,37 @@ impl PlatformWithTokensActivationOps for BchCoin {
 
         let current_block = self.as_ref().rpc_client.get_block_count().compat().await?;
 
-        let bch_unspents = self.bch_unspents_for_display(my_address).await?;
-        let bch_balance = bch_unspents.platform_balance(self.decimals());
-
-        let mut token_balances = HashMap::new();
-        for (token_ticker, info) in self.get_slp_tokens_infos().iter() {
-            let token_balance = bch_unspents.slp_token_balance(&info.token_id, info.decimals);
-            token_balances.insert(token_ticker.clone(), token_balance);
-        }
-
         let mut result = BchWithTokensActivationResult {
             current_block,
             bch_addresses_infos: HashMap::new(),
             slp_addresses_infos: HashMap::new(),
         };
 
-        result
-            .bch_addresses_infos
-            .insert(my_address.to_string(), CoinAddressInfo {
+        if activation_request.get_balances {
+            let bch_unspents = self.bch_unspents_for_display(my_address).await?;
+            let bch_balance = bch_unspents.platform_balance(self.decimals());
+
+            let mut token_balances = HashMap::new();
+            for (token_ticker, info) in self.get_slp_tokens_infos().iter() {
+                let token_balance = bch_unspents.slp_token_balance(&info.token_id, info.decimals);
+                token_balances.insert(token_ticker.clone(), token_balance);
+            }
+
+            result
+                .bch_addresses_infos
+                .insert(my_address.to_string(), CoinAddressInfo {
+                    derivation_method: DerivationMethod::Iguana,
+                    pubkey: self.my_public_key()?.to_string(),
+                    balances: bch_balance,
+                });
+
+            result.slp_addresses_infos.insert(my_slp_address, CoinAddressInfo {
                 derivation_method: DerivationMethod::Iguana,
                 pubkey: self.my_public_key()?.to_string(),
-                balances: bch_balance,
+                balances: token_balances,
             });
+        }
 
-        result.slp_addresses_infos.insert(my_slp_address, CoinAddressInfo {
-            derivation_method: DerivationMethod::Iguana,
-            pubkey: self.my_public_key()?.to_string(),
-            balances: token_balances,
-        });
         Ok(result)
     }
 

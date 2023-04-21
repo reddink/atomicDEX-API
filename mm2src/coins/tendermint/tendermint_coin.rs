@@ -49,6 +49,7 @@ use cosmrs::tx::{self, Fee, Msg, Raw, SignDoc, SignerInfo};
 use cosmrs::{AccountId, Any, Coin, Denom, ErrorReport};
 use crypto::{privkey::key_pair_from_secret, Secp256k1Secret, StandardHDPathToCoin};
 use derive_more::Display;
+use futures::future::try_join_all;
 use futures::lock::Mutex as AsyncMutex;
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future;
@@ -422,17 +423,24 @@ impl TendermintCommons for TendermintCoin {
         let platform_balance = big_decimal_from_sat_unsigned(platform_balance_denom, self.decimals);
         let ibc_assets_info = self.tokens_info.lock().clone();
 
-        let mut result = AllBalancesResult {
-            platform_balance,
-            tokens_balances: HashMap::new(),
-        };
+        let mut requests = Vec::new();
         for (ticker, info) in ibc_assets_info {
-            let balance_denom = self.balance_for_denom(info.denom.to_string()).await?;
-            let balance_decimal = big_decimal_from_sat_unsigned(balance_denom, info.decimals);
-            result.tokens_balances.insert(ticker, balance_decimal);
+            let fut = async move {
+                let balance_denom = self
+                    .balance_for_denom(info.denom.to_string())
+                    .await
+                    .map_err(|e| e.into_inner())?;
+                let balance_decimal = big_decimal_from_sat_unsigned(balance_denom, info.decimals);
+                Ok::<_, TendermintCoinRpcError>((ticker.clone(), balance_decimal))
+            };
+            requests.push(fut);
         }
+        let tokens_balances = try_join_all(requests).await?.into_iter().collect();
 
-        Ok(result)
+        Ok(AllBalancesResult {
+            platform_balance,
+            tokens_balances,
+        })
     }
 
     #[inline(always)]

@@ -12,8 +12,10 @@ use coins::solana::solana_coin_with_policy;
 use coins::solana::spl::{SplProtocolConf, SplTokenCreationError};
 use coins::{BalanceError, CoinBalance, CoinProtocol, MarketCoinOps, PrivKeyBuildPolicy, SolanaActivationParams,
             SolanaCoin, SplToken};
+use common::true_f;
 use common::Future01CompatExt;
 use crypto::CryptoCtxError;
+use futures::future::try_join_all;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_number::BigDecimal;
@@ -79,6 +81,8 @@ pub struct SolanaWithTokensActivationRequest {
     #[serde(flatten)]
     platform_request: SolanaActivationParams,
     spl_tokens_requests: Vec<TokenActivationRequest<SplActivationRequest>>,
+    #[serde(default = "true_f")]
+    pub get_balances: bool,
 }
 
 impl TxHistory for SolanaWithTokensActivationRequest {
@@ -205,42 +209,53 @@ impl PlatformWithTokensActivationOps for SolanaCoin {
         })]
     }
 
-    async fn get_activation_result(&self) -> Result<Self::ActivationResult, MmError<Self::ActivationError>> {
+    async fn get_activation_result(
+        &self,
+        activation_request: &Self::ActivationRequest,
+    ) -> Result<Self::ActivationResult, MmError<Self::ActivationError>> {
         let my_address = self.my_address()?;
+
         let current_block = self
             .current_block()
             .compat()
             .await
             .map_to_mm(Self::ActivationError::Internal)?;
-        let solana_balance = self
-            .my_balance()
-            .compat()
-            .await
-            .map_err(|e| Self::ActivationError::GetBalanceError(e.into_inner()))?;
-        let mut token_balances = HashMap::new();
-        let token_infos = self.get_spl_tokens_infos();
-        for (token_ticker, info) in token_infos.into_iter() {
-            let balance = self.my_balance_spl(&info.clone()).await?;
-            token_balances.insert(token_ticker.to_owned(), balance);
-        }
+
         let mut result = SolanaWithTokensActivationResult {
             current_block,
             solana_addresses_infos: HashMap::new(),
             spl_addresses_infos: HashMap::new(),
         };
-        result
-            .solana_addresses_infos
-            .insert(my_address.clone(), CoinAddressInfo {
-                derivation_method: DerivationMethod::Iguana,
-                pubkey: my_address.clone(),
-                balances: solana_balance,
-            });
 
-        result.spl_addresses_infos.insert(my_address.clone(), CoinAddressInfo {
-            derivation_method: DerivationMethod::Iguana,
-            pubkey: my_address,
-            balances: token_balances,
-        });
+        if activation_request.get_balances {
+            let solana_balance = self
+                .my_balance()
+                .compat()
+                .await
+                .map_err(|e| Self::ActivationError::GetBalanceError(e.into_inner()))?;
+
+            let (token_tickers, requests): (Vec<_>, Vec<_>) = self
+                .get_spl_tokens_infos()
+                .into_iter()
+                .map(|(ticker, info)| (ticker, self.my_balance_spl(info)))
+                .unzip();
+            let token_balances = token_tickers.into_iter().zip(try_join_all(requests).await?).collect();
+
+            result
+                .solana_addresses_infos
+                .insert(my_address.clone(), CoinAddressInfo {
+                    derivation_method: DerivationMethod::Iguana,
+                    pubkey: my_address.clone(),
+                    balances: solana_balance,
+                });
+
+            result.spl_addresses_infos.insert(my_address.clone(), CoinAddressInfo {
+                derivation_method: DerivationMethod::Iguana,
+                pubkey: my_address,
+                balances: token_balances,
+            });
+        }
+
         Ok(result)
     }
 
