@@ -430,6 +430,12 @@ pub enum TxType {
     PosvWithNTime,
 }
 
+impl TxType {
+    fn uses_witness(&self) -> bool {
+        matches!(self, TxType::StandardWithWitness | TxType::PosvWithNTime)
+    }
+}
+
 pub fn deserialize_tx<T>(reader: &mut Reader<T>, tx_type: TxType) -> Result<Transaction, Error>
 where
     T: io::Read,
@@ -443,13 +449,13 @@ where
         version_group_id = reader.read()?;
     }
 
-    let n_time = if tx_type == TxType::PosWithNTime {
+    let mut n_time = if tx_type == TxType::PosWithNTime {
         Some(reader.read()?)
     } else {
         None
     };
     let mut inputs: Vec<TransactionInput> = reader.read_list_max(MAX_LIST_SIZE)?;
-    let read_witness = if inputs.is_empty() && !overwintered && tx_type == TxType::StandardWithWitness {
+    let read_witness = if inputs.is_empty() && !overwintered && tx_type.uses_witness() {
         let witness_flag: u8 = reader.read()?;
         if witness_flag != WITNESS_FLAG {
             return Err(Error::MalformedData);
@@ -461,7 +467,7 @@ where
         false
     };
     let outputs = reader.read_list_max(MAX_LIST_SIZE)?;
-    if outputs.is_empty() && tx_type == TxType::StandardWithWitness {
+    if outputs.is_empty() && tx_type.uses_witness() {
         return Err(Error::Custom("Transaction has no output".into()));
     }
     if read_witness {
@@ -471,6 +477,14 @@ where
     }
 
     let lock_time = reader.read()?;
+
+    let mut posv = false;
+    n_time = if tx_type == TxType::PosvWithNTime {
+        posv = true;
+        Some(reader.read()?)
+    } else {
+        n_time
+    };
 
     let mut expiry_height = 0;
     let mut value_balance = 0;
@@ -521,89 +535,6 @@ where
         None
     };
 
-    let posv = false;
-
-    Ok(Transaction {
-        version,
-        n_time,
-        overwintered,
-        version_group_id,
-        expiry_height,
-        value_balance,
-        inputs,
-        outputs,
-        lock_time,
-        binding_sig,
-        join_split_pubkey,
-        join_split_sig,
-        join_splits,
-        shielded_spends,
-        shielded_outputs,
-        zcash,
-        posv,
-        str_d_zeel,
-        tx_hash_algo: TxHashAlgo::DSHA256,
-    })
-}
-
-pub fn deserialize_tx_posv<T>(reader: &mut Reader<T>, tx_type: TxType) -> Result<Transaction, Error>
-where
-    T: io::Read,
-{
-    let version = reader.read()?;
-
-    let mut inputs: Vec<TransactionInput> = reader.read_list_max(MAX_LIST_SIZE)?;
-    let read_witness = if inputs.is_empty() && tx_type == TxType::PosvWithNTime {
-        let witness_flag: u8 = reader.read()?;
-        if witness_flag != WITNESS_FLAG {
-            return Err(Error::MalformedData);
-        }
-
-        inputs = reader.read_list_max(MAX_LIST_SIZE)?;
-        true
-    } else {
-        false
-    };
-    let outputs = reader.read_list_max(MAX_LIST_SIZE)?;
-    if outputs.is_empty() && tx_type == TxType::PosvWithNTime {
-        return Err(Error::Custom("Transaction has no output".into()));
-    }
-    if read_witness {
-        for input in inputs.iter_mut() {
-            input.script_witness = reader.read_list_max(MAX_LIST_SIZE)?;
-        }
-    }
-
-    let lock_time = reader.read()?;
-
-    let mut posv = false;
-    if tx_type == TxType::PosvWithNTime && reader.is_finished() {
-        return Err(Error::MalformedData);
-    }
-
-    let n_time = if tx_type == TxType::PosvWithNTime && !reader.is_finished() {
-        posv = true;
-        Some(reader.read()?)
-    } else {
-        None
-    };
-
-    let overwintered: bool = false;
-    let version_group_id = 0;
-
-    let expiry_height = 0;
-    let value_balance = 0;
-    let shielded_spends = vec![];
-    let shielded_outputs = vec![];
-
-    let join_splits = vec![];
-    let join_split_pubkey = H256::default();
-    let join_split_sig = H512::default();
-    let binding_sig = H512::default();
-
-    let zcash = false;
-    let str_d_zeel = None;
-
     Ok(Transaction {
         version,
         n_time,
@@ -639,7 +570,7 @@ impl Deserializable for Transaction {
         // specific use case
         let mut buffer = vec![];
         reader.read_to_end(&mut buffer)?;
-        if let Ok(t) = deserialize_tx_posv(&mut Reader::from_read(buffer.as_slice()), TxType::PosvWithNTime) {
+        if let Ok(t) = deserialize_tx(&mut Reader::from_read(buffer.as_slice()), TxType::PosvWithNTime) {
             return Ok(t);
         }
         if let Ok(t) = deserialize_tx(&mut Reader::from_read(buffer.as_slice()), TxType::StandardWithWitness) {
@@ -1144,7 +1075,7 @@ mod tests {
         assert_eq!(t.inputs.len(), 1);
         assert_eq!(t.outputs.len(), 3);
         assert_eq!(t.n_time, Some(1681705951));
-        assert_eq!(t.posv, true);
+        assert!(t.posv);
 
         let serialized = serialize(&t);
         assert_eq!(Bytes::from(raw), serialized);
@@ -1160,7 +1091,7 @@ mod tests {
         assert_eq!(t.inputs.len(), 1);
         assert_eq!(t.outputs.len(), 2);
         assert_eq!(t.n_time, Some(1666078763));
-        assert_eq!(t.posv, true);
+        assert!(t.posv);
 
         let serialized = serialize(&t);
         assert_eq!(Bytes::from(raw), serialized);

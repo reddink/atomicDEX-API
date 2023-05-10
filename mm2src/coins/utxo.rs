@@ -777,7 +777,7 @@ impl UtxoCoinFields {
             None
         };
 
-        let n_time = if self.conf.is_pos {
+        let n_time = if self.conf.is_pos || self.conf.is_posv{
             Some((now_ms() / 1000) as u32)
         } else {
             None

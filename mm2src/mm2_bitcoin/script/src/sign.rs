@@ -687,13 +687,6 @@ mod tests {
         let value = 100000000;
         let expected_signature_hash: H256 = "21d91397ba4e4bfaf73584300804cf9f9fd11cabe43f1bb38f7986cea5ef5519".into();
 
-        // this is irrelevant
-        // let mut hash = H160::default();
-        // if let AddressHashEnum::AddressHash(h) = to.hash {
-        //     hash = h;
-        // }
-        // assert_eq!(&current_output[3..23], &*hash);
-
         let unsigned_input = UnsignedTransactionInput {
             sequence: 0xffff_ffff,
             previous_output: OutPoint {
