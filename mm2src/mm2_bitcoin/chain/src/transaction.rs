@@ -431,9 +431,7 @@ pub enum TxType {
 }
 
 impl TxType {
-    fn uses_witness(&self) -> bool {
-        matches!(self, TxType::StandardWithWitness | TxType::PosvWithNTime)
-    }
+    fn uses_witness(&self) -> bool { matches!(self, TxType::StandardWithWitness | TxType::PosvWithNTime) }
 }
 
 pub fn deserialize_tx<T>(reader: &mut Reader<T>, tx_type: TxType) -> Result<Transaction, Error>
